@@ -1,0 +1,21 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: yayo-travel:latest
+    container_name: yayo-travel
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # All mutable state. Back this up and you have everything.
+      - ../var:/data
+    ports:
+      # Bound to loopback only — Caddy on the host is the sole public entrypoint.
+      - "127.0.0.1:8081:8000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

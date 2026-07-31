@@ -1,0 +1,17 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlmodel==0.0.22
+alembic==1.14.0
+pydantic-settings==2.7.1
+python-multipart==0.0.20
+
+# Stage 3 — passkeys
+webauthn==2.5.0
+
+# Stage 8 — Gmail + extraction
+imap-tools==1.7.4
+anthropic==0.42.0
+APScheduler==3.11.0
+
+# Stage 9 — calendar feed
+ics==0.7.2

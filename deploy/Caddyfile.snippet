@@ -1,0 +1,22 @@
+# Add to the server's Caddyfile, then `caddy reload`.
+# Caddy provisions the Let's Encrypt certificate automatically on first request,
+# so the DNS A record for travel.foryayo.com must resolve before this works.
+
+travel.foryayo.com {
+	encode zstd gzip
+
+	# Hashed URLs from the Vite build are safe to cache hard.
+	@static path /assets/*
+	header @static Cache-Control "public, max-age=31536000, immutable"
+
+	# The API must never be cached — trip state changes constantly.
+	@api path /api/*
+	header @api Cache-Control "no-store"
+
+	reverse_proxy 127.0.0.1:8081
+
+	log {
+		output file /var/log/caddy/travel.foryayo.com.log
+		format json
+	}
+}

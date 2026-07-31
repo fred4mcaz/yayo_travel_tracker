@@ -1,2 +1,16 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Anything the Linux server executes must be LF regardless of checkout platform.
+# A CRLF shell script fails on Linux with a misleading "not found" error.
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.Dockerfile    text eol=lf
+Caddyfile*      text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+.env.example    text eol=lf
+
+# Bundled geo data is large and pre-minified; never diff or normalize it.
+data/geo/*.geojson  binary
+data/geo/*.json     binary

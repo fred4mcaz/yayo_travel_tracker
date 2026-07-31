@@ -1,0 +1,29 @@
+# Secrets — never commit. See deploy/.env.example for the template.
+.env
+deploy/.env
+*.pem
+*.key
+
+# Runtime state: SQLite database, backups, stored email/documents.
+# Committed static assets live in data/ ; anything mutable lives in var/.
+var/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node / frontend build output
+node_modules/
+frontend/dist/
+*.local
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,112 @@
+/* Design tokens. Stage 4 builds the real UI on these; stage 1 just proves the
+   deploy path works end to end. Dark mode follows the device, since this is
+   used on a phone at odd hours as much as on a desktop. */
+:root {
+  --bg: #faf9f7;
+  --surface: #ffffff;
+  --surface-alt: #f2f0ec;
+  --border: rgba(0, 0, 0, 0.1);
+  --text: #1f1e1c;
+  --text-muted: #6b6963;
+
+  --ongoing: #0f6e56;
+  --ongoing-bg: #e1f5ee;
+  --upcoming: #185fa5;
+  --upcoming-bg: #e6f1fb;
+  --past: #5f5e5a;
+  --warn: #854f0b;
+  --warn-bg: #faeeda;
+  --danger: #a32d2d;
+  --danger-bg: #fcebeb;
+
+  --radius: 8px;
+  --radius-card: 12px;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16150f;
+    --surface: #201f19;
+    --surface-alt: #2a2822;
+    --border: rgba(255, 255, 255, 0.12);
+    --text: #f2f0ea;
+    --text-muted: #a3a099;
+
+    --ongoing: #5dcaa5;
+    --ongoing-bg: #04342c;
+    --upcoming: #85b7eb;
+    --upcoming-bg: #042c53;
+    --past: #b4b2a9;
+    --warn: #fac775;
+    --warn-bg: #412402;
+    --danger: #f09595;
+    --danger-bg: #501313;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  /* Keep content clear of the iOS home indicator and notch. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+.boot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100%;
+  text-align: center;
+  padding: 24px;
+}
+
+.boot h1 {
+  font-size: 20px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.boot p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.pill {
+  font-size: 13px;
+  padding: 4px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-alt);
+  color: var(--text-muted);
+}
+
+.pill[data-state="ok"] {
+  background: var(--ongoing-bg);
+  color: var(--ongoing);
+}
+
+.pill[data-state="error"] {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
