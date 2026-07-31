@@ -34,7 +34,7 @@ def test_only_one_default_passport(client):
 
 def test_deleting_passport_keeps_the_entry_history(client):
     """The trip record is the valuable part; the document is an attribute."""
-    trip = client.post("/api/trips", json={"title": "Japan"}).json()
+    trip = client.post("/api/trips", json={}).json()
     client.post(
         f"/api/trips/{trip['id']}/stays",
         json={
@@ -46,7 +46,7 @@ def test_deleting_passport_keeps_the_entry_history(client):
     )
     p = client.post("/api/passports", json={"nationality": "US"}).json()
     detail = client.get(f"/api/trips/{trip['id']}").json()
-    entry_id = detail["entries"][0]["id"]
+    entry_id = detail["country"]["entry"]["id"]
     client.patch(
         f"/api/trips/{trip['id']}/entries/{entry_id}", json={"passport_id": p["id"]}
     )
@@ -54,15 +54,14 @@ def test_deleting_passport_keeps_the_entry_history(client):
     assert client.delete(f"/api/passports/{p['id']}").status_code == 204
 
     detail = client.get(f"/api/trips/{trip['id']}").json()
-    assert len(detail["entries"]) == 1
-    assert detail["entries"][0]["passport_id"] is None
-    assert detail["entries"][0]["country_code"] == "JP"
+    assert detail["country"]["passport_id"] is None
+    assert detail["country"]["country_code"] == "JP"
 
 
 def test_country_history_across_trips(client):
     p = client.post("/api/passports", json={"nationality": "US"}).json()
     for n in (60, 20):
-        trip = client.post("/api/trips", json={"title": f"JP {n}"}).json()
+        trip = client.post("/api/trips", json={}).json()
         client.post(
             f"/api/trips/{trip['id']}/stays",
             json={
@@ -74,7 +73,7 @@ def test_country_history_across_trips(client):
         )
         detail = client.get(f"/api/trips/{trip['id']}").json()
         client.patch(
-            f"/api/trips/{trip['id']}/entries/{detail['entries'][0]['id']}",
+            f"/api/trips/{trip['id']}/entries/{detail['country']['entry']['id']}",
             json={"passport_id": p["id"]},
         )
 
@@ -122,7 +121,7 @@ def test_note_search_and_date_filter(client):
 
 
 def test_note_survives_trip_deletion(client):
-    trip = client.post("/api/trips", json={"title": "Japan"}).json()
+    trip = client.post("/api/trips", json={}).json()
     client.post(
         "/api/notes",
         json={

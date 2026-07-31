@@ -69,7 +69,7 @@ def test_normalise():
 
 
 def test_creating_a_stay_derives_its_pin(client):
-    trip = client.post("/api/trips", json={"title": "Vietnam"}).json()
+    trip = client.post("/api/trips", json={}).json()
     detail = client.post(
         f"/api/trips/{trip['id']}/stays",
         json={
@@ -79,13 +79,13 @@ def test_creating_a_stay_derives_its_pin(client):
             "check_out": str(TODAY + timedelta(days=3)),
         },
     ).json()
-    stay = detail["stays"][0]
+    stay = detail["country"]["stays"][0]
     assert stay["lat"] is not None and stay["lon"] is not None
     assert abs(stay["lat"] - 21.0) < 0.6
 
 
 def test_moving_a_stay_moves_its_pin(client):
-    trip = client.post("/api/trips", json={"title": "Asia"}).json()
+    trip = client.post("/api/trips", json={}).json()
     detail = client.post(
         f"/api/trips/{trip['id']}/stays",
         json={
@@ -95,20 +95,20 @@ def test_moving_a_stay_moves_its_pin(client):
             "check_out": str(TODAY + timedelta(days=3)),
         },
     ).json()
-    stay_id = detail["stays"][0]["id"]
-    original = detail["stays"][0]["lat"]
+    stay_id = detail["country"]["stays"][0]["id"]
+    original = detail["country"]["stays"][0]["lat"]
 
     detail = client.patch(
         f"/api/trips/{trip['id']}/stays/{stay_id}",
         json={"country_code": "TH", "city": "Bangkok"},
     ).json()
-    moved = detail["stays"][0]
+    moved = detail["country"]["stays"][0]
     assert moved["lat"] != original
     assert abs(moved["lat"] - 13.7) < 0.6
 
 
 def test_editing_an_unrelated_field_keeps_the_pin(client):
-    trip = client.post("/api/trips", json={"title": "Vietnam"}).json()
+    trip = client.post("/api/trips", json={}).json()
     detail = client.post(
         f"/api/trips/{trip['id']}/stays",
         json={
@@ -118,13 +118,13 @@ def test_editing_an_unrelated_field_keeps_the_pin(client):
             "check_out": str(TODAY + timedelta(days=3)),
         },
     ).json()
-    stay_id = detail["stays"][0]["id"]
-    before = detail["stays"][0]["lat"]
+    stay_id = detail["country"]["stays"][0]["id"]
+    before = detail["country"]["stays"][0]["lat"]
 
     detail = client.patch(
         f"/api/trips/{trip['id']}/stays/{stay_id}", json={"hotel_name": "Sofitel"}
     ).json()
-    assert detail["stays"][0]["lat"] == before
+    assert detail["country"]["stays"][0]["lat"] == before
 
 
 def test_explicit_coordinates_are_never_overwritten(client):
@@ -142,7 +142,7 @@ def test_explicit_coordinates_are_never_overwritten(client):
 
 
 def test_unknown_city_leaves_stay_unpinned(client):
-    trip = client.post("/api/trips", json={"title": "Somewhere"}).json()
+    trip = client.post("/api/trips", json={}).json()
     detail = client.post(
         f"/api/trips/{trip['id']}/stays",
         json={
@@ -153,7 +153,7 @@ def test_unknown_city_leaves_stay_unpinned(client):
         },
     ).json()
     # Not an error: the stay is still valid, it just has no pin.
-    assert detail["stays"][0]["lat"] is None
+    assert detail["country"]["stays"][0]["lat"] is None
 
 
 # --- autocomplete ---------------------------------------------------------

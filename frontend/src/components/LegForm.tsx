@@ -1,11 +1,10 @@
 import { Field, Row, Select, Text, TextArea } from "./Fields";
-import type { Leg, LegDirection, TravelMode } from "../types";
+import type { Leg, TravelMode } from "../types";
 
 /** Cost and currency remain columns for the Gmail extractor to fill, but are
  *  not worth typing by hand, so they are absent from this form. */
 export interface LegDraft {
   mode: TravelMode;
-  direction: LegDirection;
   country_code: string;
   carrier: string;
   number: string;
@@ -20,12 +19,10 @@ export interface LegDraft {
   notes: string;
 }
 
-/** Always inbound. This form records how you got to the destination; a trip is
- *  one international journey, and movement within it is not tracked as legs. */
+/** How you got to the country. Return travel is not tracked. */
 export function emptyLeg(): LegDraft {
   return {
     mode: "flight",
-    direction: "inbound",
     country_code: "",
     carrier: "",
     number: "",
@@ -47,7 +44,6 @@ const trim = (v: string | null) => (v ? v.slice(0, 16) : "");
 export function legToDraft(leg: Leg): LegDraft {
   return {
     mode: leg.mode,
-    direction: leg.direction,
     country_code: leg.country_code,
     carrier: leg.carrier,
     number: leg.number,

@@ -100,7 +100,7 @@ export const api = {
   trips: {
     list: () => get<TripSummary[]>("/api/trips"),
     get: (id: number) => get<TripDetail>(`/api/trips/${id}`),
-    create: (body: { title?: string; notes?: string } = {}) =>
+    create: (body: { notes?: string } = {}) =>
       post<TripDetail>("/api/trips", body),
     update: (id: number, body: Record<string, unknown>) =>
       patch<TripDetail>(`/api/trips/${id}`, body),
@@ -175,7 +175,7 @@ export interface CountryEntryHistory {
   country_code: string;
   entered_on: string;
   port_of_entry: string;
-  trip_title: string | null;
+  trip_label: string | null;
   passport_nationality: string | null;
 }
 

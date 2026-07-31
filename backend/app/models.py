@@ -8,10 +8,11 @@ tracker whose job is "what time do I need to be at the airport" should show the
 number on the ticket, and converting through UTC only creates opportunities to
 be an hour wrong. The IATA code records where that wall-clock reading belongs.
 
-**A trip is one continuous journey.** It owns an ordered set of stays (where you
-slept) and legs (how you moved). Gap detection is only possible because both
-live under the same parent: a stay in Hanoi with no leg arriving in Hanoi is a
-detectable hole.
+**A trip is one international stay in one country.** It owns the journey that
+got you there, the passport you entered on, and every hotel you sleep in while
+there. Because all three hang off the same parent, a stretch of days inside the
+country with no hotel booked is a detectable hole -- which is the question the
+app exists to answer.
 """
 
 from datetime import date, datetime, timezone
@@ -37,14 +38,6 @@ class TravelMode(str, Enum):
     bus = "bus"
     ferry = "ferry"
     car = "car"
-
-
-class LegDirection(str, Enum):
-    """Relative to the trip, not to any one country."""
-
-    inbound = "inbound"
-    internal = "internal"
-    outbound = "outbound"
 
 
 class RequirementKind(str, Enum):
@@ -109,12 +102,7 @@ class Trip(SQLModel, table=True):
     __tablename__ = "trip"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    # Usually empty. A trip is identified by where it goes, derived on read by
-    # services.trips.trip_label(); this only holds a name somebody set by hand
-    # or that arrived with imported data.
-    title: str = ""
     notes: str = ""
-    archived: bool = Field(default=False, index=True)
 
     # Denormalised from the segments so the calendar and list views can sort and
     # range-query without loading every child row. Recomputed by
@@ -183,13 +171,9 @@ class Leg(SQLModel, table=True):
     trip_id: int = Field(foreign_key="trip.id", index=True, ondelete="CASCADE")
 
     mode: TravelMode = Field(default=TravelMode.flight)
-    # Defaults to inbound: only international arrivals are recorded. Other
-    # directions remain valid for imported data.
-    direction: LegDirection = Field(default=LegDirection.inbound)
 
-    # Which country this journey delivered you into. Set explicitly rather than
-    # inferred from an airport code, so "how did I get into Thailand" is a fact
-    # rather than a guess.
+    # Which country this journey delivered you into. Return travel is not
+    # tracked, so every leg is an arrival and there is nothing to disambiguate.
     country_code: str = Field(default="", index=True)
 
     carrier: str = ""

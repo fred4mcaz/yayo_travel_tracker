@@ -72,13 +72,14 @@ export function TripList({ trips, selectedId, onSelect, onCreated }: Props) {
                 onClick={() => onSelect(trip.id)}
               >
                 <div className="trip-card-title">
-                  {trip.countries.map((c) => (
-                    <span className="flag" key={c}>
-                      {countryFlag(c)}
-                    </span>
-                  ))}
+                  {trip.country_code && (
+                    <span className="flag">{countryFlag(trip.country_code)}</span>
+                  )}
                   <strong>{trip.label}</strong>
                 </div>
+                {trip.country_name && (
+                  <div className="trip-card-meta">{trip.country_name}</div>
+                )}
                 <div className="trip-card-meta">
                   {trip.start_date
                     ? formatRange(trip.start_date, trip.end_date)

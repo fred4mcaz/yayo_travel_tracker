@@ -1,7 +1,6 @@
 export type TripStatus = "past" | "ongoing" | "future" | "undated";
 
 export type TravelMode = "flight" | "train" | "bus" | "ferry" | "car";
-export type LegDirection = "inbound" | "internal" | "outbound";
 
 export type RequirementKind =
   | "entry_card"
@@ -54,7 +53,6 @@ export interface Leg {
   id: number;
   trip_id: number;
   mode: TravelMode;
-  direction: LegDirection;
   /** Which country this journey delivered you into. */
   country_code: string;
   carrier: string;
@@ -116,18 +114,17 @@ export interface Note {
 
 export interface TripSummary {
   id: number;
-  /** What to show. Derived from the stays unless a title was set by hand. */
+  /** Always derived from the hotels; trips are never named by hand. */
   label: string;
-  title: string;
   notes: string;
-  archived: boolean;
   start_date: string | null;
   end_date: string | null;
   status: TripStatus;
-  countries: string[];
+  country_code: string;
+  country_name: string;
   cities: string[];
   nights: number;
-  /** Total nights inside this journey with no hotel booked. */
+  /** Nights inside this stay with no hotel booked. */
   unbooked_nights: number;
 }
 
@@ -139,12 +136,15 @@ export interface UnbookedStretch {
   nights: number;
 }
 
-export interface CountrySegment {
+export interface TripCountry {
   country_code: string;
   country_name: string;
   entry: CountryEntry | null;
   passport_id: number | null;
   entered_on: string | null;
+  /** When you leave the country. Optional, but without it the stay can only
+   *  end at the last checkout, hiding an unbooked tail. */
+  leaving_on: string | null;
   starts_on: string | null;
   ends_on: string | null;
   nights: number;
@@ -155,12 +155,9 @@ export interface CountrySegment {
 }
 
 export interface TripDetail extends TripSummary {
-  stays: Stay[];
-  legs: Leg[];
+  /** The country this trip is a stay in. Null until something is recorded. */
+  country: TripCountry | null;
   requirements: Requirement[];
-  entries: CountryEntry[];
-  countries_visited: { code: string; name: string }[];
-  country_segments: CountrySegment[];
   /** Note records. The trip's own memo text is `notes`, inherited above. */
   notes_list: Note[];
 }

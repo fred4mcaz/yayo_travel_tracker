@@ -93,7 +93,7 @@ export function App() {
 
   // Every country already on record, so the picker offers them first.
   const recentCountries = Array.from(
-    new Set(trips.flatMap((t) => t.countries)),
+    new Set(trips.map((t) => t.country_code).filter(Boolean)),
   );
 
   const detailPanel = selected ? (

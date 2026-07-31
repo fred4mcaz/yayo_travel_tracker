@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Field, TextArea } from "../components/Fields";
 import { LegForm, emptyLeg, legDraftToPayload, legToDraft } from "../components/LegForm";
 import type { LegDraft } from "../components/LegForm";
+import { DateField } from "../components/DateField";
 import { Sheet } from "../components/Sheet";
 import {
   StayForm,
@@ -22,7 +23,7 @@ import {
   relativeDays,
 } from "../lib/format";
 import type {
-  CountrySegment,
+  TripCountry,
   Leg,
   Passport,
   Stay,
@@ -82,7 +83,7 @@ export function TripDetailPanel({
     }
   }
 
-  const segments = trip.country_segments ?? [];
+  const country = trip.country;
 
   return (
     <div className="detail">
@@ -116,23 +117,27 @@ export function TripDetailPanel({
       {error && <p className="alert alert-danger">{error}</p>}
       {trip.notes && <p className="trip-memo">{trip.notes}</p>}
 
-      {segments.length === 0 && (
-        <p className="empty">
-          No countries yet. Add the first one to start this journey.
-        </p>
+      {country === null && (
+        <p className="empty">Nothing recorded yet. Add your first hotel.</p>
       )}
 
-      {segments.map((segment) => (
+      {country && (
         <CountryBlock
-          key={segment.country_code}
-          segment={segment}
-          flat={segments.length === 1}
+          segment={country}
           passports={passports}
           busy={busy}
-          onSetPassport={(passportId) => {
-            if (!segment.entry) return;
+          onSetLeaving={(iso) => {
+            if (!country.entry) return;
             void run(() =>
-              api.trips.updateEntry(trip.id, segment.entry!.id, {
+              api.trips.updateEntry(trip.id, country.entry!.id, {
+                exited_on: iso || null,
+              }),
+            );
+          }}
+          onSetPassport={(passportId) => {
+            if (!country.entry) return;
+            void run(() =>
+              api.trips.updateEntry(trip.id, country.entry!.id, {
                 passport_id: passportId,
               }),
             );
@@ -143,9 +148,9 @@ export function TripDetailPanel({
               lockCountry: true,
               draft: {
                 ...emptyStay(
-                  segment.stays[segment.stays.length - 1]?.check_out ?? "",
+                  country.stays[country.stays.length - 1]?.check_out ?? "",
                 ),
-                country_code: segment.country_code,
+                country_code: country.country_code,
               },
             })
           }
@@ -157,7 +162,7 @@ export function TripDetailPanel({
               // Changing one hotel's country would split the trip across two
               // countries. Only the trip's sole hotel may still move, since
               // that is just correcting which country the trip is in.
-              lockCountry: trip.stays.length > 1,
+              lockCountry: (country?.stays.length ?? 0) > 1,
             })
           }
           onDeleteHotel={(stay) =>
@@ -166,8 +171,8 @@ export function TripDetailPanel({
           onAddTravel={() =>
             setEditing({
               kind: "leg",
-              country: segment.country_code,
-              draft: { ...emptyLeg(), country_code: segment.country_code },
+              country: country.country_code,
+              draft: { ...emptyLeg(), country_code: country.country_code },
             })
           }
           onEditTravel={(leg) =>
@@ -175,14 +180,14 @@ export function TripDetailPanel({
               kind: "leg",
               draft: legToDraft(leg),
               id: leg.id,
-              country: segment.country_code,
+              country: country.country_code,
             })
           }
           onDeleteTravel={(leg) =>
             void run(() => api.trips.removeLeg(trip.id, leg.id))
           }
         />
-      ))}
+      )}
 
       {trip.requirements.length > 0 && (
         <section>
@@ -371,10 +376,10 @@ export function TripDetailPanel({
 /** One country: passport at the top, then how you got in, then every hotel. */
 function CountryBlock({
   segment,
-  flat,
   passports,
   busy,
   onSetPassport,
+  onSetLeaving,
   onAddHotel,
   onEditHotel,
   onDeleteHotel,
@@ -382,12 +387,11 @@ function CountryBlock({
   onEditTravel,
   onDeleteTravel,
 }: {
-  segment: CountrySegment;
-  /** The trip visits only this country, so it needs no card of its own. */
-  flat: boolean;
+  segment: TripCountry;
   passports: Passport[];
   busy: boolean;
   onSetPassport: (id: number | null) => void;
+  onSetLeaving: (iso: string) => void;
   onAddHotel: () => void;
   onEditHotel: (stay: Stay) => void;
   onDeleteHotel: (stay: Stay) => void;
@@ -398,7 +402,7 @@ function CountryBlock({
   const noPassport = segment.passport_id === null;
 
   return (
-    <section className={flat ? "country-block flat" : "country-block"}>
+    <section className="country-block">
       <div className="country-head">
         <span className="flag flag-lg">{countryFlag(segment.country_code)}</span>
         <div className="country-title">
@@ -429,6 +433,18 @@ function CountryBlock({
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="leaving-row">
+        <label htmlFor={`leaving-${segment.country_code}`}>Leaving on</label>
+        <DateField
+          value={segment.leaving_on ?? ""}
+          min={segment.starts_on ?? undefined}
+          onChange={onSetLeaving}
+        />
+        {!segment.leaving_on && (
+          <small>Set this and any nights you have not booked will show up.</small>
+        )}
       </div>
 
       {segment.unbooked.length > 0 && (
@@ -474,7 +490,7 @@ function CountryBlock({
 
       <div className="country-actions">
         <button className="btn btn-sm" onClick={onAddHotel}>
-          {flat ? "+ Add hotel" : `+ Hotel in ${segment.country_name}`}
+          + Add hotel
         </button>
         {segment.legs.length === 0 && (
           <button className="btn btn-sm" onClick={onAddTravel}>

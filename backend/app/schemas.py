@@ -11,7 +11,6 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator
 
 from app.models import (
-    LegDirection,
     Nationality,
     NoteCategory,
     PermitType,
@@ -34,16 +33,13 @@ class TripStatus(str):
 
 
 class TripCreate(BaseModel):
-    # Optional: trips are normally identified by where they go, not by a name
-    # somebody had to invent before the trip had any content.
-    title: str = Field(default="", max_length=200)
+    # Nothing is required to start a trip: it is named by where it goes, which
+    # nobody knows until the first hotel is added.
     notes: str = ""
 
 
 class TripUpdate(BaseModel):
-    title: Optional[str] = Field(default=None, max_length=200)
     notes: Optional[str] = None
-    archived: Optional[bool] = None
 
 
 # --------------------------------------------------------------------------
@@ -109,7 +105,6 @@ class StayUpdate(BaseModel):
 
 class LegCreate(BaseModel):
     mode: TravelMode = TravelMode.flight
-    direction: LegDirection = LegDirection.inbound
     country_code: str = Field(default="", max_length=2)
     carrier: str = ""
     number: str = ""
@@ -133,7 +128,6 @@ class LegCreate(BaseModel):
 
 class LegUpdate(BaseModel):
     mode: Optional[TravelMode] = None
-    direction: Optional[LegDirection] = None
     country_code: Optional[str] = Field(default=None, max_length=2)
     carrier: Optional[str] = None
     number: Optional[str] = None
@@ -227,21 +221,6 @@ class PassportUpdate(BaseModel):
     _check_last4 = field_validator("number_last4")(_only_last4)
 
 
-class CountryEntryCreate(BaseModel):
-    country_code: str = Field(min_length=2, max_length=2)
-    passport_id: Optional[int] = None
-    entered_on: date
-    exited_on: Optional[date] = None
-    port_of_entry: str = ""
-    permit_type: Optional[PermitType] = None
-    permitted_days: Optional[int] = Field(default=None, ge=0, le=3650)
-    must_exit_by: Optional[date] = None
-    stamp_note: str = ""
-
-    @field_validator("country_code")
-    @classmethod
-    def upper_country(cls, v: str) -> str:
-        return v.upper()
 
 
 class CountryEntryUpdate(BaseModel):

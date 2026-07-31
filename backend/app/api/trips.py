@@ -1,19 +1,22 @@
-"""Trips and their segments.
+"""Trips.
 
-Segments are nested under their trip (/api/trips/{id}/stays) rather than exposed
-as top-level collections: a stay has no meaning without its trip, and nesting
-makes the ownership check structural instead of something each handler has to
-remember.
+A trip is one international stay in one country: the journey that got you
+there, the passport you entered on, and every hotel you sleep in while there.
+
+Hotels and travel are nested under their trip (/api/trips/{id}/stays) rather
+than exposed as top-level collections: neither has meaning without its trip,
+and nesting makes the ownership check structural instead of something each
+handler has to remember.
 """
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from app.api.common import apply_update, get_child_or_404, get_or_404
+from app.countries import country_name
 from app.db import get_session
 from app.models import CountryEntry, Leg, Requirement, Stay, Trip
 from app.schemas import (
-    CountryEntryCreate,
     CountryEntryUpdate,
     LegCreate,
     LegUpdate,
@@ -26,9 +29,10 @@ from app.schemas import (
 )
 from app.services.geocode import fill_coordinates
 from app.services.trips import (
-    country_segments,
     refresh_trip_dates,
     sync_country_entries,
+    trip_country,
+    trip_country_code,
     trip_detail,
     trip_label,
     trip_status,
@@ -37,44 +41,57 @@ from app.services.trips import (
 router = APIRouter(prefix="/api/trips", tags=["trips"])
 
 
+def _guard_single_country(session: Session, trip_id: int, code: str) -> None:
+    """A trip is one country. Refuse anything that would make it two.
+
+    Enforced here rather than left to the UI, so the invariant everything else
+    depends on cannot be broken by a stray API call or an email extraction.
+    """
+    if not code:
+        return
+    existing = trip_country_code(session, trip_id)
+    if existing and existing != code.upper():
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"This trip is a stay in {country_name(existing)}. "
+                f"Create a new trip for {country_name(code)}."
+            ),
+        )
+
+
 # --------------------------------------------------------------------------
 # Trips
 # --------------------------------------------------------------------------
 
 
 @router.get("")
-def list_trips(
-    session: Session = Depends(get_session),
-    include_archived: bool = Query(default=False),
-) -> list[dict]:
-    """Newest first. The frontend groups these into ongoing/upcoming/past."""
-    stmt = select(Trip)
-    if not include_archived:
-        stmt = stmt.where(Trip.archived == False)  # noqa: E712
-    trips = session.exec(stmt).all()
-
+def list_trips(session: Session = Depends(get_session)) -> list[dict]:
+    """Most recent first. The frontend groups these into ongoing/upcoming/past."""
     out = []
-    for trip in trips:
+    for trip in session.exec(select(Trip)).all():
         stays = session.exec(select(Stay).where(Stay.trip_id == trip.id)).all()
-        segments = country_segments(session, trip)
-        # Surfaced on the card so a forgotten hotel is visible without opening
-        # the trip -- the thing most worth noticing at a glance.
-        unbooked = sum(
-            gap["nights"] for seg in segments for gap in seg["unbooked"]
-        )
+        country = trip_country(session, trip)
         out.append(
             {
                 **trip.model_dump(),
-                "label": trip_label(trip, stays),
+                "label": trip_label(stays),
                 "status": trip_status(trip),
-                "countries": [seg["country_code"] for seg in segments],
+                "country_code": country["country_code"] if country else "",
+                "country_name": country["country_name"] if country else "",
                 "cities": [s.city for s in sorted(stays, key=lambda s: s.check_in)],
                 "nights": sum(s.nights for s in stays),
-                "unbooked_nights": unbooked,
+                # Surfaced on the card so a forgotten hotel is visible without
+                # opening the trip -- the thing most worth noticing at a glance.
+                "unbooked_nights": sum(
+                    g["nights"] for g in (country["unbooked"] if country else [])
+                ),
             }
         )
     # Undated trips sort last; otherwise most recent start first.
-    out.sort(key=lambda t: (t["start_date"] is None, t["start_date"] or ""), reverse=True)
+    out.sort(
+        key=lambda t: (t["start_date"] is None, t["start_date"] or ""), reverse=True
+    )
     return out
 
 
@@ -89,8 +106,7 @@ def create_trip(payload: TripCreate, session: Session = Depends(get_session)) ->
 
 @router.get("/{trip_id}")
 def get_trip(trip_id: int, session: Session = Depends(get_session)) -> dict:
-    trip = get_or_404(session, Trip, trip_id, "trip")
-    return trip_detail(session, trip)
+    return trip_detail(session, get_or_404(session, Trip, trip_id, "trip"))
 
 
 @router.patch("/{trip_id}")
@@ -112,13 +128,8 @@ def delete_trip(trip_id: int, session: Session = Depends(get_session)) -> None:
     session.commit()
 
 
-# --------------------------------------------------------------------------
-# Stays
-# --------------------------------------------------------------------------
-
-
-def _after_segment_change(session: Session, trip: Trip) -> dict:
-    """Every segment mutation reshapes the trip span and its country entries."""
+def _after_change(session: Session, trip: Trip) -> dict:
+    """Every hotel or travel change reshapes the span and the country entry."""
     refresh_trip_dates(session, trip)
     session.commit()
     sync_country_entries(session, trip)
@@ -126,17 +137,23 @@ def _after_segment_change(session: Session, trip: Trip) -> dict:
     return trip_detail(session, trip)
 
 
+# --------------------------------------------------------------------------
+# Hotels
+# --------------------------------------------------------------------------
+
+
 @router.post("/{trip_id}/stays", status_code=201)
 def create_stay(
     trip_id: int, payload: StayCreate, session: Session = Depends(get_session)
 ) -> dict:
     trip = get_or_404(session, Trip, trip_id, "trip")
+    _guard_single_country(session, trip_id, payload.country_code)
     stay = Stay(trip_id=trip_id, **payload.model_dump())
-    # The form only collects country and city, so derive the pin here.
+    # The form only collects country and city, so derive the map pin here.
     fill_coordinates(stay)
     session.add(stay)
     session.commit()
-    return _after_segment_change(session, trip)
+    return _after_change(session, trip)
 
 
 @router.patch("/{trip_id}/stays/{stay_id}")
@@ -148,9 +165,27 @@ def update_stay(
 ) -> dict:
     trip = get_or_404(session, Trip, trip_id, "trip")
     stay = get_child_or_404(session, Stay, stay_id, trip_id, "stay")
-    moved = (
-        payload.city is not None and payload.city != stay.city
-    ) or (payload.country_code is not None and payload.country_code != stay.country_code)
+
+    if payload.country_code:
+        # Moving the trip's only hotel is just correcting which country the trip
+        # is in; moving one of several would split the trip across two.
+        others = [
+            s
+            for s in session.exec(select(Stay).where(Stay.trip_id == trip_id)).all()
+            if s.id != stay_id
+        ]
+        if others and others[0].country_code.upper() != payload.country_code.upper():
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"This trip is a stay in {country_name(others[0].country_code)}. "
+                    "Move this hotel by creating a new trip instead."
+                ),
+            )
+
+    moved = (payload.city is not None and payload.city != stay.city) or (
+        payload.country_code is not None and payload.country_code != stay.country_code
+    )
     apply_update(stay, payload)
     if moved and payload.lat is None and payload.lon is None:
         # The place changed, so the old pin is wrong. Clear it and re-derive.
@@ -158,7 +193,7 @@ def update_stay(
         fill_coordinates(stay)
     session.add(stay)
     session.commit()
-    return _after_segment_change(session, trip)
+    return _after_change(session, trip)
 
 
 @router.delete("/{trip_id}/stays/{stay_id}")
@@ -169,11 +204,11 @@ def delete_stay(
     stay = get_child_or_404(session, Stay, stay_id, trip_id, "stay")
     session.delete(stay)
     session.commit()
-    return _after_segment_change(session, trip)
+    return _after_change(session, trip)
 
 
 # --------------------------------------------------------------------------
-# Legs
+# Travel
 # --------------------------------------------------------------------------
 
 
@@ -182,9 +217,15 @@ def create_leg(
     trip_id: int, payload: LegCreate, session: Session = Depends(get_session)
 ) -> dict:
     trip = get_or_404(session, Trip, trip_id, "trip")
-    session.add(Leg(trip_id=trip_id, **payload.model_dump()))
+    _guard_single_country(session, trip_id, payload.country_code)
+    data = payload.model_dump()
+    # The journey belongs to the trip's country whether or not it was named.
+    data["country_code"] = (
+        data.get("country_code") or trip_country_code(session, trip_id) or ""
+    )
+    session.add(Leg(trip_id=trip_id, **data))
     session.commit()
-    return _after_segment_change(session, trip)
+    return _after_change(session, trip)
 
 
 @router.patch("/{trip_id}/legs/{leg_id}")
@@ -199,7 +240,7 @@ def update_leg(
     apply_update(leg, payload)
     session.add(leg)
     session.commit()
-    return _after_segment_change(session, trip)
+    return _after_change(session, trip)
 
 
 @router.delete("/{trip_id}/legs/{leg_id}")
@@ -210,11 +251,11 @@ def delete_leg(
     leg = get_child_or_404(session, Leg, leg_id, trip_id, "leg")
     session.delete(leg)
     session.commit()
-    return _after_segment_change(session, trip)
+    return _after_change(session, trip)
 
 
 # --------------------------------------------------------------------------
-# Requirements
+# Paperwork
 # --------------------------------------------------------------------------
 
 
@@ -258,23 +299,8 @@ def delete_requirement(
 
 
 # --------------------------------------------------------------------------
-# Country entries
-#
-# Rows are created automatically by sync_country_entries when stays cross a
-# border. These endpoints exist to record which passport was used and to correct
-# details the app cannot infer, such as the port of entry.
+# Which passport you entered on
 # --------------------------------------------------------------------------
-
-
-@router.post("/{trip_id}/entries", status_code=201)
-def create_entry(
-    trip_id: int, payload: CountryEntryCreate, session: Session = Depends(get_session)
-) -> dict:
-    trip = get_or_404(session, Trip, trip_id, "trip")
-    session.add(CountryEntry(trip_id=trip_id, **payload.model_dump()))
-    session.commit()
-    session.refresh(trip)
-    return trip_detail(session, trip)
 
 
 @router.patch("/{trip_id}/entries/{entry_id}")
@@ -288,6 +314,9 @@ def update_entry(
     entry = get_child_or_404(session, CountryEntry, entry_id, trip_id, "entry")
     apply_update(entry, payload)
     session.add(entry)
+    session.commit()
+    # The leaving date extends the trip's span, so recompute it.
+    refresh_trip_dates(session, trip)
     session.commit()
     session.refresh(trip)
     return trip_detail(session, trip)

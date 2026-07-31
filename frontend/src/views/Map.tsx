@@ -74,7 +74,7 @@ export function MapView({ trips, loadDetail, onSelect }: Props) {
         const nextRoutes: Route[] = [];
         for (const detail of details) {
           if (!detail) continue;
-          const located = detail.stays.filter(
+          const located = (detail.country?.stays ?? []).filter(
             (s) => s.lat !== null && s.lon !== null,
           );
           for (const stay of located) {
@@ -126,11 +126,10 @@ export function MapView({ trips, loadDetail, onSelect }: Props) {
     // Rank so an ongoing trip wins over a past one when both touch a country.
     const rank: Record<string, number> = { past: 1, undated: 2, future: 3, ongoing: 4 };
     for (const trip of trips) {
-      for (const code of trip.countries) {
-        const current = map.get(code);
-        if (!current || (rank[trip.status] ?? 0) > (rank[current] ?? 0)) {
-          map.set(code, trip.status);
-        }
+      if (!trip.country_code) continue;
+      const current = map.get(trip.country_code);
+      if (!current || (rank[trip.status] ?? 0) > (rank[current] ?? 0)) {
+        map.set(trip.country_code, trip.status);
       }
     }
     return map;

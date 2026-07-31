@@ -136,13 +136,13 @@ export function Calendar({ trips, notes, onSelect }: Props) {
                     width: `${(bar.span / 7) * 100}%`,
                     top: bar.lane * 22,
                   }}
-                  title={`${bar.trip.title}\n${formatRange(
+                  title={`${bar.trip.country_name} · ${bar.trip.label}\n${formatRange(
                     bar.trip.start_date,
                     bar.trip.end_date,
                   )}`}
                   onClick={() => onSelect(bar.trip.id)}
                 >
-                  <span>{bar.trip.title}</span>
+                  <span>{bar.trip.label}</span>
                 </button>
               ))}
             </div>

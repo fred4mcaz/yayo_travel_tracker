@@ -1,8 +1,11 @@
 """Derived trip state.
 
-Anything computed from a trip's segments lives here rather than in the route
+Anything computed from a trip's contents lives here rather than in the route
 handlers, so the email pipeline (stage 8) and manual edits go through identical
 logic and cannot drift apart.
+
+A trip is one international stay in one country. That is enforced in the API,
+so everything here can assume a single country and say so plainly.
 """
 
 from datetime import date
@@ -15,13 +18,18 @@ from app.models import CountryEntry, Leg, Note, Stay, Trip, utcnow
 
 
 def refresh_trip_dates(session: Session, trip: Trip) -> Trip:
-    """Recompute the denormalised start/end span from the trip's segments.
+    """Recompute the denormalised start/end span from the trip's contents.
 
-    Must be called after any stay or leg change. Legs count too: a red-eye that
-    departs the day before the first check-in still belongs to the trip.
+    Must be called after any change. Legs count because a red-eye departing the
+    night before the first check-in still belongs to the trip, and the leaving
+    date counts because the stay is not over when the last hotel ends -- that
+    is precisely the gap worth seeing.
     """
     stays = session.exec(select(Stay).where(Stay.trip_id == trip.id)).all()
     legs = session.exec(select(Leg).where(Leg.trip_id == trip.id)).all()
+    entry = session.exec(
+        select(CountryEntry).where(CountryEntry.trip_id == trip.id)
+    ).first()
 
     starts: list[date] = [s.check_in for s in stays]
     ends: list[date] = [s.check_out for s in stays]
@@ -32,6 +40,8 @@ def refresh_trip_dates(session: Session, trip: Trip) -> Trip:
         if leg.arrive_at:
             starts.append(leg.arrive_at.date())
             ends.append(leg.arrive_at.date())
+    if entry and entry.exited_on:
+        ends.append(entry.exited_on)
 
     trip.start_date = min(starts) if starts else None
     trip.end_date = max(ends) if ends else None
@@ -40,40 +50,34 @@ def refresh_trip_dates(session: Session, trip: Trip) -> Trip:
     return trip
 
 
-def trip_label(trip: Trip, stays: list[Stay]) -> str:
-    """What to call a trip when nobody typed a name for it.
+def trip_country_code(session: Session, trip_id: int) -> Optional[str]:
+    """The country this trip is a stay in, or None if nothing is recorded yet."""
+    stay = session.exec(select(Stay).where(Stay.trip_id == trip_id)).first()
+    if stay is not None:
+        return stay.country_code.upper()
+    leg = session.exec(
+        select(Leg).where(Leg.trip_id == trip_id).where(Leg.country_code != "")
+    ).first()
+    return leg.country_code.upper() if leg else None
 
-    A journey that crosses borders is identified by the countries; one that
-    stays inside a single country is identified by the cities in it, because
-    naming it after the country would say nothing you did not already know.
-    An explicit title always wins, so imported or hand-named trips keep theirs.
+
+def trip_label(stays: list[Stay]) -> str:
+    """What to call a trip. Always derived -- trips are never named by hand.
+
+    The country is already shown beside it, so the label is the cities. One
+    stop reads as "Hanoi · Sofitel Legend", several read as the route.
     """
-    if trip.title.strip():
-        return trip.title.strip()
     if not stays:
         return "New trip"
 
     ordered = sorted(stays, key=lambda s: s.check_in)
-
-    countries: list[str] = []
-    for stay in ordered:
-        code = stay.country_code.upper()
-        if code and code not in countries:
-            countries.append(code)
-
-    if len(countries) > 1:
-        names = [country_name(c) for c in countries]
-        if len(names) <= 3:
-            return " → ".join(names)
-        return f"{' → '.join(names[:2])} +{len(names) - 2} more"
-
     cities: list[str] = []
     for stay in ordered:
         if stay.city and stay.city not in cities:
             cities.append(stay.city)
 
     if not cities:
-        return country_name(countries[0]) if countries else "New trip"
+        return "New trip"
     if len(cities) == 1:
         hotel = ordered[0].hotel_name.strip()
         return f"{cities[0]} · {hotel}" if hotel else cities[0]
@@ -82,26 +86,27 @@ def trip_label(trip: Trip, stays: list[Stay]) -> str:
     return f"{' → '.join(cities[:2])} +{len(cities) - 2} more"
 
 
-def _period_start(stays: list[Stay], legs: list[Leg]) -> Optional[date]:
-    """When you are first in the country: the arrival, or the first check-in."""
-    candidates: list[date] = [s.check_in for s in stays]
-    for leg in legs:
-        when = leg.arrive_at or leg.depart_at
-        if when:
-            candidates.append(when.date())
-    return min(candidates) if candidates else None
+def trip_status(trip: Trip, today: Optional[date] = None) -> str:
+    """past | ongoing | future | undated."""
+    today = today or date.today()
+    if trip.start_date is None or trip.end_date is None:
+        return "undated"
+    if trip.end_date < today:
+        return "past"
+    if trip.start_date > today:
+        return "future"
+    return "ongoing"
 
 
-def _uncovered(
+def unbooked_nights(
     start: Optional[date], end: Optional[date], stays: list[Stay]
 ) -> list[dict]:
-    """Nights inside a country with no hotel booked.
+    """Nights inside the country with no hotel booked.
 
-    Being in a country from the 30th to the 6th with hotels covering only the
+    Being in Vietnam from the 30th to the 6th with bookings covering only the
     30th to the 3rd means three nights with nowhere to sleep -- almost always a
-    booking that was forgotten rather than a deliberate choice. Walks the stays
-    in order and reports every stretch nobody covers, including before the first
-    hotel and after the last.
+    booking that was forgotten. Walks the stays in order and reports every
+    stretch nobody covers, including before the first hotel and after the last.
     """
     if start is None or end is None or end <= start:
         return []
@@ -125,13 +130,16 @@ def _uncovered(
     ]
 
 
-def country_segments(session: Session, trip: Trip) -> list[dict]:
-    """The trip broken into the countries it visits, in arrival order.
+def trip_country(session: Session, trip: Trip) -> Optional[dict]:
+    """The country this trip is a stay in, with everything that hangs off it.
 
-    This is the shape the app is actually about: which country, on which
-    passport, and which hotels while there. Stays and arrival legs are folded
-    into the country they belong to so none of that has to be reassembled by
-    eye.
+    Returns None for a trip with nothing recorded yet.
+
+    The stay ends on the date you say you are leaving, if you have said. That
+    matters: without it the stay can only end at the last checkout, so "two
+    weeks in Vietnam, first four nights booked" -- the most common way to have
+    forgotten a hotel -- would look complete. Leaving it blank is fine; the
+    stay then ends at the last checkout and only gaps between bookings show.
     """
     stays = session.exec(
         select(Stay).where(Stay.trip_id == trip.id).order_by(Stay.check_in)
@@ -139,128 +147,93 @@ def country_segments(session: Session, trip: Trip) -> list[dict]:
     legs = session.exec(
         select(Leg).where(Leg.trip_id == trip.id).order_by(Leg.depart_at)
     ).all()
-    entries = session.exec(
+    if not stays and not legs:
+        return None
+
+    code = trip_country_code(session, trip.id) or ""
+    entry = session.exec(
         select(CountryEntry).where(CountryEntry.trip_id == trip.id)
-    ).all()
-    entry_by_code = {e.country_code.upper(): e for e in entries}
+    ).first()
 
-    order: list[str] = []
-    grouped: dict[str, list[Stay]] = {}
-    for stay in stays:
-        code = stay.country_code.upper()
-        if code not in grouped:
-            grouped[code] = []
-            order.append(code)
-        grouped[code].append(stay)
-
-    # A leg can be recorded before its country has any hotel booked, so its
-    # country still needs a section.
+    # You are in the country from whichever comes first: landing, or checking in.
+    starts: list[date] = [s.check_in for s in stays]
     for leg in legs:
-        code = leg.country_code.upper()
-        if code and code not in grouped:
-            grouped[code] = []
-            order.append(code)
+        when = leg.arrive_at or leg.depart_at
+        if when:
+            starts.append(when.date())
+    starts_on = min(starts) if starts else None
+    last_checkout = max((s.check_out for s in stays), default=None)
+    leaving_on = entry.exited_on if entry else None
+    ends_on = leaving_on or last_checkout
 
-    raw = []
-    for code in order:
-        group = grouped[code]
-        arrivals = [leg for leg in legs if leg.country_code.upper() == code]
-        raw.append((code, group, arrivals, _period_start(group, arrivals)))
-
-    # Countries in the order you are actually in them. Anything with no date at
-    # all sorts last, since it cannot bound anything.
-    raw.sort(key=lambda r: (r[3] is None, r[3] or date.max))
-
-    segments = []
-    for index, (code, group, arrivals, starts_on) in enumerate(raw):
-        entry = entry_by_code.get(code)
-
-        # You leave a country when the next one begins. For the final country
-        # there is nothing to bound it -- return travel is not tracked -- so it
-        # ends at the last checkout and can never report a trailing gap.
-        next_start = next(
-            (r[3] for r in raw[index + 1 :] if r[3] is not None), None
-        )
-        ends_on = next_start or (
-            max((s.check_out for s in group), default=None) if group else None
-        )
-
-        segments.append(
-            {
-                "country_code": code,
-                "country_name": country_name(code),
-                "entry": entry.model_dump() if entry else None,
-                "passport_id": entry.passport_id if entry else None,
-                "entered_on": str(entry.entered_on) if entry else None,
-                "starts_on": str(starts_on) if starts_on else None,
-                "ends_on": str(ends_on) if ends_on else None,
-                "nights": sum(s.nights for s in group),
-                "unbooked": _uncovered(starts_on, ends_on, group),
-                "stays": [{**s.model_dump(), "nights": s.nights} for s in group],
-                "legs": [leg.model_dump() for leg in arrivals],
-            }
-        )
-    return segments
+    return {
+        "country_code": code,
+        "country_name": country_name(code),
+        "entry": entry.model_dump() if entry else None,
+        "passport_id": entry.passport_id if entry else None,
+        "entered_on": str(entry.entered_on) if entry else None,
+        "leaving_on": str(leaving_on) if leaving_on else None,
+        "starts_on": str(starts_on) if starts_on else None,
+        "ends_on": str(ends_on) if ends_on else None,
+        "nights": sum(s.nights for s in stays),
+        "unbooked": unbooked_nights(starts_on, ends_on, stays),
+        "stays": [{**s.model_dump(), "nights": s.nights} for s in stays],
+        "legs": [leg.model_dump() for leg in legs],
+    }
 
 
-def trip_status(trip: Trip, today: Optional[date] = None) -> str:
-    """past | ongoing | future | undated."""
-    today = today or date.today()
-    if trip.start_date is None or trip.end_date is None:
-        return "undated"
-    if trip.end_date < today:
-        return "past"
-    if trip.start_date > today:
-        return "future"
-    return "ongoing"
+def sync_country_entries(session: Session, trip: Trip) -> Optional[CountryEntry]:
+    """Keep exactly one CountryEntry, for the one country the trip is in.
 
-
-def sync_country_entries(session: Session, trip: Trip) -> list[CountryEntry]:
-    """Ensure one CountryEntry per country the trip's stays visit.
-
-    Creates missing rows so the passport picker has something to attach to, and
-    removes rows for countries no longer visited. Existing rows are never
-    overwritten — once you record that you entered Japan on the US passport,
-    editing an unrelated hotel must not silently discard that.
+    Never overwrites an existing row's passport: once you record that you
+    entered Japan on the US passport, editing an unrelated hotel must not
+    silently discard that.
     """
-    stays = session.exec(
-        select(Stay).where(Stay.trip_id == trip.id).order_by(Stay.check_in)
-    ).all()
-
-    # First arrival date per country, in visit order.
-    first_seen: dict[str, date] = {}
-    for stay in stays:
-        code = stay.country_code.upper()
-        if code not in first_seen or stay.check_in < first_seen[code]:
-            first_seen[code] = stay.check_in
-
+    code = trip_country_code(session, trip.id)
     existing = session.exec(
         select(CountryEntry).where(CountryEntry.trip_id == trip.id)
     ).all()
-    by_code = {e.country_code.upper(): e for e in existing}
 
-    for code, entered_on in first_seen.items():
-        if code in by_code:
-            continue
-        session.add(
-            CountryEntry(
-                trip_id=trip.id,
-                country_code=code,
-                entered_on=entered_on,
-                passport_id=_last_passport_used_for(session, code),
-            )
+    if code is None:
+        for row in existing:
+            session.delete(row)
+        session.commit()
+        return None
+
+    entered_on = min(
+        (s.check_in for s in session.exec(
+            select(Stay).where(Stay.trip_id == trip.id)
+        ).all()),
+        default=None,
+    )
+    if entered_on is None:
+        arrivals = [
+            leg.arrive_at or leg.depart_at
+            for leg in session.exec(select(Leg).where(Leg.trip_id == trip.id)).all()
+        ]
+        dated = [a.date() for a in arrivals if a]
+        entered_on = min(dated) if dated else date.today()
+
+    keeper: Optional[CountryEntry] = None
+    for row in existing:
+        if keeper is None and row.country_code.upper() == code:
+            keeper = row
+        else:
+            session.delete(row)
+
+    if keeper is None:
+        keeper = CountryEntry(
+            trip_id=trip.id,
+            country_code=code,
+            entered_on=entered_on,
+            passport_id=_last_passport_used_for(session, code),
         )
-
-    for code, entry in by_code.items():
-        if code not in first_seen:
-            session.delete(entry)
-
+    else:
+        keeper.entered_on = entered_on
+    session.add(keeper)
     session.commit()
-    return session.exec(
-        select(CountryEntry)
-        .where(CountryEntry.trip_id == trip.id)
-        .order_by(CountryEntry.entered_on)
-    ).all()
+    session.refresh(keeper)
+    return keeper
 
 
 def _last_passport_used_for(session: Session, country_code: str) -> Optional[int]:
@@ -283,35 +256,18 @@ def trip_detail(session: Session, trip: Trip) -> dict:
     stays = session.exec(
         select(Stay).where(Stay.trip_id == trip.id).order_by(Stay.check_in)
     ).all()
-    legs = session.exec(
-        select(Leg).where(Leg.trip_id == trip.id).order_by(Leg.depart_at)
-    ).all()
-    entries = session.exec(
-        select(CountryEntry)
-        .where(CountryEntry.trip_id == trip.id)
-        .order_by(CountryEntry.entered_on)
-    ).all()
     notes = session.exec(
         select(Note).where(Note.trip_id == trip.id).order_by(Note.on_date)
     ).all()
 
     return {
-        # `notes` stays the trip's own free-text memo, matching list_trips. The
-        # Note records go under notes_list -- spreading model_dump() and then
-        # writing "notes" here would silently replace the memo with an array.
+        # `notes` is the trip's own memo. The Note records go under notes_list --
+        # writing "notes" twice here silently replaced the memo with an array.
         **trip.model_dump(),
-        "label": trip_label(trip, stays),
+        "label": trip_label(stays),
         "status": trip_status(trip),
-        "countries": sorted({s.country_code for s in stays}),
+        "country": trip_country(session, trip),
         "nights": sum(s.nights for s in stays),
-        "stays": [{**s.model_dump(), "nights": s.nights} for s in stays],
-        "legs": [leg.model_dump() for leg in legs],
         "requirements": [r.model_dump() for r in trip.requirements],
-        "countries_visited": [
-            {"code": c, "name": country_name(c)}
-            for c in dict.fromkeys(s.country_code.upper() for s in stays)
-        ],
-        "country_segments": country_segments(session, trip),
-        "entries": [e.model_dump() for e in entries],
         "notes_list": [n.model_dump() for n in notes],
     }

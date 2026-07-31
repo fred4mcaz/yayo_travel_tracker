@@ -10,8 +10,9 @@ from sqlmodel import Session, select
 
 from app.api.common import apply_update, get_or_404
 from app.db import get_session
-from app.models import CountryEntry, Passport, Trip
+from app.models import CountryEntry, Passport, Stay, Trip
 from app.schemas import PassportCreate, PassportUpdate
+from app.services.trips import trip_label
 
 router = APIRouter(prefix="/api/passports", tags=["passports"])
 
@@ -98,10 +99,15 @@ def country_history(
     out = []
     for e in entries:
         trip = session.get(Trip, e.trip_id)
+        stays = (
+            session.exec(select(Stay).where(Stay.trip_id == e.trip_id)).all()
+            if trip
+            else []
+        )
         out.append(
             {
                 **e.model_dump(),
-                "trip_title": trip.title if trip else None,
+                "trip_label": trip_label(stays) if trip else None,
                 "passport_nationality": (
                     e.passport.nationality.value if e.passport else None
                 ),
