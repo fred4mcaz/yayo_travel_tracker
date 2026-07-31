@@ -28,11 +28,12 @@ _PUNCT = re.compile(r"[^\w\s'-]", re.UNICODE)
 
 
 @lru_cache(maxsize=1)
-def _lookup() -> dict[str, list[float]]:
+def _lookup() -> dict[str, list]:
     """Load the city table once, on first use.
 
-    Roughly 40k entries and ~1.3MB on disk. Loading it lazily keeps it out of
-    memory entirely for a process that never geocodes anything.
+    Roughly 40k entries. Each value is [lat, lon, display_name, population].
+    Loading it lazily keeps it out of memory entirely for a process that never
+    geocodes anything.
     """
     path = settings.data_dir / "geo" / "cities.min.json"
     if not path.is_file():
@@ -42,6 +43,25 @@ def _lookup() -> dict[str, list[float]]:
         data = json.load(handle)
     log.info("loaded %d city names for geocoding", len(data))
     return data
+
+
+@lru_cache(maxsize=1)
+def _by_country() -> dict[str, list[tuple[str, str, float, float, int]]]:
+    """Per-country index for autocomplete: (searchable, display, lat, lon, pop).
+
+    Built once from the flat table. Scanning one country's few hundred entries
+    per keystroke is far cheaper than filtering all 40k.
+    """
+    index: dict[str, list[tuple[str, str, float, float, int]]] = {}
+    for key, value in _lookup().items():
+        country, _, name = key.partition(":")
+        if not country or len(value) < 4:
+            continue
+        lat, lon, display, population = value[0], value[1], value[2], value[3]
+        index.setdefault(country, []).append((name, display, lat, lon, population))
+    for entries in index.values():
+        entries.sort(key=lambda e: -e[4])
+    return index
 
 
 def normalise(city: str) -> str:
@@ -73,6 +93,43 @@ def locate(country_code: str, city: str) -> Optional[tuple[float, float]]:
     if found is None:
         return None
     return found[0], found[1]
+
+
+def suggest(country_code: str, query: str, limit: int = 8) -> list[dict]:
+    """City suggestions within a country, most populous first.
+
+    Prefix matches rank above substring matches, so typing "ha" in Vietnam
+    offers Hanoi and Hạ Long before Thanh Hoa. Results are deduplicated by
+    display name because a city is indexed under both its local and ASCII
+    spelling and should only be offered once.
+    """
+    if not country_code:
+        return []
+    entries = _by_country().get(country_code.upper())
+    if not entries:
+        return []
+
+    needle = normalise(query)
+    prefix: list[tuple[str, float, float]] = []
+    contains: list[tuple[str, float, float]] = []
+    seen: set[str] = set()
+
+    for searchable, display, lat, lon, _pop in entries:
+        if needle and not searchable.startswith(needle):
+            if needle not in searchable:
+                continue
+            bucket = contains
+        else:
+            bucket = prefix
+        if display in seen:
+            continue
+        seen.add(display)
+        bucket.append((display, lat, lon))
+        if len(prefix) >= limit:
+            break
+
+    combined = (prefix + contains)[:limit]
+    return [{"name": n, "lat": lat, "lon": lon} for n, lat, lon in combined]
 
 
 def fill_coordinates(stay) -> bool:

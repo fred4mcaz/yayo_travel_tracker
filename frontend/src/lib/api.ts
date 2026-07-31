@@ -145,6 +145,13 @@ export const api = {
       get<(CountryEntryHistory)[]>(`/api/passports/history/${countryCode}`),
   },
 
+  geo: {
+    cities: (country: string, q: string) =>
+      get<CitySuggestion[]>(
+        `/api/geo/cities?country=${encodeURIComponent(country)}&q=${encodeURIComponent(q)}`,
+      ),
+  },
+
   notes: {
     list: (params: Record<string, string> = {}) => {
       const qs = new URLSearchParams(params).toString();
@@ -156,6 +163,12 @@ export const api = {
     remove: (id: number) => del<void>(`/api/notes/${id}`),
   },
 };
+
+export interface CitySuggestion {
+  name: string;
+  lat: number;
+  lon: number;
+}
 
 export interface CountryEntryHistory {
   id: number;

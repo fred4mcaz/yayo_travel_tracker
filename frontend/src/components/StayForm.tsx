@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { CityInput } from "./CityInput";
 import { CountrySelect } from "./CountrySelect";
 import { Field, Row, Text, TextArea } from "./Fields";
 import { nightsBetween } from "../lib/format";
@@ -75,11 +76,10 @@ export function StayForm({
       </Field>
 
       <Field label="City" hint="Places the pin on the map" wide>
-        <Text
+        <CityInput
+          country={draft.country_code}
           value={draft.city}
           onChange={(v) => set("city", v)}
-          placeholder="Hanoi"
-          required
         />
       </Field>
 

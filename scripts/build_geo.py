@@ -141,7 +141,12 @@ def build_cities() -> None:
     # Key is "CC:lowercased name" so lookups are exact and cheap. Where two
     # cities in one country share a name, the more populous one wins -- if you
     # type "Springfield, US" you almost certainly mean the big one.
-    best: dict[str, tuple[int, float, float]] = {}
+    #
+    # The value carries the properly-cased display name and the population as
+    # well as the coordinates. Autocomplete needs the real name ("Ha Noi" typed,
+    # "Hanoi" offered) and needs to rank suggestions by size, and neither can be
+    # reconstructed from a lowercased key.
+    best: dict[str, tuple[int, float, float, str]] = {}
 
     with archive.open("cities15000.txt") as handle:
         for line in io.TextIOWrapper(handle, encoding="utf-8"):
@@ -155,15 +160,22 @@ def build_cities() -> None:
             if not country:
                 continue
 
+            # Both spellings resolve, but both offer the same display name so a
+            # suggestion list never shows the same place twice.
             for label in {name, ascii_name}:
                 key = f"{country}:{label.strip().lower()}"
                 existing = best.get(key)
                 if existing is None or population > existing[0]:
-                    best[key] = (population, lat, lon)
+                    best[key] = (population, lat, lon, name)
 
     lookup = {
-        key: [round(lat, CITY_PRECISION), round(lon, CITY_PRECISION)]
-        for key, (_, lat, lon) in sorted(best.items())
+        key: [
+            round(lat, CITY_PRECISION),
+            round(lon, CITY_PRECISION),
+            name,
+            population,
+        ]
+        for key, (population, lat, lon, name) in sorted(best.items())
     }
 
     path = OUT_DIR / "cities.min.json"

@@ -154,3 +154,54 @@ def test_unknown_city_leaves_stay_unpinned(client):
     ).json()
     # Not an error: the stay is still valid, it just has no pin.
     assert detail["stays"][0]["lat"] is None
+
+
+# --- autocomplete ---------------------------------------------------------
+
+
+def test_suggest_ranks_prefix_matches_by_population(client):
+    results = client.get("/api/geo/cities?country=VN&q=ha").json()
+    names = [r["name"] for r in results]
+    assert "Hanoi" in names
+    # Hanoi is far larger than the other Ha- cities, so it leads.
+    assert names[0] == "Hanoi"
+    assert all("lat" in r and "lon" in r for r in results)
+
+
+def test_suggest_finds_the_city_behind_a_near_miss():
+    """"Ha Long Bay" fails an exact lookup; typing "ha long" must still offer it."""
+    from app.services.geocode import suggest
+
+    names = [s["name"] for s in suggest("VN", "ha long")]
+    assert any("Long" in n for n in names)
+
+
+def test_suggest_is_scoped_to_the_country(client):
+    results = client.get("/api/geo/cities?country=TH&q=bang").json()
+    assert results
+    assert all("Bang" in r["name"] or "bang" in r["name"].lower() for r in results)
+    # Hanoi is Vietnamese; it must not leak into a Thai search.
+    assert not any(r["name"] == "Hanoi" for r in results)
+
+
+def test_suggest_empty_query_returns_the_biggest_cities(client):
+    results = client.get("/api/geo/cities?country=VN&q=").json()
+    assert len(results) > 1
+    assert results[0]["name"] == "Ho Chi Minh City"
+
+
+def test_suggest_deduplicates_alternate_spellings(client):
+    """A city is indexed under local and ASCII spellings; offer it once."""
+    results = client.get("/api/geo/cities?country=VN&q=&limit=25").json()
+    names = [r["name"] for r in results]
+    assert len(names) == len(set(names))
+
+
+def test_suggest_unknown_country_is_empty_not_an_error(client):
+    r = client.get("/api/geo/cities?country=ZZ&q=x")
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+def test_suggest_requires_auth(anon_client):
+    assert anon_client.get("/api/geo/cities?country=VN&q=ha").status_code == 401
