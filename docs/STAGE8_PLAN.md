@@ -162,9 +162,15 @@ local session; the trip list reflects an accepted extraction.
 
 ---
 
-## Phase 6 — Scheduler and gating
+## Phase 6 — Scheduler and gating ✅
 
 **Objective.** Run it every 10 minutes, off by default.
+
+**Done.** `backend/app/services/scheduler.py` (pure `scheduler_decision`,
+`start_scheduler`, `_safe_cycle`), wired into the app lifespan in `main.py`, plus
+a gated `POST /api/review/poll` and a "Check email now" button. Covered by
+`backend/tests/test_scheduler.py` (10 tests) and poll-gate tests in
+`test_review_api.py`. Suite is 178 passing.
 
 **Assumptions to validate.** APScheduler survives the container's restart
 policy; the flag genuinely gates the poller.
@@ -178,6 +184,41 @@ absent credentials — a clear startup failure, not a silent no-op.
 **Then, and only then:** he adds the Google App Password (needs 2FA on
 `req4233@gmail.com`) and the Anthropic API key to `deploy/.env` on the server
 himself.
+
+### Phase 6
+
+- **The gate is a pure function.** `scheduler_decision(settings)` returns
+  `(should_start, missing)` and reads nothing but config — no socket, no
+  credential access. `start_scheduler` is the thin side-effecting shell around
+  it. That split is what let the whole gate be tested without APScheduler, a
+  mailbox, or an API key.
+
+- **Enabled-but-unconfigured is a loud boot failure, by design.** Flipping
+  `YAYO_EMAIL_INGEST_ENABLED=true` is a statement that ingest should run, so a
+  missing credential raises in the lifespan and the container fails to start —
+  visible immediately in `docker logs` and via a failing healthcheck, rather
+  than discovered as silence weeks later. With the flag *off* (the default and
+  the shipped state) nothing starts and no credential is read.
+
+- **Credential values never appear in a log or an error.** The failure message
+  names the env vars that are unset (`YAYO_IMAP_USER`, …), never their values,
+  and a test sets sentinel secret values and asserts they appear in neither the
+  logs nor the raised message.
+
+- **A cycle survives a transient failure.** `_safe_cycle` swallows any
+  exception and logs it, so a mail-server hiccup or a rate-limited API call
+  means "retry in ten minutes", not "ingestion is dead until redeploy".
+
+- **`POST /api/review/poll` is gated identically to the scheduler**, so a "Check
+  email now" click on a disabled or half-configured box returns 409 with the
+  reason — verified in the browser: the button surfaced "Email ingest is off.
+  Set YAYO_EMAIL_INGEST_ENABLED=true …" as a clean 409, not a 500 or a fake
+  success.
+
+- **The default settings mean tests never start a scheduler.** The `client`
+  fixture triggers the lifespan, but `email_ingest_enabled` defaults False, so
+  `start_scheduler` returns None and no background thread is created during the
+  suite.
 
 ---
 

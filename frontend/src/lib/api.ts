@@ -177,6 +177,12 @@ export const api = {
       }>(`/api/review/${id}/accept`, overrides),
     reject: (id: number) =>
       post<{ rejected: boolean }>(`/api/review/${id}/reject`),
+    poll: () =>
+      post<{
+        polled: boolean;
+        ingest: { ingested: number; baselined?: boolean };
+        extraction: { processed: number; proposed: number };
+      }>("/api/review/poll"),
   },
 };
 

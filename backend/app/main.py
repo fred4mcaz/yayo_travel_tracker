@@ -20,6 +20,7 @@ from app.services.auth import (
     issue_enrollment_token,
     purge_expired_sessions,
 )
+from app.services.scheduler import start_scheduler
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
@@ -50,7 +51,16 @@ async def lifespan(_: FastAPI):
                 settings.site_origin,
                 token,
             )
-    yield
+
+    # Gated inside start_scheduler: with the flag off this starts nothing and
+    # touches no credential. With it on but a credential missing, it raises
+    # here and the container fails to boot -- loudly, which is the point.
+    scheduler = start_scheduler(engine, settings)
+    try:
+        yield
+    finally:
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
 
 
 app = FastAPI(

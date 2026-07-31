@@ -17,6 +17,8 @@ interface Props {
 export function ReviewQueue({ onReviewed }: Props) {
   const [items, setItems] = useState<ReviewItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [polling, setPolling] = useState(false);
+  const [pollNote, setPollNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -26,6 +28,29 @@ export function ReviewQueue({ onReviewed }: Props) {
       setError(e instanceof ApiError ? e.message : String(e));
     }
   }, []);
+
+  async function checkNow() {
+    setPolling(true);
+    setPollNote(null);
+    setError(null);
+    try {
+      const r = await api.review.poll();
+      const found = r.extraction.proposed;
+      setPollNote(
+        r.ingest.baselined
+          ? "First check done — future bookings will show up here."
+          : found > 0
+            ? `Found ${found} new booking${found === 1 ? "" : "s"}.`
+            : "No new bookings.",
+      );
+      await load();
+    } catch (e) {
+      // A 409 here is the gate speaking: ingest is off or unconfigured.
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setPolling(false);
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -48,9 +73,21 @@ export function ReviewQueue({ onReviewed }: Props) {
     <div className="review">
       <div className="section-head">
         <h2>Review</h2>
-        {items.length > 0 && <span className="pill">{items.length} waiting</span>}
+        <div className="review-head-right">
+          {items.length > 0 && (
+            <span className="pill">{items.length} waiting</span>
+          )}
+          <button
+            className="btn btn-sm"
+            onClick={checkNow}
+            disabled={polling}
+          >
+            {polling ? "Checking…" : "Check email now"}
+          </button>
+        </div>
       </div>
 
+      {pollNote && <p className="review-note muted">{pollNote}</p>}
       {error && <p className="alert alert-danger">{error}</p>}
 
       {items.length === 0 ? (

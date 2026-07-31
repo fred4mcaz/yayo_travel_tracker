@@ -1176,3 +1176,14 @@ textarea {
   margin-left: auto;
   font-size: 13px;
 }
+
+.review-head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.review-note {
+  margin: -4px 0 12px;
+  font-size: 14px;
+}

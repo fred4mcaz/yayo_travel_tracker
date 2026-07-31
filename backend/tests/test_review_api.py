@@ -231,3 +231,64 @@ def test_rejected_proposal_leaves_the_pending_list(client, session: Session):
     history = client.get("/api/review?include_reviewed=true").json()
     assert len(history) == 1
     assert history[0]["status"] == "rejected"
+
+
+# --------------------------------------------------------------------------
+# Manual poll -- gated exactly like the scheduler
+# --------------------------------------------------------------------------
+
+
+def test_poll_when_disabled_is_409_and_runs_nothing(client):
+    """The default: ingest off. The endpoint says so rather than pretending."""
+    res = client.post("/api/review/poll")
+    assert res.status_code == 409
+    assert "YAYO_EMAIL_INGEST_ENABLED" in res.json()["detail"]
+
+
+def test_poll_enabled_but_unconfigured_is_409_naming_the_gaps(client):
+    from app.config import Settings, get_settings
+    from app.main import app
+
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        email_ingest_enabled=True
+    )
+    try:
+        res = client.post("/api/review/poll")
+    finally:
+        del app.dependency_overrides[get_settings]
+
+    assert res.status_code == 409
+    assert "YAYO_IMAP_USER" in res.json()["detail"]
+
+
+def test_poll_when_configured_runs_a_cycle(client, monkeypatch):
+    from app.config import Settings, get_settings
+    from app import api
+    from app.main import app
+
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        email_ingest_enabled=True,
+        imap_user="e@gmail.com",
+        imap_app_password="pw",
+        anthropic_api_key="sk-ant",
+    )
+    # Stub the actual cycle: this test is about the endpoint wiring, not IMAP.
+    monkeypatch.setattr(
+        api.review,
+        "run_poll_cycle",
+        lambda engine: {"ingest": {"ingested": 2}, "extraction": {"proposed": 1}},
+    )
+    try:
+        res = client.post("/api/review/poll")
+    finally:
+        del app.dependency_overrides[get_settings]
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["polled"] is True
+    assert body["ingest"]["ingested"] == 2
+    assert body["extraction"]["proposed"] == 1
+
+
+def test_poll_is_behind_auth(anon_client):
+    assert anon_client.post("/api/review/poll").status_code == 401

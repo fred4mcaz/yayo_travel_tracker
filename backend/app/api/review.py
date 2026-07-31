@@ -14,8 +14,9 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.api.common import get_or_404
+from app.config import Settings, get_settings
 from app.countries import country_name
-from app.db import get_session
+from app.db import engine, get_session
 from app.models import EmailMessage, Extraction, ExtractionStatus, Stay
 from app.services.review import (
     NotAcceptable,
@@ -23,6 +24,7 @@ from app.services.review import (
     reject_extraction,
     suggest,
 )
+from app.services.scheduler import missing_credentials, run_poll_cycle
 from app.services.trips import trip_label
 
 router = APIRouter(prefix="/api/review", tags=["review"])
@@ -134,6 +136,31 @@ def accept(
         "stay_id": result.stay_id,
         "leg_id": result.leg_id,
     }
+
+
+@router.post("/poll")
+def poll_now(settings: Settings = Depends(get_settings)) -> dict:
+    """Run one ingest+extraction cycle now, instead of waiting for the timer.
+
+    Gated exactly like the scheduler: a disabled or half-configured box is told
+    why nothing ran, rather than appearing to work and quietly doing nothing.
+    """
+    if not settings.email_ingest_enabled:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Email ingest is off. Set YAYO_EMAIL_INGEST_ENABLED=true in "
+                "deploy/.env to turn it on."
+            ),
+        )
+    missing = missing_credentials(settings)
+    if missing:
+        raise HTTPException(
+            status_code=409,
+            detail="Email ingest is on but not configured: " + ", ".join(missing),
+        )
+    result = run_poll_cycle(engine)
+    return {"polled": True, **result}
 
 
 @router.post("/{extraction_id}/reject")
