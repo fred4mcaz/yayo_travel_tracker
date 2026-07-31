@@ -1,11 +1,10 @@
-/* Design tokens. Stage 4 builds the real UI on these; stage 1 just proves the
-   deploy path works end to end. Dark mode follows the device, since this is
-   used on a phone at odd hours as much as on a desktop. */
+/* Design tokens. Dark mode follows the device, since this gets used on a phone
+   at odd hours as much as on a desktop. */
 :root {
   --bg: #faf9f7;
   --surface: #ffffff;
   --surface-alt: #f2f0ec;
-  --border: rgba(0, 0, 0, 0.1);
+  --border: rgba(0, 0, 0, 0.12);
   --text: #1f1e1c;
   --text-muted: #6b6963;
 
@@ -14,13 +13,17 @@
   --upcoming: #185fa5;
   --upcoming-bg: #e6f1fb;
   --past: #5f5e5a;
+  --past-bg: #f1efe8;
   --warn: #854f0b;
   --warn-bg: #faeeda;
   --danger: #a32d2d;
   --danger-bg: #fcebeb;
+  --accent: #185fa5;
 
   --radius: 8px;
   --radius-card: 12px;
+  --topbar-h: 52px;
+  --bottom-h: 56px;
 
   color-scheme: light dark;
 }
@@ -30,7 +33,7 @@
     --bg: #16150f;
     --surface: #201f19;
     --surface-alt: #2a2822;
-    --border: rgba(255, 255, 255, 0.12);
+    --border: rgba(255, 255, 255, 0.14);
     --text: #f2f0ea;
     --text-muted: #a3a099;
 
@@ -39,10 +42,12 @@
     --upcoming: #85b7eb;
     --upcoming-bg: #042c53;
     --past: #b4b2a9;
+    --past-bg: #2c2c2a;
     --warn: #fac775;
     --warn-bg: #412402;
     --danger: #f09595;
     --danger-bg: #501313;
+    --accent: #85b7eb;
   }
 }
 
@@ -65,34 +70,49 @@ body {
   font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  /* Keep content clear of the iOS home indicator and notch. */
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-    env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
-.boot {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  height: 100%;
-  text-align: center;
-  padding: 24px;
-}
-
-.boot h1 {
-  font-size: 20px;
+h1,
+h2,
+h3 {
   font-weight: 500;
   margin: 0;
 }
-
-.boot p {
-  margin: 0;
-  color: var(--text-muted);
+h1 {
+  font-size: 22px;
+}
+h2 {
+  font-size: 18px;
+}
+h3 {
   font-size: 14px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
+.muted {
+  color: var(--text-muted);
+}
+.small {
+  font-size: 13px;
+}
+.warn {
+  color: var(--warn);
+}
+.empty {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin: 8px 0;
+}
+
+/* --- boot / loading ----------------------------------------------------- */
+.boot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
 .pill {
   font-size: 13px;
   padding: 4px 12px;
@@ -101,12 +121,519 @@ body {
   color: var(--text-muted);
 }
 
-.pill[data-state="ok"] {
-  background: var(--ongoing-bg);
-  color: var(--ongoing);
+/* --- buttons ------------------------------------------------------------ */
+.btn {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) {
+  background: var(--surface-alt);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+@media (prefers-color-scheme: dark) {
+  .btn-primary {
+    color: #042c53;
+  }
+}
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.btn-danger {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: transparent;
+}
+.btn-sm {
+  font-size: 13px;
+  padding: 5px 10px;
+}
+.btn-block {
+  width: 100%;
+  margin-top: 12px;
+}
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 10px 0;
+  width: 100%;
+}
+.icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  line-height: 1;
+}
+.icon-btn:hover {
+  background: var(--surface-alt);
+  color: var(--text);
 }
 
-.pill[data-state="error"] {
+/* --- alerts ------------------------------------------------------------- */
+.alert {
+  font-size: 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  margin: 12px 0;
+}
+.alert-danger {
   background: var(--danger-bg);
   color: var(--danger);
+}
+
+/* --- auth --------------------------------------------------------------- */
+.auth {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: 24px;
+}
+.auth-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 28px;
+  width: 100%;
+  max-width: 380px;
+}
+.auth-card-wide {
+  max-width: 520px;
+}
+.auth-lede {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin: 12px 0 20px;
+}
+.codes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 6px;
+  margin: 16px 0;
+  padding-left: 20px;
+}
+.codes code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  margin: 16px 0 0;
+}
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+/* --- app shell ---------------------------------------------------------- */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.topbar {
+  height: var(--topbar-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  padding-top: env(safe-area-inset-top);
+  height: calc(var(--topbar-h) + env(safe-area-inset-top));
+}
+.brand {
+  font-weight: 500;
+}
+.tabs {
+  display: flex;
+  gap: 4px;
+}
+.tab {
+  font: inherit;
+  font-size: 14px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.tab.active {
+  background: var(--upcoming-bg);
+  color: var(--upcoming);
+}
+
+.layout {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.pane {
+  overflow-y: auto;
+  padding: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+.pane-list {
+  width: 340px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+}
+.pane-detail {
+  flex: 1;
+  min-width: 0;
+}
+.placeholder {
+  flex: 1;
+}
+.detail-empty {
+  color: var(--text-muted);
+  padding: 40px 0;
+  text-align: center;
+}
+
+/* --- trip list ---------------------------------------------------------- */
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.section-head.sticky {
+  position: sticky;
+  top: -16px;
+  background: var(--bg);
+  padding: 16px 0 10px;
+  margin-top: -16px;
+  z-index: 2;
+}
+.group-label {
+  margin: 18px 0 8px;
+}
+.trip-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--past);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  color: var(--text);
+}
+.trip-card:hover {
+  background: var(--surface-alt);
+}
+.trip-card.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.trip-card.status-ongoing {
+  border-left-color: var(--ongoing);
+  background: var(--ongoing-bg);
+}
+.trip-card.status-future {
+  border-left-color: var(--upcoming);
+}
+.trip-card.status-undated {
+  border-left-color: var(--warn);
+}
+.trip-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+}
+.trip-card-meta {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.trip-card-when {
+  font-size: 12px;
+  color: var(--accent);
+  margin-top: 2px;
+}
+.flag {
+  font-size: 15px;
+  line-height: 1;
+}
+.empty-state {
+  text-align: center;
+  padding: 40px 0;
+  color: var(--text-muted);
+}
+
+/* --- detail ------------------------------------------------------------- */
+.detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.detail-head p {
+  margin: 2px 0 0;
+  font-size: 14px;
+}
+.detail-head-actions {
+  display: flex;
+  gap: 2px;
+}
+.detail section {
+  margin-bottom: 24px;
+}
+.trip-memo {
+  background: var(--surface-alt);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 14px;
+  margin: 0 0 20px;
+  white-space: pre-wrap;
+}
+.item-row,
+.entry-row,
+.req-row,
+.note-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 6px;
+}
+.entry-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.entry-main strong {
+  font-weight: 500;
+  font-size: 15px;
+}
+.entry-main span {
+  font-size: 13px;
+}
+.item-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+/* Inputs default to width:100% for forms. Inside a row that would starve the
+   label beside it and wrap the text one character per line. */
+.item-row select,
+.entry-row select,
+.req-row select {
+  width: auto;
+  min-width: 150px;
+  max-width: 45%;
+  flex-shrink: 0;
+  font-size: 14px;
+  padding: 6px 8px;
+}
+.dir {
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.dir-inbound {
+  color: var(--ongoing);
+}
+.dir-outbound {
+  color: var(--upcoming);
+}
+.dir-internal {
+  color: var(--text-muted);
+}
+.note-date {
+  font-size: 12px;
+  color: var(--text-muted);
+  width: 52px;
+  flex-shrink: 0;
+}
+.danger-zone {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+/* --- forms -------------------------------------------------------------- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+  flex: 1;
+  min-width: 0;
+}
+.field > span {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.field small {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.field-row {
+  display: flex;
+  gap: 12px;
+}
+input,
+select,
+textarea {
+  font: inherit;
+  font-size: 16px; /* 16px stops iOS Safari zooming on focus */
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  width: 100%;
+  min-width: 0;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+textarea {
+  resize: vertical;
+}
+.money {
+  display: flex;
+  gap: 8px;
+}
+.money input:last-child {
+  max-width: 90px;
+}
+
+/* --- sheet -------------------------------------------------------------- */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 20px;
+}
+.sheet {
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  width: 100%;
+  max-width: 520px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.sheet-body {
+  padding: 16px;
+  overflow-y: auto;
+}
+.sheet-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* --- bottom tabs (mobile only) ------------------------------------------ */
+.bottom-tabs {
+  display: none;
+}
+
+/* --- mobile ------------------------------------------------------------- */
+@media (max-width: 900px) {
+  .topbar .tabs {
+    display: none;
+  }
+  .pane-list {
+    width: 100%;
+    border-right: none;
+  }
+  /* One pane at a time: the list, or the detail once a trip is picked. */
+  .layout.has-detail .pane-list {
+    display: none;
+  }
+  .layout:not(.has-detail) .pane-detail {
+    display: none;
+  }
+  .bottom-tabs {
+    display: flex;
+    flex-shrink: 0;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .btab {
+    flex: 1;
+    font: inherit;
+    font-size: 12px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    padding: 10px 0;
+    cursor: pointer;
+    min-height: 44px;
+  }
+  .btab.active {
+    color: var(--accent);
+  }
+  .sheet-backdrop {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .sheet {
+    max-width: none;
+    max-height: 92vh;
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .field-row {
+    flex-direction: column;
+    gap: 0;
+  }
 }

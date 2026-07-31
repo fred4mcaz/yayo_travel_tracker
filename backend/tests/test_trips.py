@@ -190,6 +190,25 @@ def test_deleting_trip_cascades_to_segments(client, session):
     assert session.exec(select(CountryEntry)).all() == []
 
 
+def test_trip_memo_survives_alongside_note_records(client):
+    """Regression: trip_detail spread model_dump() (with a `notes` string) and
+    then wrote `notes` again as the Note array, silently dropping the memo."""
+    trip_id = _mk_trip(client)
+    client.patch(f"/api/trips/{trip_id}", json={"notes": "Cherry blossom trip."})
+    client.post(
+        "/api/notes",
+        json={
+            "trip_id": trip_id,
+            "on_date": str(TODAY + timedelta(days=11)),
+            "title": "Dentist in Hanoi",
+        },
+    )
+
+    detail = client.get(f"/api/trips/{trip_id}").json()
+    assert detail["notes"] == "Cherry blossom trip."  # the memo, a string
+    assert [n["title"] for n in detail["notes_list"]] == ["Dentist in Hanoi"]
+
+
 def test_is_confirmed_requires_name_and_code(client):
     trip_id = _mk_trip(client)
     detail = _mk_stay(client, trip_id, hotel_name="Sofitel", confirmation_code="")

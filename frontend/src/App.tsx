@@ -1,53 +1,174 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-type Health = { status: string; rp_id: string; email_ingest_enabled: boolean };
-type Probe =
-  | { state: "loading" }
-  | { state: "ok"; health: Health }
-  | { state: "error"; message: string };
+import { api } from "./lib/api";
+import type { AuthStatus, Passport, TripDetail, TripSummary } from "./types";
+import { Auth } from "./views/Auth";
+import { Settings } from "./views/Settings";
+import { TripDetailPanel } from "./views/TripDetail";
+import { TripList } from "./views/Trips";
 
-/** Stage 1 shell: confirms the browser can reach the API through Caddy.
- *  Stage 4 replaces this with the real layout. */
+type Tab = "trips" | "calendar" | "map" | "settings";
+
 export function App() {
-  const [probe, setProbe] = useState<Probe>({ state: "loading" });
+  const [status, setStatus] = useState<AuthStatus | null>(null);
+  const [trips, setTrips] = useState<TripSummary[]>([]);
+  const [selected, setSelected] = useState<TripDetail | null>(null);
+  const [passports, setPassports] = useState<Passport[]>([]);
+  const [tab, setTab] = useState<Tab>("trips");
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/health")
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json() as Promise<Health>;
-      })
-      .then((health) => !cancelled && setProbe({ state: "ok", health }))
-      .catch((e: Error) => !cancelled && setProbe({ state: "error", message: e.message }));
-    return () => {
-      cancelled = true;
-    };
+  // The enrollment link carries its token in the query string.
+  const enrollmentToken = new URLSearchParams(window.location.search).get("token");
+
+  const refreshStatus = useCallback(() => {
+    api.auth
+      .status()
+      .then(setStatus)
+      .catch(() => setStatus({ authenticated: false, enrolled: false, recovery_codes_left: null, passkey_count: null }));
   }, []);
 
+  useEffect(refreshStatus, [refreshStatus]);
+
+  const loadTrips = useCallback(async () => {
+    try {
+      const [list, ps] = await Promise.all([api.trips.list(), api.passports.list()]);
+      setTrips(list);
+      setPassports(ps);
+      setLoadError(null);
+      return list;
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
+      return [];
+    }
+  }, []);
+
+  useEffect(() => {
+    if (status?.authenticated) void loadTrips();
+  }, [status?.authenticated, loadTrips]);
+
+  const openTrip = useCallback(async (id: number) => {
+    const detail = await api.trips.get(id);
+    setSelected(detail);
+  }, []);
+
+  if (status === null) {
+    return (
+      <div className="boot">
+        <span className="pill">Loading…</span>
+      </div>
+    );
+  }
+
+  if (!status.authenticated) {
+    return (
+      <Auth
+        enrolled={status.enrolled}
+        enrollmentToken={enrollmentToken}
+        onAuthenticated={() => {
+          // Drop the one-time token from the URL so it is not left in history.
+          window.history.replaceState({}, "", window.location.pathname);
+          refreshStatus();
+        }}
+      />
+    );
+  }
+
+  const detailPanel = selected ? (
+    <TripDetailPanel
+      trip={selected}
+      passports={passports}
+      onChange={(trip) => {
+        setSelected(trip);
+        void loadTrips();
+      }}
+      onDeleted={() => {
+        setSelected(null);
+        void loadTrips();
+      }}
+      onClose={() => setSelected(null)}
+    />
+  ) : (
+    <div className="detail-empty">
+      <p>Select a trip, or create one.</p>
+    </div>
+  );
+
   return (
-    <div className="boot">
-      <h1>Yayo travel</h1>
-      {probe.state === "loading" && <span className="pill">Checking API…</span>}
-      {probe.state === "ok" && (
-        <>
-          <span className="pill" data-state="ok">
-            API reachable
-          </span>
-          <p>
-            Serving as {probe.health.rp_id} · email ingest{" "}
-            {probe.health.email_ingest_enabled ? "on" : "off"}
-          </p>
-        </>
-      )}
-      {probe.state === "error" && (
-        <>
-          <span className="pill" data-state="error">
-            API unreachable
-          </span>
-          <p>{probe.message}</p>
-        </>
-      )}
+    <div className="app">
+      <header className="topbar">
+        <span className="brand">Yayo travel</span>
+        <nav className="tabs">
+          {(["trips", "calendar", "map", "settings"] as Tab[]).map((t) => (
+            <button
+              key={t}
+              className={tab === t ? "tab active" : "tab"}
+              onClick={() => setTab(t)}
+            >
+              {t[0].toUpperCase() + t.slice(1)}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      {loadError && <p className="alert alert-danger">{loadError}</p>}
+
+      <main className={`layout${selected ? " has-detail" : ""}`}>
+        {tab === "trips" && (
+          <>
+            <div className="pane pane-list">
+              <TripList
+                trips={trips}
+                selectedId={selected?.id ?? null}
+                onSelect={(id) => void openTrip(id)}
+                onCreated={async (id) => {
+                  await loadTrips();
+                  void openTrip(id);
+                }}
+              />
+            </div>
+            <div className="pane pane-detail">{detailPanel}</div>
+          </>
+        )}
+
+        {tab === "calendar" && (
+          <div className="pane placeholder">
+            <h2>Calendar</h2>
+            <p className="muted">Lands in stage 5.</p>
+          </div>
+        )}
+
+        {tab === "map" && (
+          <div className="pane placeholder">
+            <h2>Map</h2>
+            <p className="muted">Lands in stage 5.</p>
+          </div>
+        )}
+
+        {tab === "settings" && (
+          <div className="pane">
+            <Settings
+              passports={passports}
+              onPassportsChanged={() => void loadTrips()}
+              onLoggedOut={refreshStatus}
+            />
+          </div>
+        )}
+      </main>
+
+      <nav className="bottom-tabs">
+        {(["trips", "calendar", "map", "settings"] as Tab[]).map((t) => (
+          <button
+            key={t}
+            className={tab === t ? "btab active" : "btab"}
+            onClick={() => {
+              setTab(t);
+              if (t !== "trips") setSelected(null);
+            }}
+          >
+            {t[0].toUpperCase() + t.slice(1)}
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }

@@ -1,0 +1,222 @@
+import { Field, Money, Row, Select, Text, TextArea } from "./Fields";
+import type { Leg, LegDirection, TravelMode } from "../types";
+
+export interface LegDraft {
+  mode: TravelMode;
+  direction: LegDirection;
+  carrier: string;
+  number: string;
+  from_place: string;
+  from_iata: string;
+  depart_at: string;
+  to_place: string;
+  to_iata: string;
+  arrive_at: string;
+  confirmation_code: string;
+  seat: string;
+  cost: string;
+  currency: string;
+  notes: string;
+}
+
+export function emptyLeg(direction: LegDirection = "inbound"): LegDraft {
+  return {
+    mode: "flight",
+    direction,
+    carrier: "",
+    number: "",
+    from_place: "",
+    from_iata: "",
+    depart_at: "",
+    to_place: "",
+    to_iata: "",
+    arrive_at: "",
+    confirmation_code: "",
+    seat: "",
+    cost: "",
+    currency: "",
+    notes: "",
+  };
+}
+
+/** datetime-local wants "YYYY-MM-DDTHH:MM"; the API returns seconds too. */
+const trim = (v: string | null) => (v ? v.slice(0, 16) : "");
+
+export function legToDraft(leg: Leg): LegDraft {
+  return {
+    mode: leg.mode,
+    direction: leg.direction,
+    carrier: leg.carrier,
+    number: leg.number,
+    from_place: leg.from_place,
+    from_iata: leg.from_iata,
+    depart_at: trim(leg.depart_at),
+    to_place: leg.to_place,
+    to_iata: leg.to_iata,
+    arrive_at: trim(leg.arrive_at),
+    confirmation_code: leg.confirmation_code,
+    seat: leg.seat,
+    cost: leg.cost === null ? "" : String(leg.cost),
+    currency: leg.currency,
+    notes: leg.notes,
+  };
+}
+
+export function legDraftToPayload(draft: LegDraft): Record<string, unknown> {
+  return {
+    ...draft,
+    from_iata: draft.from_iata.toUpperCase(),
+    to_iata: draft.to_iata.toUpperCase(),
+    depart_at: draft.depart_at || null,
+    arrive_at: draft.arrive_at || null,
+    cost: draft.cost === "" ? null : Number(draft.cost),
+  };
+}
+
+const MODES: { value: TravelMode; label: string }[] = [
+  { value: "flight", label: "Flight" },
+  { value: "train", label: "Train" },
+  { value: "bus", label: "Bus" },
+  { value: "ferry", label: "Ferry" },
+  { value: "car", label: "Car" },
+];
+
+const DIRECTIONS: { value: LegDirection; label: string }[] = [
+  { value: "inbound", label: "Getting there" },
+  { value: "internal", label: "Within the trip" },
+  { value: "outbound", label: "Coming home" },
+];
+
+export function LegForm({
+  draft,
+  onChange,
+}: {
+  draft: LegDraft;
+  onChange: (d: LegDraft) => void;
+}) {
+  const set = <K extends keyof LegDraft>(key: K, value: LegDraft[K]) =>
+    onChange({ ...draft, [key]: value });
+
+  const isFlight = draft.mode === "flight";
+
+  return (
+    <>
+      <Row>
+        <Field label="Mode">
+          <Select
+            value={draft.mode}
+            onChange={(v) => set("mode", v)}
+            options={MODES}
+          />
+        </Field>
+        <Field label="Direction" hint="Drives the missing-travel checks">
+          <Select
+            value={draft.direction}
+            onChange={(v) => set("direction", v)}
+            options={DIRECTIONS}
+          />
+        </Field>
+      </Row>
+
+      <Row>
+        <Field label="Carrier">
+          <Text
+            value={draft.carrier}
+            onChange={(v) => set("carrier", v)}
+            placeholder={isFlight ? "Vietnam Airlines" : "JR"}
+          />
+        </Field>
+        <Field label="Number">
+          <Text
+            value={draft.number}
+            onChange={(v) => set("number", v)}
+            placeholder={isFlight ? "VN610" : "Nozomi 21"}
+          />
+        </Field>
+      </Row>
+
+      <Row>
+        <Field label="From">
+          <Text
+            value={draft.from_place}
+            onChange={(v) => set("from_place", v)}
+            placeholder="Bangkok"
+          />
+        </Field>
+        {isFlight && (
+          <Field label="From code">
+            <Text
+              value={draft.from_iata}
+              onChange={(v) => set("from_iata", v.toUpperCase().slice(0, 4))}
+              placeholder="BKK"
+              maxLength={4}
+            />
+          </Field>
+        )}
+      </Row>
+
+      <Field label="Departs" hint="Local time where you depart, as on the ticket">
+        <input
+          type="datetime-local"
+          value={draft.depart_at}
+          onChange={(e) => set("depart_at", e.target.value)}
+        />
+      </Field>
+
+      <Row>
+        <Field label="To">
+          <Text
+            value={draft.to_place}
+            onChange={(v) => set("to_place", v)}
+            placeholder="Hanoi"
+          />
+        </Field>
+        {isFlight && (
+          <Field label="To code">
+            <Text
+              value={draft.to_iata}
+              onChange={(v) => set("to_iata", v.toUpperCase().slice(0, 4))}
+              placeholder="HAN"
+              maxLength={4}
+            />
+          </Field>
+        )}
+      </Row>
+
+      <Field label="Arrives" hint="Local time at the destination">
+        <input
+          type="datetime-local"
+          value={draft.arrive_at}
+          min={draft.depart_at || undefined}
+          onChange={(e) => set("arrive_at", e.target.value)}
+        />
+      </Field>
+
+      <Row>
+        <Field label="Confirmation">
+          <Text
+            value={draft.confirmation_code}
+            onChange={(v) => set("confirmation_code", v)}
+            placeholder="VN77KD"
+          />
+        </Field>
+        <Field label="Seat">
+          <Text value={draft.seat} onChange={(v) => set("seat", v)} placeholder="34K" />
+        </Field>
+      </Row>
+
+      <Field label="Cost">
+        <Money
+          amount={draft.cost}
+          currency={draft.currency}
+          onAmount={(v) => set("cost", v)}
+          onCurrency={(v) => set("currency", v)}
+        />
+      </Field>
+
+      <Field label="Notes" wide>
+        <TextArea value={draft.notes} onChange={(v) => set("notes", v)} />
+      </Field>
+    </>
+  );
+}

@@ -132,6 +132,9 @@ def trip_detail(session: Session, trip: Trip) -> dict:
     ).all()
 
     return {
+        # `notes` stays the trip's own free-text memo, matching list_trips. The
+        # Note records go under notes_list -- spreading model_dump() and then
+        # writing "notes" here would silently replace the memo with an array.
         **trip.model_dump(),
         "status": trip_status(trip),
         "countries": sorted({s.country_code for s in stays}),
@@ -140,5 +143,5 @@ def trip_detail(session: Session, trip: Trip) -> dict:
         "legs": [leg.model_dump() for leg in legs],
         "requirements": [r.model_dump() for r in trip.requirements],
         "entries": [e.model_dump() for e in entries],
-        "notes": [n.model_dump() for n in notes],
+        "notes_list": [n.model_dump() for n in notes],
     }

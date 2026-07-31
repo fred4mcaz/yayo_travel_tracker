@@ -5,6 +5,7 @@ challenges and verify the signed responses.
 """
 
 import base64
+import json
 import logging
 from typing import Optional
 
@@ -166,7 +167,9 @@ def register_begin(
         ],
     )
     store_challenge(session, options.challenge, "register")
-    return {"options": options_to_json(options)}
+    # options_to_json returns a string; hand the client a real object so it
+    # does not have to double-parse.
+    return {"options": json.loads(options_to_json(options))}
 
 
 class RegisterFinishRequest(BaseModel):
@@ -243,7 +246,7 @@ def login_begin(session: Session = Depends(get_session)) -> dict:
         user_verification=UserVerificationRequirement.PREFERRED,
     )
     store_challenge(session, options.challenge, "login")
-    return {"options": options_to_json(options)}
+    return {"options": json.loads(options_to_json(options))}
 
 
 class LoginFinishRequest(BaseModel):
