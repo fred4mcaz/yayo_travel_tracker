@@ -10,7 +10,9 @@ webauthn==2.5.0
 
 # Stage 8 — Gmail + extraction
 imap-tools==1.7.4
-anthropic==0.42.0
+# 0.120.2 for strict tool use: the pinned 0.42 ToolParam had no `strict` field,
+# so the strict extraction schema could not be expressed. Pinned exactly.
+anthropic==0.120.2
 APScheduler==3.11.0
 
 # Stage 9 — calendar feed

@@ -1,0 +1,364 @@
+"""Turning a candidate email into a pending proposal.
+
+This is the only place mail leaves the box, and it is deliberately a two-stage
+funnel:
+
+  1. **Triage** with the cheap model (`claude-haiku-4-5`): is this actually a
+     booking worth reading closely? The local filter already gated on sender
+     and keywords; this is the first time an LLM sees the text.
+  2. **Extract** with the capable model (`claude-sonnet-5`): pull the structured
+     booking out, against a *strict* tool schema so the shape is guaranteed.
+
+The output is an `Extraction` row with `status=pending`. **Nothing here touches
+trip data.** A proposal is not a fact until it is accepted (phase 4).
+
+The model is injected behind a Protocol, so every test in this suite runs
+against a fake and never opens a socket. The real implementation lives at the
+bottom of the file.
+"""
+
+import json
+import logging
+from dataclasses import dataclass
+from datetime import date
+from typing import Optional, Protocol
+
+from sqlmodel import Session, select
+
+from app.models import EmailMessage, Extraction, ExtractionStatus, utcnow
+
+log = logging.getLogger("yayo.extraction")
+
+TRIAGE_MODEL = "claude-haiku-4-5"
+EXTRACT_MODEL = "claude-sonnet-5"
+
+BOOKING_KINDS = ("hotel", "flight", "train", "bus", "ferry", "car", "other")
+
+
+# --------------------------------------------------------------------------
+# The strict tool schemas
+# --------------------------------------------------------------------------
+
+# Strict tool use requires every property to appear in `required` and
+# `additionalProperties: false`. Optionality is expressed by allowing null,
+# never by omission -- so the model must decide each field explicitly rather
+# than quietly leave it out.
+
+TRIAGE_TOOL = {
+    "name": "assess_email",
+    "description": "Record whether this email is a travel booking confirmation.",
+    "strict": True,
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["is_booking", "confidence", "reason"],
+        "properties": {
+            "is_booking": {
+                "type": "boolean",
+                "description": (
+                    "True only for a confirmed reservation the traveller holds "
+                    "-- a hotel stay, a flight, a train. False for marketing, "
+                    "receipts for other things, or a booking that was cancelled."
+                ),
+            },
+            "confidence": {
+                "type": "number",
+                "description": "0 to 1, how sure you are.",
+            },
+            "reason": {"type": "string", "description": "One short sentence."},
+        },
+    },
+}
+
+EXTRACT_TOOL = {
+    "name": "record_booking",
+    "description": (
+        "Record one travel booking from a confirmation email. One email is one "
+        "booking: a single hotel stay, or a single arrival journey. Do not "
+        "invent fields you cannot see -- use null."
+    ),
+    "strict": True,
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "kind",
+            "country_code",
+            "city",
+            "start_date",
+            "end_date",
+            "hotel_name",
+            "carrier",
+            "confirmation_code",
+            "confidence",
+        ],
+        "properties": {
+            "kind": {
+                "type": "string",
+                "enum": list(BOOKING_KINDS),
+                "description": "hotel for a stay; the mode for an arrival journey.",
+            },
+            "country_code": {
+                "type": ["string", "null"],
+                "description": "ISO 3166-1 alpha-2, e.g. VN, TH, JP. Null if unclear.",
+            },
+            "city": {"type": ["string", "null"]},
+            "start_date": {
+                "type": ["string", "null"],
+                "description": "YYYY-MM-DD. Check-in for a hotel, departure for a leg.",
+            },
+            "end_date": {
+                "type": ["string", "null"],
+                "description": "YYYY-MM-DD. Check-out for a hotel; null for a leg.",
+            },
+            "hotel_name": {"type": ["string", "null"]},
+            "carrier": {
+                "type": ["string", "null"],
+                "description": "Airline or operator, for a leg.",
+            },
+            "confirmation_code": {"type": ["string", "null"]},
+            "confidence": {
+                "type": "number",
+                "description": "0 to 1, how sure you are of this reading.",
+            },
+        },
+    },
+}
+
+
+# --------------------------------------------------------------------------
+# The model, behind a seam
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TriageResult:
+    is_booking: bool
+    confidence: float
+    reason: str
+
+
+class ExtractionModel(Protocol):
+    """What the pipeline needs from an LLM. The real one calls Anthropic."""
+
+    def triage(self, subject: str, body: str) -> TriageResult:
+        ...
+
+    def extract(self, subject: str, body: str) -> Optional[dict]:
+        """The raw tool input, or None if the model would not produce one."""
+        ...
+
+
+# --------------------------------------------------------------------------
+# Validation -- strict mode guarantees shape from the real API, but a refusal,
+# a fake, or a future schema drift might not, so nothing is trusted blindly.
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Booking:
+    kind: str
+    country_code: Optional[str]
+    city: Optional[str]
+    start_date: Optional[str]
+    end_date: Optional[str]
+    hotel_name: Optional[str]
+    carrier: Optional[str]
+    confirmation_code: Optional[str]
+    confidence: Optional[float]
+
+    def payload(self) -> dict:
+        d = self.__dict__.copy()
+        d.pop("confidence")
+        return d
+
+
+def _clean_str(value) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("expected a string")
+    value = value.strip()
+    return value or None
+
+
+def _clean_date(value) -> Optional[str]:
+    """Validate an ISO date, returning it normalised, or None."""
+    value = _clean_str(value)
+    if value is None:
+        return None
+    # date.fromisoformat is strict about YYYY-MM-DD; a bad date raises.
+    return date.fromisoformat(value).isoformat()
+
+
+def validate_booking(payload) -> Optional[Booking]:
+    """Coerce a raw tool input into a Booking, or None if it is unusable.
+
+    Returning None is a rejection: the caller persists nothing. A booking that
+    names no country and no date is not something phase 4 could ever match or
+    place, so it is treated as unusable rather than stored as noise.
+    """
+    if not isinstance(payload, dict):
+        return None
+    try:
+        kind = payload["kind"]
+        if kind not in BOOKING_KINDS:
+            return None
+
+        country = _clean_str(payload.get("country_code"))
+        if country is not None:
+            country = country.upper()
+            if len(country) != 2 or not country.isalpha():
+                return None
+
+        confidence = payload.get("confidence")
+        if confidence is not None:
+            confidence = float(confidence)
+            if not 0.0 <= confidence <= 1.0:
+                return None
+
+        booking = Booking(
+            kind=kind,
+            country_code=country,
+            city=_clean_str(payload.get("city")),
+            start_date=_clean_date(payload.get("start_date")),
+            end_date=_clean_date(payload.get("end_date")),
+            hotel_name=_clean_str(payload.get("hotel_name")),
+            carrier=_clean_str(payload.get("carrier")),
+            confirmation_code=_clean_str(payload.get("confirmation_code")),
+            confidence=confidence,
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    # A proposal with nothing to match on is not worth reviewing.
+    if booking.country_code is None and booking.start_date is None:
+        return None
+    return booking
+
+
+# --------------------------------------------------------------------------
+# The pipeline
+# --------------------------------------------------------------------------
+
+
+def _pending(session: Session, limit: int) -> list[EmailMessage]:
+    """Candidate messages not yet run through extraction, oldest first."""
+    return list(
+        session.exec(
+            select(EmailMessage)
+            .where(EmailMessage.looks_like_travel == True)  # noqa: E712
+            .where(EmailMessage.processed_at.is_(None))
+            .order_by(EmailMessage.received_at)
+            .limit(limit)
+        ).all()
+    )
+
+
+def process_email(
+    session: Session, model: ExtractionModel, email: EmailMessage
+) -> Optional[Extraction]:
+    """Triage, extract, and record a pending proposal for one email.
+
+    Marks the email processed either way, so a message that triages out or
+    yields nothing is not retried on every poll. Returns the Extraction, or
+    None if none was created.
+    """
+    subject, body = email.subject, email.snippet
+    extraction: Optional[Extraction] = None
+
+    triage = model.triage(subject, body)
+    if triage.is_booking:
+        raw = model.extract(subject, body)
+        booking = validate_booking(raw)
+        if booking is not None:
+            extraction = Extraction(
+                email_message_id=email.id,
+                model=EXTRACT_MODEL,
+                payload_json=json.dumps(booking.payload(), sort_keys=True),
+                confidence=booking.confidence,
+                status=ExtractionStatus.pending,
+            )
+            session.add(extraction)
+        elif raw is not None:
+            log.info("email %s extracted but the result was unusable", email.id)
+    else:
+        log.debug("email %s triaged out: %s", email.id, triage.reason)
+
+    email.processed_at = utcnow()
+    session.add(email)
+    return extraction
+
+
+def run_extractions(
+    session: Session, model: ExtractionModel, *, limit: int = 20
+) -> dict:
+    """Process the backlog of travel candidates. Returns a summary."""
+    proposed = processed = 0
+    for email in _pending(session, limit):
+        if process_email(session, model, email) is not None:
+            proposed += 1
+        processed += 1
+    session.commit()
+    if processed:
+        log.info("extraction: %d processed, %d proposals pending", processed, proposed)
+    return {"processed": processed, "proposed": proposed}
+
+
+# --------------------------------------------------------------------------
+# The real model
+# --------------------------------------------------------------------------
+
+
+class AnthropicModel:
+    """Triage with Haiku, extract with Sonnet, both behind strict tools."""
+
+    def __init__(self, client=None) -> None:
+        self._client = client
+
+    @classmethod
+    def from_settings(cls) -> "AnthropicModel":
+        from app.config import get_settings
+
+        key = get_settings().anthropic_api_key
+        if not key:
+            raise RuntimeError(
+                "Anthropic API key is not configured. Set YAYO_ANTHROPIC_API_KEY "
+                "in deploy/.env."
+            )
+        import anthropic
+
+        return cls(anthropic.Anthropic(api_key=key))
+
+    def triage(self, subject: str, body: str) -> TriageResult:
+        result = self._call(TRIAGE_MODEL, TRIAGE_TOOL, subject, body)
+        if result is None:
+            return TriageResult(False, 0.0, "no tool call returned")
+        return TriageResult(
+            is_booking=bool(result.get("is_booking")),
+            confidence=float(result.get("confidence") or 0.0),
+            reason=str(result.get("reason") or ""),
+        )
+
+    def extract(self, subject: str, body: str) -> Optional[dict]:
+        return self._call(EXTRACT_MODEL, EXTRACT_TOOL, subject, body)
+
+    def _call(self, model: str, tool: dict, subject: str, body: str) -> Optional[dict]:
+        message = self._client.messages.create(
+            model=model,
+            max_tokens=1024,
+            tools=[tool],
+            tool_choice={"type": "tool", "name": tool["name"]},
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"Subject: {subject}\n\n{body}"
+                    ),
+                }
+            ],
+        )
+        for block in message.content:
+            if block.type == "tool_use":
+                return dict(block.input)
+        return None
