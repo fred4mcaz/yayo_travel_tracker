@@ -16,8 +16,21 @@ dig +short travel.foryayo.com
 
 ### 2. Clone the repo
 
+The repo is private, so the box authenticates with a read-only deploy key. It
+lives at `~/.ssh/yayo_travel_deploy` and is bound to the `github-yayo-travel`
+host alias in `~/.ssh/config`, scoped so it cannot affect any other GitHub
+access from this machine. Read-only is deliberate: the server only pulls, so a
+leaked key cannot rewrite history.
+
 ```bash
-git clone https://github.com/fred4mcaz/yayo_travel_tracker.git /srv/yayo_travel_tracker
+git clone github-yayo-travel:fred4mcaz/yayo_travel_tracker.git /srv/yayo_travel_tracker
+```
+
+If that fails with "Permission denied (publickey)", confirm the key is
+registered under the repo's Settings → Deploy keys:
+
+```bash
+ssh -T github-yayo-travel
 ```
 
 ### 3. Create the environment file
