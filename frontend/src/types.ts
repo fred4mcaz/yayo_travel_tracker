@@ -55,6 +55,8 @@ export interface Leg {
   trip_id: number;
   mode: TravelMode;
   direction: LegDirection;
+  /** Which country this journey delivered you into. */
+  country_code: string;
   carrier: string;
   number: string;
   from_place: string;
@@ -127,11 +129,26 @@ export interface TripSummary {
   nights: number;
 }
 
+/** One country within a journey: how you got in, on which passport, and every
+ *  hotel you stayed in while there. */
+export interface CountrySegment {
+  country_code: string;
+  country_name: string;
+  entry: CountryEntry | null;
+  passport_id: number | null;
+  entered_on: string | null;
+  nights: number;
+  stays: Stay[];
+  legs: Leg[];
+}
+
 export interface TripDetail extends TripSummary {
   stays: Stay[];
   legs: Leg[];
   requirements: Requirement[];
   entries: CountryEntry[];
+  countries_visited: { code: string; name: string }[];
+  country_segments: CountrySegment[];
   /** Note records. The trip's own memo text is `notes`, inherited above. */
   notes_list: Note[];
 }

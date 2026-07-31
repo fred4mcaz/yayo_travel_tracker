@@ -911,3 +911,100 @@ textarea {
   background: var(--upcoming-bg);
   color: var(--upcoming);
 }
+
+/* --- country blocks ----------------------------------------------------- */
+/* The trip detail is organised by country, because "which country, on which
+   passport, and which hotels while there" is the question the app exists to
+   answer. */
+.country-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 12px;
+  margin-bottom: 14px;
+  background: var(--surface);
+}
+.country-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.flag-lg {
+  font-size: 22px;
+}
+.country-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.country-title strong {
+  font-size: 17px;
+  font-weight: 500;
+}
+.country-title span {
+  font-size: 13px;
+}
+.passport-select {
+  width: auto;
+  min-width: 140px;
+  max-width: 48%;
+  flex-shrink: 0;
+  font-size: 14px;
+  padding: 6px 8px;
+}
+/* An unrecorded passport is the one gap that matters most here, so it is
+   coloured rather than left looking like an ordinary empty field. */
+.passport-select.needs-choice {
+  border-color: var(--warn);
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+.country-block .item-row {
+  border: none;
+  background: var(--surface-alt);
+  margin-bottom: 6px;
+}
+.country-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.row-icon {
+  font-size: 15px;
+  width: 20px;
+  flex-shrink: 0;
+  text-align: center;
+}
+.add-country {
+  width: 100%;
+  margin-bottom: 20px;
+  border-style: dashed;
+}
+.locked-country {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 500;
+  margin: 0 0 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* The passport picker and the country meta compete for width on a phone, and
+   the meta was wrapping mid-phrase. Give the picker its own line there. */
+@media (max-width: 560px) {
+  .country-head {
+    flex-wrap: wrap;
+  }
+  .passport-select {
+    max-width: none;
+    width: 100%;
+    order: 3;
+  }
+  .country-title {
+    flex-basis: calc(100% - 40px);
+  }
+}

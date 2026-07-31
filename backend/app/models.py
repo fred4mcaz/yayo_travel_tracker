@@ -183,9 +183,14 @@ class Leg(SQLModel, table=True):
     trip_id: int = Field(foreign_key="trip.id", index=True, ondelete="CASCADE")
 
     mode: TravelMode = Field(default=TravelMode.flight)
-    # Defaults to inbound: the form only records the journey out to the
-    # destination. Other directions remain valid for imported data.
+    # Defaults to inbound: only international arrivals are recorded. Other
+    # directions remain valid for imported data.
     direction: LegDirection = Field(default=LegDirection.inbound)
+
+    # Which country this journey delivered you into. Set explicitly rather than
+    # inferred from an airport code, so "how did I get into Thailand" is a fact
+    # rather than a guess.
+    country_code: str = Field(default="", index=True)
 
     carrier: str = ""
     number: str = ""

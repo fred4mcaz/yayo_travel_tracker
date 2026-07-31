@@ -12,7 +12,6 @@ import {
 } from "../components/StayForm";
 import type { StayDraft } from "../components/StayForm";
 import { api, ApiError } from "../lib/api";
-import { countryName } from "../lib/countries";
 import {
   countryFlag,
   formatDate,
@@ -22,15 +21,18 @@ import {
   formatMoney,
   relativeDays,
 } from "../lib/format";
-import type { Leg, Passport, Stay, TripDetail as Detail } from "../types";
+import type {
+  CountrySegment,
+  Leg,
+  Passport,
+  Stay,
+  TripDetail as Detail,
+} from "../types";
 
 interface Props {
   trip: Detail;
   passports: Passport[];
-  /** Countries from every trip, floated to the top of the country picker. */
   recentCountries: string[];
-  /** Set when the trip was just created, so the first stay form opens straight
-   *  away rather than landing on an empty panel. */
   openStayOnMount?: boolean;
   onChange: (trip: Detail) => void;
   onDeleted: () => void;
@@ -39,9 +41,9 @@ interface Props {
 
 type Editing =
   | { kind: "none" }
-  | { kind: "stay"; draft: StayDraft; id?: number }
-  | { kind: "leg"; draft: LegDraft; id?: number }
-  | { kind: "trip"; notes: string };
+  | { kind: "stay"; draft: StayDraft; id?: number; lockCountry?: boolean }
+  | { kind: "leg"; draft: LegDraft; id?: number; country: string }
+  | { kind: "notes"; notes: string };
 
 const MODE_LABEL: Record<string, string> = {
   flight: "Flight",
@@ -80,6 +82,7 @@ export function TripDetailPanel({
     }
   }
 
+  const segments = trip.country_segments ?? [];
   const lastStay = trip.stays[trip.stays.length - 1];
 
   return (
@@ -92,14 +95,14 @@ export function TripDetailPanel({
               ? `${formatRange(trip.start_date, trip.end_date)} · ${relativeDays(
                   trip.status === "past" ? trip.end_date : trip.start_date,
                 )}`
-              : "No dates yet — add a stay or a flight"}
+              : "No dates yet — add your first country"}
           </p>
         </div>
         <div className="detail-head-actions">
           <button
             className="icon-btn"
             title="Trip notes"
-            onClick={() => setEditing({ kind: "trip", notes: trip.notes })}
+            onClick={() => setEditing({ kind: "notes", notes: trip.notes })}
           >
             ✎
           </button>
@@ -112,118 +115,79 @@ export function TripDetailPanel({
       </header>
 
       {error && <p className="alert alert-danger">{error}</p>}
-
       {trip.notes && <p className="trip-memo">{trip.notes}</p>}
 
-      {/* --- stays --------------------------------------------------- */}
-      <section>
-        <div className="section-head">
-          <h3>Stays</h3>
-          <button
-            className="btn btn-sm"
-            onClick={() =>
-              setEditing({
-                kind: "stay",
-                // Chain onto the end of the trip so consecutive stays are quick.
-                draft: emptyStay(lastStay?.check_out ?? "", ""),
-              })
-            }
-          >
-            Add stay
-          </button>
-        </div>
-
-        {trip.stays.length === 0 && (
-          <p className="empty">No stays yet.</p>
-        )}
-
-        {trip.stays.map((stay) => (
-          <StayRow
-            key={stay.id}
-            stay={stay}
-            onEdit={() =>
-              setEditing({ kind: "stay", draft: stayToDraft(stay), id: stay.id })
-            }
-            onDelete={() =>
-              run(() => api.trips.removeStay(trip.id, stay.id))
-            }
-          />
-        ))}
-      </section>
-
-      {/* --- legs ---------------------------------------------------- */}
-      <section>
-        <div className="section-head">
-          <h3>Travel</h3>
-          <button
-            className="btn btn-sm"
-            onClick={() =>
-              setEditing({
-                kind: "leg",
-                draft: emptyLeg(),
-              })
-            }
-          >
-            Add travel
-          </button>
-        </div>
-
-        {trip.legs.length === 0 && <p className="empty">Nothing booked yet.</p>}
-
-        {trip.legs.map((leg) => (
-          <LegRow
-            key={leg.id}
-            leg={leg}
-            onEdit={() =>
-              setEditing({ kind: "leg", draft: legToDraft(leg), id: leg.id })
-            }
-            onDelete={() => run(() => api.trips.removeLeg(trip.id, leg.id))}
-          />
-        ))}
-      </section>
-
-      {/* --- country entries / passports ----------------------------- */}
-      {trip.entries.length > 0 && (
-        <section>
-          <h3>Passport used</h3>
-          {trip.entries.map((entry) => (
-            <div className="entry-row" key={entry.id}>
-              <span className="flag">{countryFlag(entry.country_code)}</span>
-              <div className="entry-main">
-                <strong>{countryName(entry.country_code)}</strong>
-                <span className="muted">
-                  entered {formatDateShort(entry.entered_on)}
-                </span>
-              </div>
-              <select
-                value={entry.passport_id ?? ""}
-                onChange={(e) =>
-                  run(() =>
-                    api.trips.updateEntry(trip.id, entry.id, {
-                      passport_id: e.target.value ? Number(e.target.value) : null,
-                    }),
-                  )
-                }
-              >
-                <option value="">Not recorded</option>
-                {passports.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nationality}
-                    {p.number_last4 ? ` ····${p.number_last4}` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ))}
-          {passports.length === 0 && (
-            <p className="empty">
-              Add your passports in Settings to record which one you used.
-            </p>
-          )}
-        </section>
+      {segments.length === 0 && (
+        <p className="empty">
+          No countries yet. Add the first one to start this journey.
+        </p>
       )}
 
-      {/* --- requirements -------------------------------------------- */}
+      {segments.map((segment) => (
+        <CountryBlock
+          key={segment.country_code}
+          segment={segment}
+          passports={passports}
+          busy={busy}
+          onSetPassport={(passportId) => {
+            if (!segment.entry) return;
+            void run(() =>
+              api.trips.updateEntry(trip.id, segment.entry!.id, {
+                passport_id: passportId,
+              }),
+            );
+          }}
+          onAddHotel={() =>
+            setEditing({
+              kind: "stay",
+              lockCountry: true,
+              draft: {
+                ...emptyStay(
+                  segment.stays[segment.stays.length - 1]?.check_out ?? "",
+                ),
+                country_code: segment.country_code,
+              },
+            })
+          }
+          onEditHotel={(stay) =>
+            setEditing({ kind: "stay", draft: stayToDraft(stay), id: stay.id })
+          }
+          onDeleteHotel={(stay) =>
+            void run(() => api.trips.removeStay(trip.id, stay.id))
+          }
+          onAddTravel={() =>
+            setEditing({
+              kind: "leg",
+              country: segment.country_code,
+              draft: { ...emptyLeg(), country_code: segment.country_code },
+            })
+          }
+          onEditTravel={(leg) =>
+            setEditing({
+              kind: "leg",
+              draft: legToDraft(leg),
+              id: leg.id,
+              country: segment.country_code,
+            })
+          }
+          onDeleteTravel={(leg) =>
+            void run(() => api.trips.removeLeg(trip.id, leg.id))
+          }
+        />
+      ))}
+
+      <button
+        className="btn add-country"
+        onClick={() =>
+          setEditing({
+            kind: "stay",
+            draft: emptyStay(lastStay?.check_out ?? ""),
+          })
+        }
+      >
+        + Add a country
+      </button>
+
       {trip.requirements.length > 0 && (
         <section>
           <h3>Paperwork</h3>
@@ -255,7 +219,6 @@ export function TripDetailPanel({
         </section>
       )}
 
-      {/* --- notes --------------------------------------------------- */}
       {trip.notes_list.length > 0 && (
         <section>
           <h3>Notes</h3>
@@ -278,7 +241,7 @@ export function TripDetailPanel({
           onClick={() => {
             if (
               confirm(
-                `Delete "${trip.title}" and all its stays and travel? This cannot be undone.`,
+                `Delete "${trip.label}" and everything in it? This cannot be undone.`,
               )
             ) {
               run(async () => {
@@ -295,7 +258,13 @@ export function TripDetailPanel({
       {/* --- sheets -------------------------------------------------- */}
       {editing.kind === "stay" && (
         <Sheet
-          title={editing.id ? "Edit stay" : "Add stay"}
+          title={
+            editing.id
+              ? "Edit hotel"
+              : editing.lockCountry
+                ? "Add hotel"
+                : "Add a country"
+          }
           onClose={() => setEditing({ kind: "none" })}
           footer={
             <>
@@ -327,13 +296,14 @@ export function TripDetailPanel({
             draft={editing.draft}
             onChange={(draft) => setEditing({ ...editing, draft })}
             recentCountries={recentCountries}
+            lockCountry={editing.lockCountry}
           />
         </Sheet>
       )}
 
       {editing.kind === "leg" && (
         <Sheet
-          title={editing.id ? "Edit travel" : "Add travel"}
+          title={editing.id ? "Edit travel" : "How you get there"}
           onClose={() => setEditing({ kind: "none" })}
           footer={
             <>
@@ -368,7 +338,7 @@ export function TripDetailPanel({
         </Sheet>
       )}
 
-      {editing.kind === "trip" && (
+      {editing.kind === "notes" && (
         <Sheet
           title="Trip notes"
           onClose={() => setEditing({ kind: "none" })}
@@ -402,6 +372,102 @@ export function TripDetailPanel({
   );
 }
 
+/** One country: passport at the top, then how you got in, then every hotel. */
+function CountryBlock({
+  segment,
+  passports,
+  busy,
+  onSetPassport,
+  onAddHotel,
+  onEditHotel,
+  onDeleteHotel,
+  onAddTravel,
+  onEditTravel,
+  onDeleteTravel,
+}: {
+  segment: CountrySegment;
+  passports: Passport[];
+  busy: boolean;
+  onSetPassport: (id: number | null) => void;
+  onAddHotel: () => void;
+  onEditHotel: (stay: Stay) => void;
+  onDeleteHotel: (stay: Stay) => void;
+  onAddTravel: () => void;
+  onEditTravel: (leg: Leg) => void;
+  onDeleteTravel: (leg: Leg) => void;
+}) {
+  const noPassport = segment.passport_id === null;
+
+  return (
+    <section className="country-block">
+      <div className="country-head">
+        <span className="flag flag-lg">{countryFlag(segment.country_code)}</span>
+        <div className="country-title">
+          <strong>{segment.country_name}</strong>
+          <span className="muted">
+            {segment.entered_on
+              ? `entered ${formatDateShort(segment.entered_on)}`
+              : "no arrival date yet"}
+            {segment.nights > 0 &&
+              ` · ${segment.nights} night${segment.nights === 1 ? "" : "s"}`}
+          </span>
+        </div>
+        <select
+          className={noPassport ? "passport-select needs-choice" : "passport-select"}
+          value={segment.passport_id ?? ""}
+          disabled={busy || passports.length === 0}
+          onChange={(e) =>
+            onSetPassport(e.target.value ? Number(e.target.value) : null)
+          }
+        >
+          <option value="">
+            {passports.length === 0 ? "No passports yet" : "Which passport?"}
+          </option>
+          {passports.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.nationality}
+              {p.number_last4 ? ` ····${p.number_last4}` : ""}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {segment.legs.map((leg) => (
+        <LegRow
+          key={leg.id}
+          leg={leg}
+          onEdit={() => onEditTravel(leg)}
+          onDelete={() => onDeleteTravel(leg)}
+        />
+      ))}
+
+      {segment.stays.map((stay) => (
+        <StayRow
+          key={stay.id}
+          stay={stay}
+          onEdit={() => onEditHotel(stay)}
+          onDelete={() => onDeleteHotel(stay)}
+        />
+      ))}
+
+      {segment.stays.length === 0 && (
+        <p className="empty">No hotels here yet.</p>
+      )}
+
+      <div className="country-actions">
+        <button className="btn btn-sm" onClick={onAddHotel}>
+          + Hotel in {segment.country_name}
+        </button>
+        {segment.legs.length === 0 && (
+          <button className="btn btn-sm" onClick={onAddTravel}>
+            + How you get there
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function StayRow({
   stay,
   onEdit,
@@ -414,33 +480,32 @@ function StayRow({
   const confirmed = stay.hotel_name.trim() && stay.confirmation_code.trim();
   return (
     <div className="item-row">
-      <span className="flag">{countryFlag(stay.country_code)}</span>
+      <span className="row-icon">🏨</span>
       <div className="entry-main">
-        <strong>{stay.city}</strong>
+        <strong>
+          {stay.hotel_name || "No hotel yet"} · {stay.city}
+        </strong>
         <span className="muted">
           {formatRange(stay.check_in, stay.check_out)} · {stay.nights} night
           {stay.nights === 1 ? "" : "s"}
         </span>
         <span className={confirmed ? "muted" : "warn"}>
-          {stay.hotel_name || "No hotel yet"}
-          {stay.confirmation_code ? ` · ${stay.confirmation_code}` : " · unconfirmed"}
+          {stay.confirmation_code || "Not confirmed"}
         </span>
+        {stay.cost !== null && (
+          <span className="muted">{formatMoney(stay.cost, stay.currency)}</span>
+        )}
         {stay.lat === null && (
-          // Say so rather than just quietly omitting the pin, so an unrecognised
-          // city name is something you can notice and correct.
           <span className="muted">
             Not on the map — try the nearest larger city
           </span>
         )}
-        {stay.cost !== null && (
-          <span className="muted">{formatMoney(stay.cost, stay.currency)}</span>
-        )}
       </div>
       <div className="item-actions">
-        <button className="icon-btn" onClick={onEdit} aria-label="Edit stay">
+        <button className="icon-btn" onClick={onEdit} aria-label="Edit hotel">
           ✎
         </button>
-        <button className="icon-btn" onClick={onDelete} aria-label="Delete stay">
+        <button className="icon-btn" onClick={onDelete} aria-label="Delete hotel">
           🗑
         </button>
       </div>
@@ -457,13 +522,11 @@ function LegRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const from = leg.from_iata || leg.from_place || "?";
-  const to = leg.to_iata || leg.to_place || "?";
+  const from = leg.from_place || leg.from_iata || "?";
+  const to = leg.to_place || leg.to_iata || "?";
   return (
     <div className="item-row">
-      <span className={`dir dir-${leg.direction}`}>
-        {leg.direction === "inbound" ? "↓" : leg.direction === "outbound" ? "↑" : "→"}
-      </span>
+      <span className="row-icon">✈</span>
       <div className="entry-main">
         <strong>
           {from} → {to}

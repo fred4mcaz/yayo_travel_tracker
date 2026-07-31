@@ -110,6 +110,7 @@ class StayUpdate(BaseModel):
 class LegCreate(BaseModel):
     mode: TravelMode = TravelMode.flight
     direction: LegDirection = LegDirection.inbound
+    country_code: str = Field(default="", max_length=2)
     carrier: str = ""
     number: str = ""
     from_place: str = ""
@@ -133,6 +134,7 @@ class LegCreate(BaseModel):
 class LegUpdate(BaseModel):
     mode: Optional[TravelMode] = None
     direction: Optional[LegDirection] = None
+    country_code: Optional[str] = Field(default=None, max_length=2)
     carrier: Optional[str] = None
     number: Optional[str] = None
     from_place: Optional[str] = None

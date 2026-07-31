@@ -286,3 +286,102 @@ def test_legs_default_to_the_inbound_journey(client):
         json={"from_place": "Los Angeles", "to_place": "Hanoi"},
     ).json()
     assert detail["legs"][0]["direction"] == "inbound"
+
+
+# --- country-first shape --------------------------------------------------
+
+
+def _stay_in(client, trip_id, country, city, start_offset, nights=3, **extra):
+    return _mk_stay(
+        client, trip_id,
+        country_code=country, city=city,
+        check_in=str(TODAY + timedelta(days=start_offset)),
+        check_out=str(TODAY + timedelta(days=start_offset + nights)),
+        **extra,
+    )
+
+
+def test_country_to_country_to_country(client):
+    """The shape this app is for: several countries, hotels within each."""
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    _stay_in(client, trip_id, "VN", "Hanoi", 10, hotel_name="Sofitel")
+    _stay_in(client, trip_id, "VN", "Hue", 13, hotel_name="Pilgrimage")
+    _stay_in(client, trip_id, "TH", "Bangkok", 16, hotel_name="Riva Surya")
+    detail = _stay_in(client, trip_id, "JP", "Osaka", 20, hotel_name="Granvia")
+
+    segments = detail["country_segments"]
+    assert [s["country_code"] for s in segments] == ["VN", "TH", "JP"]
+    assert [s["country_name"] for s in segments] == ["Vietnam", "Thailand", "Japan"]
+
+    vietnam = segments[0]
+    assert [s["city"] for s in vietnam["stays"]] == ["Hanoi", "Hue"]
+    assert vietnam["nights"] == 6
+
+    # One entry per country, each with its own passport slot.
+    assert all(s["entry"] is not None for s in segments)
+    assert all(s["passport_id"] is None for s in segments)
+    assert detail["label"] == "Vietnam → Thailand → Japan"
+
+
+def test_each_country_takes_its_own_passport(client):
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    _stay_in(client, trip_id, "VN", "Hanoi", 10)
+    detail = _stay_in(client, trip_id, "MX", "Guadalajara", 16)
+
+    mx_pp = client.post("/api/passports", json={"nationality": "MX"}).json()
+    us_pp = client.post("/api/passports", json={"nationality": "US"}).json()
+
+    by_code = {s["country_code"]: s for s in detail["country_segments"]}
+    client.patch(
+        f"/api/trips/{trip_id}/entries/{by_code['VN']['entry']['id']}",
+        json={"passport_id": us_pp["id"]},
+    )
+    detail = client.patch(
+        f"/api/trips/{trip_id}/entries/{by_code['MX']['entry']['id']}",
+        json={"passport_id": mx_pp["id"]},
+    ).json()
+
+    got = {s["country_code"]: s["passport_id"] for s in detail["country_segments"]}
+    assert got == {"VN": us_pp["id"], "MX": mx_pp["id"]}
+
+
+def test_a_leg_belongs_to_the_country_it_delivers_you_into(client):
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    _stay_in(client, trip_id, "VN", "Hanoi", 10)
+    _stay_in(client, trip_id, "TH", "Bangkok", 16)
+
+    client.post(
+        f"/api/trips/{trip_id}/legs",
+        json={"country_code": "TH", "from_place": "Hanoi", "to_place": "Bangkok"},
+    )
+    detail = client.post(
+        f"/api/trips/{trip_id}/legs",
+        json={"country_code": "VN", "from_place": "Los Angeles", "to_place": "Hanoi"},
+    ).json()
+
+    by_code = {s["country_code"]: s for s in detail["country_segments"]}
+    assert [leg["to_place"] for leg in by_code["VN"]["legs"]] == ["Hanoi"]
+    assert [leg["to_place"] for leg in by_code["TH"]["legs"]] == ["Bangkok"]
+
+
+def test_a_country_with_only_a_flight_still_gets_a_section(client):
+    """Booking the flight before the hotel is the normal order of events."""
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    _stay_in(client, trip_id, "VN", "Hanoi", 10)
+    detail = client.post(
+        f"/api/trips/{trip_id}/legs",
+        json={"country_code": "TH", "from_place": "Hanoi", "to_place": "Bangkok"},
+    ).json()
+
+    codes = [s["country_code"] for s in detail["country_segments"]]
+    assert "TH" in codes
+    thailand = next(s for s in detail["country_segments"] if s["country_code"] == "TH")
+    assert thailand["stays"] == []
+    assert len(thailand["legs"]) == 1
+
+
+def test_single_country_trip_is_still_named_by_city(client):
+    """Naming a one-country trip after the country would say nothing new."""
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    detail = _stay_in(client, trip_id, "VN", "Hanoi", 10, hotel_name="Sofitel")
+    assert detail["label"] == "Hanoi · Sofitel"

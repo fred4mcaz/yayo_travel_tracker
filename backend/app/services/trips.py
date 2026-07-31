@@ -10,6 +10,7 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
+from app.countries import country_name
 from app.models import CountryEntry, Leg, Note, Stay, Trip, utcnow
 
 
@@ -42,10 +43,10 @@ def refresh_trip_dates(session: Session, trip: Trip) -> Trip:
 def trip_label(trip: Trip, stays: list[Stay]) -> str:
     """What to call a trip when nobody typed a name for it.
 
-    A trip is one international journey, so it is identified by where you
-    actually went. One stop reads as "Hanoi · Sofitel Legend"; several reads as
-    the route through them. An explicit title, if one was ever set, always wins
-    -- imported trips and anything named by hand keep their name.
+    A journey that crosses borders is identified by the countries; one that
+    stays inside a single country is identified by the cities in it, because
+    naming it after the country would say nothing you did not already know.
+    An explicit title always wins, so imported or hand-named trips keep theirs.
     """
     if trip.title.strip():
         return trip.title.strip()
@@ -53,19 +54,88 @@ def trip_label(trip: Trip, stays: list[Stay]) -> str:
         return "New trip"
 
     ordered = sorted(stays, key=lambda s: s.check_in)
+
+    countries: list[str] = []
+    for stay in ordered:
+        code = stay.country_code.upper()
+        if code and code not in countries:
+            countries.append(code)
+
+    if len(countries) > 1:
+        names = [country_name(c) for c in countries]
+        if len(names) <= 3:
+            return " → ".join(names)
+        return f"{' → '.join(names[:2])} +{len(names) - 2} more"
+
     cities: list[str] = []
     for stay in ordered:
         if stay.city and stay.city not in cities:
             cities.append(stay.city)
 
     if not cities:
-        return "New trip"
+        return country_name(countries[0]) if countries else "New trip"
     if len(cities) == 1:
         hotel = ordered[0].hotel_name.strip()
         return f"{cities[0]} · {hotel}" if hotel else cities[0]
     if len(cities) <= 3:
         return " → ".join(cities)
     return f"{' → '.join(cities[:2])} +{len(cities) - 2} more"
+
+
+def country_segments(session: Session, trip: Trip) -> list[dict]:
+    """The trip broken into the countries it visits, in arrival order.
+
+    This is the shape the app is actually about: which country, on which
+    passport, and which hotels while there. Stays and arrival legs are folded
+    into the country they belong to so none of that has to be reassembled by
+    eye.
+    """
+    stays = session.exec(
+        select(Stay).where(Stay.trip_id == trip.id).order_by(Stay.check_in)
+    ).all()
+    legs = session.exec(
+        select(Leg).where(Leg.trip_id == trip.id).order_by(Leg.depart_at)
+    ).all()
+    entries = session.exec(
+        select(CountryEntry).where(CountryEntry.trip_id == trip.id)
+    ).all()
+    entry_by_code = {e.country_code.upper(): e for e in entries}
+
+    order: list[str] = []
+    grouped: dict[str, list[Stay]] = {}
+    for stay in stays:
+        code = stay.country_code.upper()
+        if code not in grouped:
+            grouped[code] = []
+            order.append(code)
+        grouped[code].append(stay)
+
+    # A leg can be recorded before its country has any hotel booked, so its
+    # country still needs a section.
+    for leg in legs:
+        code = leg.country_code.upper()
+        if code and code not in grouped:
+            grouped[code] = []
+            order.append(code)
+
+    segments = []
+    for code in order:
+        group = grouped[code]
+        entry = entry_by_code.get(code)
+        arrivals = [leg for leg in legs if leg.country_code.upper() == code]
+        segments.append(
+            {
+                "country_code": code,
+                "country_name": country_name(code),
+                "entry": entry.model_dump() if entry else None,
+                "passport_id": entry.passport_id if entry else None,
+                "entered_on": str(entry.entered_on) if entry else None,
+                "nights": sum(s.nights for s in group),
+                "stays": [{**s.model_dump(), "nights": s.nights} for s in group],
+                "legs": [leg.model_dump() for leg in arrivals],
+            }
+        )
+    return segments
 
 
 def trip_status(trip: Trip, today: Optional[date] = None) -> str:
@@ -172,6 +242,11 @@ def trip_detail(session: Session, trip: Trip) -> dict:
         "stays": [{**s.model_dump(), "nights": s.nights} for s in stays],
         "legs": [leg.model_dump() for leg in legs],
         "requirements": [r.model_dump() for r in trip.requirements],
+        "countries_visited": [
+            {"code": c, "name": country_name(c)}
+            for c in dict.fromkeys(s.country_code.upper() for s in stays)
+        ],
+        "country_segments": country_segments(session, trip),
         "entries": [e.model_dump() for e in entries],
         "notes_list": [n.model_dump() for n in notes],
     }

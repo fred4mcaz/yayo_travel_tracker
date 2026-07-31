@@ -6,6 +6,7 @@ import type { Leg, LegDirection, TravelMode } from "../types";
 export interface LegDraft {
   mode: TravelMode;
   direction: LegDirection;
+  country_code: string;
   carrier: string;
   number: string;
   from_place: string;
@@ -25,6 +26,7 @@ export function emptyLeg(): LegDraft {
   return {
     mode: "flight",
     direction: "inbound",
+    country_code: "",
     carrier: "",
     number: "",
     from_place: "",
@@ -46,6 +48,7 @@ export function legToDraft(leg: Leg): LegDraft {
   return {
     mode: leg.mode,
     direction: leg.direction,
+    country_code: leg.country_code,
     carrier: leg.carrier,
     number: leg.number,
     from_place: leg.from_place,

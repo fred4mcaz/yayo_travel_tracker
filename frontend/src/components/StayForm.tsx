@@ -2,7 +2,8 @@ import { CityInput } from "./CityInput";
 import { CountrySelect } from "./CountrySelect";
 import { DateField } from "./DateField";
 import { Field, Row, Text, TextArea } from "./Fields";
-import { addDays, nightsBetween, toISODate, today } from "../lib/format";
+import { countryName } from "../lib/countries";
+import { addDays, countryFlag, nightsBetween, toISODate, today } from "../lib/format";
 import type { Stay } from "../types";
 
 /** Draft mirrors the API shape. Address and cost are still columns -- the Gmail
@@ -54,10 +55,15 @@ export function StayForm({
   draft,
   onChange,
   recentCountries = [],
+  lockCountry = false,
 }: {
   draft: StayDraft;
   onChange: (d: StayDraft) => void;
   recentCountries?: string[];
+  /** Adding a hotel inside a country that is already part of the journey. The
+   *  country is settled, so showing a 249-item picker would only invite a
+   *  mistake that silently moves the hotel to another country. */
+  lockCountry?: boolean;
 }) {
   const set = <K extends keyof StayDraft>(key: K, value: StayDraft[K]) =>
     onChange({ ...draft, [key]: value });
@@ -69,13 +75,20 @@ export function StayForm({
 
   return (
     <>
-      <Field label="Country" wide>
-        <CountrySelect
-          value={draft.country_code}
-          onChange={(v) => set("country_code", v)}
-          recent={recentCountries}
-        />
-      </Field>
+      {lockCountry ? (
+        <p className="locked-country">
+          <span className="flag">{countryFlag(draft.country_code)}</span>
+          {countryName(draft.country_code)}
+        </p>
+      ) : (
+        <Field label="Country" wide>
+          <CountrySelect
+            value={draft.country_code}
+            onChange={(v) => set("country_code", v)}
+            recent={recentCountries}
+          />
+        </Field>
+      )}
 
       <Field label="City" hint="Places the pin on the map" wide>
         <CityInput
