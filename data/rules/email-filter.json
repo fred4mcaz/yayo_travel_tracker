@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "_comment": [
+    "The pre-filter that decides whether a message may leave this box.",
+    "It is a privacy control, not a cost control: mail from a sender that is",
+    "not listed here is never sent to a third party, whatever it says.",
+    "A missed booking is an inconvenience -- you add the hotel by hand. A",
+    "personal email sent to an API is not recoverable. The list is biased",
+    "accordingly, and is meant to be extended as new senders show up."
+  ],
+
+  "allow_sender_domains": [
+    "booking.com",
+    "hotels.com",
+    "expedia.com",
+    "agoda.com",
+    "airbnb.com",
+    "vrbo.com",
+    "trip.com",
+    "traveloka.com",
+    "hostelworld.com",
+
+    "marriott.com",
+    "hilton.com",
+    "hyatt.com",
+    "ihg.com",
+    "accor.com",
+    "sofitel.com",
+    "radissonhotels.com",
+    "wyndhamhotels.com",
+    "melia.com",
+
+    "aeromexico.com",
+    "volaris.com",
+    "vivaaerobus.com",
+    "united.com",
+    "delta.com",
+    "aa.com",
+    "alaskaair.com",
+    "jetblue.com",
+    "southwest.com",
+    "vietnamairlines.com",
+    "vietjetair.com",
+    "bambooairways.com",
+    "thaiairways.com",
+    "bangkokair.com",
+    "singaporeair.com",
+    "cathaypacific.com",
+    "koreanair.com",
+    "flyasiana.com",
+    "ana.co.jp",
+    "jal.com",
+    "qatarairways.com",
+    "emirates.com",
+    "lufthansa.com",
+    "airfrance.fr",
+    "klm.com",
+    "britishairways.com",
+    "iberia.com",
+
+    "amtrak.com",
+    "raileurope.com",
+    "eurail.com",
+    "thetrainline.com"
+  ],
+
+  "allow_sender_addresses": [],
+
+  "_confirmation_comment": [
+    "Checked against subject and body. An allowed sender still has to look",
+    "like a booking -- their marketing mail should stay on the box too."
+  ],
+  "confirmation_keywords": [
+    "confirmation",
+    "confirmed",
+    "your booking",
+    "booking reference",
+    "booking number",
+    "reservation",
+    "itinerary",
+    "e-ticket",
+    "eticket",
+    "boarding pass",
+    "check-in",
+    "your stay",
+    "your trip",
+    "your flight",
+    "your reservation",
+    "record locator",
+    "pnr"
+  ],
+
+  "_deny_comment": [
+    "Subject only. Real confirmations carry an unsubscribe footer in the body,",
+    "so matching denials against the body would veto the mail we want."
+  ],
+  "subject_deny_keywords": [
+    "newsletter",
+    "deals",
+    "deal alert",
+    "price alert",
+    "sale",
+    "% off",
+    "promo",
+    "promotion",
+    "survey",
+    "rate your",
+    "review your",
+    "how was your",
+    "inspiration",
+    "recommended for you",
+    "earn points",
+    "last chance"
+  ]
+}
