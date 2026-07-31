@@ -601,6 +601,170 @@ textarea {
   flex-shrink: 0;
 }
 
+/* --- calendar ----------------------------------------------------------- */
+.cal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.cal-head h2 {
+  min-width: 170px;
+}
+.cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  margin-bottom: 4px;
+}
+.cal-week {
+  position: relative;
+  margin-bottom: 2px;
+}
+.cal-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.cal-day {
+  position: relative;
+  background: var(--surface);
+  border-radius: 4px;
+  padding: 3px 5px;
+  font-size: 12px;
+}
+.cal-day.outside {
+  opacity: 0.4;
+}
+.cal-day.today {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+}
+.cal-daynum {
+  color: var(--text-muted);
+}
+.cal-note-dot {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  font-size: 8px;
+  color: var(--warn);
+}
+/* Bars are overlaid on the week, below the date numbers, so they can span days
+   without fighting the grid while still reading as part of that week. */
+.cal-bars {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 22px;
+  pointer-events: none;
+}
+.cal-bars .cal-bar {
+  pointer-events: auto;
+}
+.cal-bar {
+  position: absolute;
+  height: 19px;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  padding: 0 6px;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  background: var(--past);
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+}
+.cal-bar.status-ongoing {
+  background: #1d9e75;
+}
+.cal-bar.status-future {
+  background: #378add;
+}
+.cal-bar.status-past {
+  background: #888780;
+}
+.cal-bar.status-undated {
+  background: #ba7517;
+}
+/* Square off the edge where a trip runs into the next or previous week, so it
+   reads as one continuous bar rather than separate blocks. */
+.cal-bar.cont-l {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.cal-bar.cont-r {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* --- map ---------------------------------------------------------------- */
+/* Land must read clearly against ocean at a glance, in both schemes. Keep a
+   wide value gap between the two -- a subtle difference disappears entirely on
+   a phone in daylight. */
+:root {
+  --map-land: #c6c2b5;
+  --map-ocean: #f1efe9;
+  --map-stroke: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --map-land: #454237;
+    --map-ocean: #15140f;
+    --map-stroke: #12110c;
+  }
+}
+.map-summary {
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+.map-canvas-wrap {
+  position: relative;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--map-ocean);
+}
+.map-canvas-wrap canvas {
+  display: block;
+  width: 100%;
+}
+.map-tip {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 13px;
+  pointer-events: none;
+}
+.map-legend {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 10px;
+}
+.map-legend span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.map-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
 /* --- bottom tabs (mobile only) ------------------------------------------ */
 .bottom-tabs {
   display: none;

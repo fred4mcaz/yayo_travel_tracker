@@ -9,6 +9,9 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# backend/app/config.py -> backend/app -> backend -> repo root
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="YAYO_", env_file=".env", extra="ignore")
@@ -21,10 +24,15 @@ class Settings(BaseSettings):
     rp_name: str = "Yayo travel"
 
     # --- storage ------------------------------------------------------------
-    # var_dir holds everything mutable: the database, backups, stored email.
-    # It is a mounted volume in production and gitignored locally.
-    var_dir: Path = Path("var")
-    data_dir: Path = Path("data")
+    # Defaults are absolute, anchored to the repo root, so they resolve the same
+    # whether you run uvicorn from backend/, pytest from anywhere, or alembic.
+    # Docker overrides both via YAYO_VAR_DIR and YAYO_DATA_DIR.
+    #
+    # var_dir holds everything mutable: database, backups, stored email. It is a
+    # mounted volume in production and gitignored locally.
+    var_dir: Path = REPO_ROOT / "var"
+    # data_dir is committed, read-only reference data (map outlines, rules).
+    data_dir: Path = REPO_ROOT / "data"
 
     # --- integrations (stage 8; unset until then) ---------------------------
     imap_host: str = "imap.gmail.com"

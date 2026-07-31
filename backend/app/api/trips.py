@@ -24,6 +24,7 @@ from app.schemas import (
     TripCreate,
     TripUpdate,
 )
+from app.services.geocode import fill_coordinates
 from app.services.trips import (
     refresh_trip_dates,
     sync_country_entries,
@@ -120,7 +121,10 @@ def create_stay(
     trip_id: int, payload: StayCreate, session: Session = Depends(get_session)
 ) -> dict:
     trip = get_or_404(session, Trip, trip_id, "trip")
-    session.add(Stay(trip_id=trip_id, **payload.model_dump()))
+    stay = Stay(trip_id=trip_id, **payload.model_dump())
+    # The form only collects country and city, so derive the pin here.
+    fill_coordinates(stay)
+    session.add(stay)
     session.commit()
     return _after_segment_change(session, trip)
 
@@ -134,7 +138,14 @@ def update_stay(
 ) -> dict:
     trip = get_or_404(session, Trip, trip_id, "trip")
     stay = get_child_or_404(session, Stay, stay_id, trip_id, "stay")
+    moved = (
+        payload.city is not None and payload.city != stay.city
+    ) or (payload.country_code is not None and payload.country_code != stay.country_code)
     apply_update(stay, payload)
+    if moved and payload.lat is None and payload.lon is None:
+        # The place changed, so the old pin is wrong. Clear it and re-derive.
+        stay.lat = stay.lon = None
+        fill_coordinates(stay)
     session.add(stay)
     session.commit()
     return _after_segment_change(session, trip)

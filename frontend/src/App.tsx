@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "./lib/api";
-import type { AuthStatus, Passport, TripDetail, TripSummary } from "./types";
+import type { AuthStatus, Note, Passport, TripDetail, TripSummary } from "./types";
 import { Auth } from "./views/Auth";
+import { Calendar } from "./views/Calendar";
+import { MapView } from "./views/Map";
 import { Settings } from "./views/Settings";
 import { TripDetailPanel } from "./views/TripDetail";
 import { TripList } from "./views/Trips";
@@ -14,6 +16,7 @@ export function App() {
   const [trips, setTrips] = useState<TripSummary[]>([]);
   const [selected, setSelected] = useState<TripDetail | null>(null);
   const [passports, setPassports] = useState<Passport[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
   const [tab, setTab] = useState<Tab>("trips");
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -31,9 +34,14 @@ export function App() {
 
   const loadTrips = useCallback(async () => {
     try {
-      const [list, ps] = await Promise.all([api.trips.list(), api.passports.list()]);
+      const [list, ps, ns] = await Promise.all([
+        api.trips.list(),
+        api.passports.list(),
+        api.notes.list(),
+      ]);
       setTrips(list);
       setPassports(ps);
+      setNotes(ns);
       setLoadError(null);
       return list;
     } catch (e) {
@@ -132,15 +140,27 @@ export function App() {
 
         {tab === "calendar" && (
           <div className="pane placeholder">
-            <h2>Calendar</h2>
-            <p className="muted">Lands in stage 5.</p>
+            <Calendar
+              trips={trips}
+              notes={notes}
+              onSelect={(id) => {
+                setTab("trips");
+                void openTrip(id);
+              }}
+            />
           </div>
         )}
 
         {tab === "map" && (
           <div className="pane placeholder">
-            <h2>Map</h2>
-            <p className="muted">Lands in stage 5.</p>
+            <MapView
+              trips={trips}
+              loadDetail={api.trips.get}
+              onSelect={(id) => {
+                setTab("trips");
+                void openTrip(id);
+              }}
+            />
           </div>
         )}
 

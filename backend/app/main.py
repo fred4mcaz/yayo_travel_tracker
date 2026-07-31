@@ -89,6 +89,27 @@ def health() -> dict:
     }
 
 
+@app.get("/geo/countries.geojson")
+def country_outlines():
+    """Country outlines for the map.
+
+    Left unauthenticated on purpose: this is public-domain Natural Earth data
+    identical for every visitor and reveals nothing about the user, and keeping
+    it out of the session-gated paths lets it be cached hard. It never changes
+    between deploys, so it is marked immutable.
+    """
+    path = settings.data_dir / "geo" / "countries.min.geojson"
+    if not path.is_file():
+        return JSONResponse(
+            {"detail": "Map data missing. Run scripts/build_geo.py."}, status_code=503
+        )
+    return FileResponse(
+        path,
+        media_type="application/geo+json",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
 # Auth endpoints police themselves — /status and the login flow must be
 # reachable while logged out.
 app.include_router(auth.router)
