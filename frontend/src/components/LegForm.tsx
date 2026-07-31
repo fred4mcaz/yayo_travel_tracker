@@ -19,10 +19,12 @@ export interface LegDraft {
   notes: string;
 }
 
-export function emptyLeg(direction: LegDirection = "inbound"): LegDraft {
+/** Always inbound. This form records how you got to the destination; a trip is
+ *  one international journey, and movement within it is not tracked as legs. */
+export function emptyLeg(): LegDraft {
   return {
     mode: "flight",
-    direction,
+    direction: "inbound",
     carrier: "",
     number: "",
     from_place: "",
@@ -76,12 +78,6 @@ const MODES: { value: TravelMode; label: string }[] = [
   { value: "car", label: "Car" },
 ];
 
-const DIRECTIONS: { value: LegDirection; label: string }[] = [
-  { value: "inbound", label: "Getting there" },
-  { value: "internal", label: "Within the trip" },
-  { value: "outbound", label: "Coming home" },
-];
-
 export function LegForm({
   draft,
   onChange,
@@ -94,18 +90,9 @@ export function LegForm({
 
   return (
     <>
-      <Row>
-        <Field label="Mode">
-          <Select value={draft.mode} onChange={(v) => set("mode", v)} options={MODES} />
-        </Field>
-        <Field label="Direction" hint="Drives the missing-travel checks">
-          <Select
-            value={draft.direction}
-            onChange={(v) => set("direction", v)}
-            options={DIRECTIONS}
-          />
-        </Field>
-      </Row>
+      <Field label="How" wide>
+        <Select value={draft.mode} onChange={(v) => set("mode", v)} options={MODES} />
+      </Field>
 
       <Row>
         <Field label="From">

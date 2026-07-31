@@ -39,6 +39,35 @@ def refresh_trip_dates(session: Session, trip: Trip) -> Trip:
     return trip
 
 
+def trip_label(trip: Trip, stays: list[Stay]) -> str:
+    """What to call a trip when nobody typed a name for it.
+
+    A trip is one international journey, so it is identified by where you
+    actually went. One stop reads as "Hanoi · Sofitel Legend"; several reads as
+    the route through them. An explicit title, if one was ever set, always wins
+    -- imported trips and anything named by hand keep their name.
+    """
+    if trip.title.strip():
+        return trip.title.strip()
+    if not stays:
+        return "New trip"
+
+    ordered = sorted(stays, key=lambda s: s.check_in)
+    cities: list[str] = []
+    for stay in ordered:
+        if stay.city and stay.city not in cities:
+            cities.append(stay.city)
+
+    if not cities:
+        return "New trip"
+    if len(cities) == 1:
+        hotel = ordered[0].hotel_name.strip()
+        return f"{cities[0]} · {hotel}" if hotel else cities[0]
+    if len(cities) <= 3:
+        return " → ".join(cities)
+    return f"{' → '.join(cities[:2])} +{len(cities) - 2} more"
+
+
 def trip_status(trip: Trip, today: Optional[date] = None) -> str:
     """past | ongoing | future | undated."""
     today = today or date.today()
@@ -136,6 +165,7 @@ def trip_detail(session: Session, trip: Trip) -> dict:
         # Note records go under notes_list -- spreading model_dump() and then
         # writing "notes" here would silently replace the memo with an array.
         **trip.model_dump(),
+        "label": trip_label(trip, stays),
         "status": trip_status(trip),
         "countries": sorted({s.country_code for s in stays}),
         "nights": sum(s.nights for s in stays),

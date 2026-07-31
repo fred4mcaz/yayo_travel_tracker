@@ -18,6 +18,8 @@ export function App() {
   const [passports, setPassports] = useState<Passport[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [tab, setTab] = useState<Tab>("trips");
+  // Set for a trip created moments ago, so its detail opens on the stay form.
+  const [justCreated, setJustCreated] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // The enrollment link carries its token in the query string.
@@ -59,6 +61,14 @@ export function App() {
     setSelected(detail);
   }, []);
 
+  const selectTrip = useCallback(
+    (id: number) => {
+      setJustCreated(null);
+      void openTrip(id);
+    },
+    [openTrip],
+  );
+
   if (status === null) {
     return (
       <div className="boot">
@@ -91,15 +101,20 @@ export function App() {
       trip={selected}
       passports={passports}
       recentCountries={recentCountries}
+      openStayOnMount={selected.id === justCreated}
       onChange={(trip) => {
         setSelected(trip);
         void loadTrips();
       }}
       onDeleted={() => {
         setSelected(null);
+        setJustCreated(null);
         void loadTrips();
       }}
-      onClose={() => setSelected(null)}
+      onClose={() => {
+        setSelected(null);
+        setJustCreated(null);
+      }}
     />
   ) : (
     <div className="detail-empty">
@@ -133,8 +148,9 @@ export function App() {
               <TripList
                 trips={trips}
                 selectedId={selected?.id ?? null}
-                onSelect={(id) => void openTrip(id)}
+                onSelect={selectTrip}
                 onCreated={async (id) => {
+                  setJustCreated(id);
                   await loadTrips();
                   void openTrip(id);
                 }}
@@ -151,7 +167,7 @@ export function App() {
               notes={notes}
               onSelect={(id) => {
                 setTab("trips");
-                void openTrip(id);
+                selectTrip(id);
               }}
             />
           </div>
@@ -164,7 +180,7 @@ export function App() {
               loadDetail={api.trips.get}
               onSelect={(id) => {
                 setTab("trips");
-                void openTrip(id);
+                selectTrip(id);
               }}
             />
           </div>

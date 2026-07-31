@@ -1,9 +1,8 @@
-import { useState } from "react";
-
 import { CityInput } from "./CityInput";
 import { CountrySelect } from "./CountrySelect";
+import { DateField } from "./DateField";
 import { Field, Row, Text, TextArea } from "./Fields";
-import { nightsBetween } from "../lib/format";
+import { addDays, nightsBetween, toISODate, today } from "../lib/format";
 import type { Stay } from "../types";
 
 /** Draft mirrors the API shape. Address and cost are still columns -- the Gmail
@@ -19,13 +18,17 @@ export interface StayDraft {
   notes: string;
 }
 
+/** A blank stay, dated today to tomorrow unless it is chaining onto an
+ *  earlier stay in the same trip. Most entries are made close to the dates
+ *  they describe, so this is usually right or one nudge away. */
 export function emptyStay(checkIn = "", checkOut = ""): StayDraft {
+  const start = checkIn || toISODate(today());
   return {
     country_code: "",
     city: "",
     hotel_name: "",
-    check_in: checkIn,
-    check_out: checkOut,
+    check_in: start,
+    check_out: checkOut || addDays(start, 1),
     confirmation_code: "",
     notes: "",
   };
@@ -59,7 +62,6 @@ export function StayForm({
   const set = <K extends keyof StayDraft>(key: K, value: StayDraft[K]) =>
     onChange({ ...draft, [key]: value });
 
-  const [touchedOut, setTouchedOut] = useState(false);
   const nights =
     draft.check_in && draft.check_out
       ? nightsBetween(draft.check_in, draft.check_out)
@@ -85,24 +87,20 @@ export function StayForm({
 
       <Row>
         <Field label="Check in">
-          <input
-            type="date"
+          <DateField
             value={draft.check_in}
-            onChange={(e) => {
-              const check_in = e.target.value;
-              // Default checkout to the next day the first time a check-in is
-              // picked, since one night is the common minimum.
-              if (!touchedOut && check_in && !draft.check_out) {
-                const d = new Date(check_in);
-                d.setDate(d.getDate() + 1);
-                onChange({
-                  ...draft,
-                  check_in,
-                  check_out: d.toISOString().slice(0, 10),
-                });
-                return;
-              }
-              set("check_in", check_in);
+            onChange={(check_in) => {
+              // Never let check-in pass check-out. Carrying the stay length
+              // across keeps a booked duration intact while you move the dates.
+              const span = Math.max(1, nights ?? 1);
+              onChange({
+                ...draft,
+                check_in,
+                check_out:
+                  draft.check_out && draft.check_out > check_in
+                    ? draft.check_out
+                    : addDays(check_in, span),
+              });
             }}
             required
           />
@@ -112,19 +110,13 @@ export function StayForm({
           hint={
             nights === null
               ? undefined
-              : nights < 0
-                ? "Before check-in"
-                : `${nights} night${nights === 1 ? "" : "s"}`
+              : `${nights} night${nights === 1 ? "" : "s"}`
           }
         >
-          <input
-            type="date"
+          <DateField
             value={draft.check_out}
             min={draft.check_in || undefined}
-            onChange={(e) => {
-              setTouchedOut(true);
-              set("check_out", e.target.value);
-            }}
+            onChange={(v) => set("check_out", v)}
             required
           />
         </Field>

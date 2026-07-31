@@ -215,3 +215,74 @@ def test_is_confirmed_requires_name_and_code(client):
     stay = detail["stays"][0]
     # A hotel with no reference number is an intention, not a booking.
     assert stay["hotel_name"] and not stay["confirmation_code"]
+
+
+# --- derived labels -------------------------------------------------------
+
+
+def test_trip_needs_no_name(client):
+    """Creating a trip must not require inventing a name for it."""
+    r = client.post("/api/trips", json={})
+    assert r.status_code == 201
+    assert r.json()["label"] == "New trip"
+
+
+def test_label_is_city_and_hotel_for_one_stop(client):
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    detail = _mk_stay(client, trip_id, city="Hanoi", hotel_name="Sofitel Legend")
+    assert detail["label"] == "Hanoi · Sofitel Legend"
+
+
+def test_label_is_just_the_city_when_no_hotel_yet(client):
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    detail = _mk_stay(client, trip_id, city="Hanoi", hotel_name="")
+    assert detail["label"] == "Hanoi"
+
+
+def test_label_becomes_a_route_for_several_stops(client):
+    """One international trip, several hotels — the point of this change."""
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    _mk_stay(client, trip_id, city="Hanoi", hotel_name="Sofitel")
+    _mk_stay(
+        client, trip_id, city="Hue",
+        check_in=str(TODAY + timedelta(days=15)),
+        check_out=str(TODAY + timedelta(days=18)),
+    )
+    detail = _mk_stay(
+        client, trip_id, city="Hoi An",
+        check_in=str(TODAY + timedelta(days=18)),
+        check_out=str(TODAY + timedelta(days=22)),
+    )
+    assert detail["label"] == "Hanoi → Hue → Hoi An"
+    # Still one trip, one country entry, one journey.
+    assert len(detail["stays"]) == 3
+    assert len(detail["entries"]) == 1
+
+
+def test_label_truncates_a_long_route(client):
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    for i, city in enumerate(["Hanoi", "Hue", "Hoi An", "Da Nang", "Da Lat"]):
+        _mk_stay(
+            client, trip_id, city=city,
+            check_in=str(TODAY + timedelta(days=10 + i * 3)),
+            check_out=str(TODAY + timedelta(days=12 + i * 3)),
+        )
+    detail = client.get(f"/api/trips/{trip_id}").json()
+    assert detail["label"] == "Hanoi → Hue +3 more"
+
+
+def test_an_explicit_title_still_wins(client):
+    """Imported or hand-named trips keep their name."""
+    trip_id = client.post("/api/trips", json={"title": "Honeymoon"}).json()["id"]
+    detail = _mk_stay(client, trip_id, city="Hanoi", hotel_name="Sofitel")
+    assert detail["label"] == "Honeymoon"
+
+
+def test_legs_default_to_the_inbound_journey(client):
+    """The travel form no longer asks; every leg it creates is getting there."""
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    detail = client.post(
+        f"/api/trips/{trip_id}/legs",
+        json={"from_place": "Los Angeles", "to_place": "Hanoi"},
+    ).json()
+    assert detail["legs"][0]["direction"] == "inbound"

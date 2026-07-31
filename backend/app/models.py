@@ -109,7 +109,10 @@ class Trip(SQLModel, table=True):
     __tablename__ = "trip"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    title: str
+    # Usually empty. A trip is identified by where it goes, derived on read by
+    # services.trips.trip_label(); this only holds a name somebody set by hand
+    # or that arrived with imported data.
+    title: str = ""
     notes: str = ""
     archived: bool = Field(default=False, index=True)
 
@@ -180,7 +183,9 @@ class Leg(SQLModel, table=True):
     trip_id: int = Field(foreign_key="trip.id", index=True, ondelete="CASCADE")
 
     mode: TravelMode = Field(default=TravelMode.flight)
-    direction: LegDirection = Field(default=LegDirection.internal)
+    # Defaults to inbound: the form only records the journey out to the
+    # destination. Other directions remain valid for imported data.
+    direction: LegDirection = Field(default=LegDirection.inbound)
 
     carrier: str = ""
     number: str = ""

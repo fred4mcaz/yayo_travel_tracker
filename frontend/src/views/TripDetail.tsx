@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { Field, Text, TextArea } from "../components/Fields";
+import { Field, TextArea } from "../components/Fields";
 import { LegForm, emptyLeg, legDraftToPayload, legToDraft } from "../components/LegForm";
 import type { LegDraft } from "../components/LegForm";
 import { Sheet } from "../components/Sheet";
@@ -29,6 +29,9 @@ interface Props {
   passports: Passport[];
   /** Countries from every trip, floated to the top of the country picker. */
   recentCountries: string[];
+  /** Set when the trip was just created, so the first stay form opens straight
+   *  away rather than landing on an empty panel. */
+  openStayOnMount?: boolean;
   onChange: (trip: Detail) => void;
   onDeleted: () => void;
   onClose?: () => void;
@@ -38,7 +41,7 @@ type Editing =
   | { kind: "none" }
   | { kind: "stay"; draft: StayDraft; id?: number }
   | { kind: "leg"; draft: LegDraft; id?: number }
-  | { kind: "trip"; title: string; notes: string };
+  | { kind: "trip"; notes: string };
 
 const MODE_LABEL: Record<string, string> = {
   flight: "Flight",
@@ -52,11 +55,14 @@ export function TripDetailPanel({
   trip,
   passports,
   recentCountries,
+  openStayOnMount,
   onChange,
   onDeleted,
   onClose,
 }: Props) {
-  const [editing, setEditing] = useState<Editing>({ kind: "none" });
+  const [editing, setEditing] = useState<Editing>(() =>
+    openStayOnMount ? { kind: "stay", draft: emptyStay() } : { kind: "none" },
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -80,7 +86,7 @@ export function TripDetailPanel({
     <div className="detail">
       <header className="detail-head">
         <div>
-          <h2>{trip.title}</h2>
+          <h2>{trip.label}</h2>
           <p className="muted">
             {trip.start_date
               ? `${formatRange(trip.start_date, trip.end_date)} · ${relativeDays(
@@ -92,10 +98,8 @@ export function TripDetailPanel({
         <div className="detail-head-actions">
           <button
             className="icon-btn"
-            title="Edit trip"
-            onClick={() =>
-              setEditing({ kind: "trip", title: trip.title, notes: trip.notes })
-            }
+            title="Trip notes"
+            onClick={() => setEditing({ kind: "trip", notes: trip.notes })}
           >
             ✎
           </button>
@@ -156,11 +160,7 @@ export function TripDetailPanel({
             onClick={() =>
               setEditing({
                 kind: "leg",
-                draft: emptyLeg(
-                  trip.legs.some((l) => l.direction === "inbound")
-                    ? "outbound"
-                    : "inbound",
-                ),
+                draft: emptyLeg(),
               })
             }
           >
@@ -370,7 +370,7 @@ export function TripDetailPanel({
 
       {editing.kind === "trip" && (
         <Sheet
-          title="Edit trip"
+          title="Trip notes"
           onClose={() => setEditing({ kind: "none" })}
           footer={
             <>
@@ -379,14 +379,9 @@ export function TripDetailPanel({
               </button>
               <button
                 className="btn btn-primary"
-                disabled={busy || !editing.title.trim()}
+                disabled={busy}
                 onClick={() =>
-                  run(() =>
-                    api.trips.update(trip.id, {
-                      title: editing.title,
-                      notes: editing.notes,
-                    }),
-                  )
+                  run(() => api.trips.update(trip.id, { notes: editing.notes }))
                 }
               >
                 {busy ? "Saving…" : "Save"}
@@ -394,16 +389,11 @@ export function TripDetailPanel({
             </>
           }
         >
-          <Field label="Title" wide>
-            <Text
-              value={editing.title}
-              onChange={(title) => setEditing({ ...editing, title })}
-            />
-          </Field>
-          <Field label="Notes" wide>
+          <Field label="Notes about this trip" wide>
             <TextArea
               value={editing.notes}
               onChange={(notes) => setEditing({ ...editing, notes })}
+              rows={5}
             />
           </Field>
         </Sheet>

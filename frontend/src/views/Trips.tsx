@@ -1,7 +1,5 @@
 import { useState } from "react";
 
-import { Field, Text } from "../components/Fields";
-import { Sheet } from "../components/Sheet";
 import { api, ApiError } from "../lib/api";
 import { countryFlag, formatRange, relativeDays } from "../lib/format";
 import type { TripStatus, TripSummary } from "../types";
@@ -21,18 +19,16 @@ interface Props {
 }
 
 export function TripList({ trips, selectedId, onSelect, onCreated }: Props) {
-  const [adding, setAdding] = useState(false);
-  const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function create() {
+  /** No name prompt: a trip is identified by where it goes, which nobody knows
+   *  yet. Create it empty and go straight to the first stay. */
+  async function startTrip() {
     setBusy(true);
     setError(null);
     try {
-      const trip = await api.trips.create({ title: title.trim() });
-      setAdding(false);
-      setTitle("");
+      const trip = await api.trips.create();
       onCreated(trip.id);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -45,15 +41,17 @@ export function TripList({ trips, selectedId, onSelect, onCreated }: Props) {
     <div className="trip-list">
       <div className="section-head sticky">
         <h2>Trips</h2>
-        <button className="btn btn-sm btn-primary" onClick={() => setAdding(true)}>
-          New trip
+        <button className="btn btn-sm btn-primary" onClick={startTrip} disabled={busy}>
+          {busy ? "…" : "New trip"}
         </button>
       </div>
+
+      {error && <p className="alert alert-danger">{error}</p>}
 
       {trips.length === 0 && (
         <div className="empty-state">
           <p>No trips yet.</p>
-          <button className="btn btn-primary" onClick={() => setAdding(true)}>
+          <button className="btn btn-primary" onClick={startTrip} disabled={busy}>
             Add your first trip
           </button>
         </div>
@@ -79,22 +77,19 @@ export function TripList({ trips, selectedId, onSelect, onCreated }: Props) {
                       {countryFlag(c)}
                     </span>
                   ))}
-                  <strong>{trip.title}</strong>
+                  <strong>{trip.label}</strong>
                 </div>
                 <div className="trip-card-meta">
                   {trip.start_date
-                    ? `${formatRange(trip.start_date, trip.end_date)}`
+                    ? formatRange(trip.start_date, trip.end_date)
                     : "No dates"}
                 </div>
-                <div className="trip-card-meta">
-                  {trip.cities.length > 0 && <span>{trip.cities.join(" · ")}</span>}
-                  {trip.nights > 0 && (
-                    <span>
-                      {" "}
-                      · {trip.nights} night{trip.nights === 1 ? "" : "s"}
-                    </span>
-                  )}
-                </div>
+                {trip.cities.length > 1 && (
+                  <div className="trip-card-meta">
+                    {trip.cities.join(" · ")}
+                    {trip.nights > 0 && ` · ${trip.nights} nights`}
+                  </div>
+                )}
                 {trip.start_date && trip.status !== "past" && (
                   <div className="trip-card-when">
                     {trip.status === "ongoing"
@@ -107,40 +102,6 @@ export function TripList({ trips, selectedId, onSelect, onCreated }: Props) {
           </div>
         );
       })}
-
-      {adding && (
-        <Sheet
-          title="New trip"
-          onClose={() => setAdding(false)}
-          footer={
-            <>
-              <button className="btn" onClick={() => setAdding(false)}>
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary"
-                disabled={busy || !title.trim()}
-                onClick={create}
-              >
-                {busy ? "Creating…" : "Create"}
-              </button>
-            </>
-          }
-        >
-          {error && <p className="alert alert-danger">{error}</p>}
-          <Field
-            label="What should this trip be called?"
-            hint="Dates fill in automatically once you add a stay or a flight."
-            wide
-          >
-            <Text
-              value={title}
-              onChange={setTitle}
-              placeholder="Vietnam · Hanoi"
-            />
-          </Field>
-        </Sheet>
-      )}
     </div>
   );
 }

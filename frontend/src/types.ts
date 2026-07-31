@@ -114,6 +114,8 @@ export interface Note {
 
 export interface TripSummary {
   id: number;
+  /** What to show. Derived from the stays unless a title was set by hand. */
+  label: string;
   title: string;
   notes: string;
   archived: boolean;

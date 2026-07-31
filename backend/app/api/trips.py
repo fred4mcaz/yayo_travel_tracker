@@ -29,6 +29,7 @@ from app.services.trips import (
     refresh_trip_dates,
     sync_country_entries,
     trip_detail,
+    trip_label,
     trip_status,
 )
 
@@ -57,6 +58,7 @@ def list_trips(
         out.append(
             {
                 **trip.model_dump(),
+                "label": trip_label(trip, stays),
                 "status": trip_status(trip),
                 "countries": sorted({s.country_code for s in stays}),
                 "cities": [s.city for s in sorted(stays, key=lambda s: s.check_in)],

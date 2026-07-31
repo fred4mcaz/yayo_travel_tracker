@@ -100,7 +100,7 @@ export const api = {
   trips: {
     list: () => get<TripSummary[]>("/api/trips"),
     get: (id: number) => get<TripDetail>(`/api/trips/${id}`),
-    create: (body: { title: string; notes?: string }) =>
+    create: (body: { title?: string; notes?: string } = {}) =>
       post<TripDetail>("/api/trips", body),
     update: (id: number, body: Record<string, unknown>) =>
       patch<TripDetail>(`/api/trips/${id}`, body),

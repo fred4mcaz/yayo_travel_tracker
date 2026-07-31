@@ -34,12 +34,14 @@ class TripStatus(str):
 
 
 class TripCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
+    # Optional: trips are normally identified by where they go, not by a name
+    # somebody had to invent before the trip had any content.
+    title: str = Field(default="", max_length=200)
     notes: str = ""
 
 
 class TripUpdate(BaseModel):
-    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    title: Optional[str] = Field(default=None, max_length=200)
     notes: Optional[str] = None
     archived: Optional[bool] = None
 
@@ -107,7 +109,7 @@ class StayUpdate(BaseModel):
 
 class LegCreate(BaseModel):
     mode: TravelMode = TravelMode.flight
-    direction: LegDirection = LegDirection.internal
+    direction: LegDirection = LegDirection.inbound
     carrier: str = ""
     number: str = ""
     from_place: str = ""
