@@ -36,10 +36,13 @@ COPY deploy/entrypoint.sh /srv/entrypoint.sh
 COPY --from=frontend /build/dist /srv/frontend/dist
 RUN chmod +x /srv/entrypoint.sh
 
-# Run unprivileged. /data is a mounted volume owned by this uid.
+# Run unprivileged. The compose file overrides this with the host user's uid so
+# the bind-mounted /data is writable; this USER is the safe default for anyone
+# running the image directly. /srv is world-readable so any uid can run the app.
 RUN useradd --system --uid 10001 --create-home yayo \
     && mkdir -p /data \
-    && chown -R yayo:yayo /data /srv
+    && chown -R yayo:yayo /data \
+    && chmod -R a+rX /srv
 USER yayo
 
 EXPOSE 8000

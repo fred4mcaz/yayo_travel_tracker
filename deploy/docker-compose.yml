@@ -6,14 +6,28 @@ services:
     image: yayo-travel:latest
     container_name: yayo-travel
     restart: unless-stopped
+
+    # Run as the host user who owns the checkout. A bind mount keeps the host's
+    # ownership regardless of what the image sets, so a baked-in container user
+    # simply cannot write to /data. Running as the host uid also means backups
+    # land owned by you and can be scp'd off without sudo.
+    user: "${YAYO_UID:-1000}:${YAYO_GID:-1000}"
+
     env_file:
       - .env
+    environment:
+      # uid 1000 has no entry in the image's /etc/passwd, so give libraries that
+      # expect a writable HOME somewhere harmless to look.
+      HOME: /tmp
+
     volumes:
       # All mutable state. Back this up and you have everything.
       - ../var:/data
+
     ports:
       # Bound to loopback only — Caddy on the host is the sole public entrypoint.
       - "127.0.0.1:8081:8000"
+
     logging:
       driver: json-file
       options:

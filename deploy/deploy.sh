@@ -11,6 +11,15 @@ if [ ! -f deploy/.env ]; then
   exit 1
 fi
 
+# The container runs as this uid so it can write to the bind-mounted var/.
+YAYO_UID="$(id -u)"
+YAYO_GID="$(id -g)"
+export YAYO_UID YAYO_GID
+
+# Create these before compose does. Docker creates a missing bind-mount source
+# as root, which the container then cannot write to.
+mkdir -p var/backups
+
 echo "==> Pulling latest"
 git pull --ff-only
 
