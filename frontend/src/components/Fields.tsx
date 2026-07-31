@@ -82,33 +82,6 @@ export function Select<T extends string>({
   );
 }
 
-export function Money({
-  amount,
-  currency,
-  onAmount,
-  onCurrency,
-}: {
-  amount: string;
-  currency: string;
-  onAmount: (v: string) => void;
-  onCurrency: (v: string) => void;
-}) {
-  return (
-    <div className="money">
-      <input
-        type="number"
-        min="0"
-        step="0.01"
-        value={amount}
-        placeholder="0.00"
-        onChange={(e) => onAmount(e.target.value)}
-      />
-      <input
-        value={currency}
-        placeholder="USD"
-        maxLength={3}
-        onChange={(e) => onCurrency(e.target.value.toUpperCase())}
-      />
-    </div>
-  );
-}
+/* A Money input used to live here. Cost is no longer typed by hand -- it only
+   arrives from a confirmation email -- so the control was removed rather than
+   left lying around. The column and its read-only display remain. */

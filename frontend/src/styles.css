@@ -531,12 +531,33 @@ textarea:focus {
 textarea {
   resize: vertical;
 }
-.money {
-  display: flex;
-  gap: 8px;
+/* Progressive disclosure for fields a confirmation email normally supplies. */
+.more {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 4px;
 }
-.money input:last-child {
-  max-width: 90px;
+.more > summary {
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px 0;
+  list-style: none;
+  user-select: none;
+}
+.more > summary::-webkit-details-marker {
+  display: none;
+}
+.more > summary::before {
+  content: "▸ ";
+  display: inline-block;
+  transition: transform 0.15s;
+}
+.more[open] > summary::before {
+  content: "▾ ";
+}
+.more[open] > summary {
+  margin-bottom: 8px;
 }
 
 /* --- sheet -------------------------------------------------------------- */

@@ -1,20 +1,19 @@
 import { useState } from "react";
 
-import { Field, Money, Row, Text, TextArea } from "./Fields";
+import { Field, Row, Text, TextArea } from "./Fields";
 import { nightsBetween } from "../lib/format";
 import type { Stay } from "../types";
 
+/** Draft mirrors the API shape. Address and cost are still columns -- the Gmail
+ *  extractor fills them when a confirmation email has them -- but they are not
+ *  worth typing by hand, so they are absent from this form entirely. */
 export interface StayDraft {
   country_code: string;
   city: string;
   hotel_name: string;
-  address: string;
   check_in: string;
   check_out: string;
   confirmation_code: string;
-  booking_source: string;
-  cost: string;
-  currency: string;
   notes: string;
 }
 
@@ -23,13 +22,9 @@ export function emptyStay(checkIn = "", checkOut = ""): StayDraft {
     country_code: "",
     city: "",
     hotel_name: "",
-    address: "",
     check_in: checkIn,
     check_out: checkOut,
     confirmation_code: "",
-    booking_source: "",
-    cost: "",
-    currency: "",
     notes: "",
   };
 }
@@ -39,23 +34,15 @@ export function stayToDraft(stay: Stay): StayDraft {
     country_code: stay.country_code,
     city: stay.city,
     hotel_name: stay.hotel_name,
-    address: stay.address,
     check_in: stay.check_in,
     check_out: stay.check_out,
     confirmation_code: stay.confirmation_code,
-    booking_source: stay.booking_source,
-    cost: stay.cost === null ? "" : String(stay.cost),
-    currency: stay.currency,
     notes: stay.notes,
   };
 }
 
 export function draftToPayload(draft: StayDraft): Record<string, unknown> {
-  return {
-    ...draft,
-    country_code: draft.country_code.toUpperCase(),
-    cost: draft.cost === "" ? null : Number(draft.cost),
-  };
+  return { ...draft, country_code: draft.country_code.toUpperCase() };
 }
 
 export function StayForm({
@@ -77,7 +64,7 @@ export function StayForm({
   return (
     <>
       <Row>
-        <Field label="Country" hint="Two-letter code, e.g. VN">
+        <Field label="Country" hint="Two-letter code">
           <Text
             value={draft.country_code}
             onChange={(v) => set("country_code", v.toUpperCase().slice(0, 2))}
@@ -103,8 +90,8 @@ export function StayForm({
             value={draft.check_in}
             onChange={(e) => {
               const check_in = e.target.value;
-              // Default the checkout to the next day the first time a check-in
-              // is picked, since a one-night stay is the common minimum.
+              // Default checkout to the next day the first time a check-in is
+              // picked, since one night is the common minimum.
               if (!touchedOut && check_in && !draft.check_out) {
                 const d = new Date(check_in);
                 d.setDate(d.getDate() + 1);
@@ -143,22 +130,30 @@ export function StayForm({
         </Field>
       </Row>
 
-      <Field label="Hotel" wide>
-        <Text
-          value={draft.hotel_name}
-          onChange={(v) => set("hotel_name", v)}
-          placeholder="Sofitel Legend Metropole"
+      <Field label="Notes" wide>
+        <TextArea
+          value={draft.notes}
+          onChange={(v) => set("notes", v)}
+          placeholder="Anything worth remembering about this stop"
         />
       </Field>
 
-      <Field label="Address" wide>
-        <Text value={draft.address} onChange={(v) => set("address", v)} />
-      </Field>
-
-      <Row>
+      {/* Hotel and reference normally arrive from a confirmation email. Kept
+          reachable for the times you want to fill them in yourself, but folded
+          away so the common case is four fields and a note. */}
+      <details className="more" open={Boolean(draft.hotel_name || draft.confirmation_code)}>
+        <summary>Hotel details — usually filled in from your email</summary>
+        <Field label="Hotel" wide>
+          <Text
+            value={draft.hotel_name}
+            onChange={(v) => set("hotel_name", v)}
+            placeholder="Sofitel Legend Metropole"
+          />
+        </Field>
         <Field
           label="Confirmation"
-          hint="Without a reference this counts as unconfirmed"
+          hint="A stay with no reference counts as unconfirmed"
+          wide
         >
           <Text
             value={draft.confirmation_code}
@@ -166,27 +161,7 @@ export function StayForm({
             placeholder="4417-88213"
           />
         </Field>
-        <Field label="Booked via">
-          <Text
-            value={draft.booking_source}
-            onChange={(v) => set("booking_source", v)}
-            placeholder="Agoda"
-          />
-        </Field>
-      </Row>
-
-      <Field label="Cost">
-        <Money
-          amount={draft.cost}
-          currency={draft.currency}
-          onAmount={(v) => set("cost", v)}
-          onCurrency={(v) => set("currency", v)}
-        />
-      </Field>
-
-      <Field label="Notes" wide>
-        <TextArea value={draft.notes} onChange={(v) => set("notes", v)} />
-      </Field>
+      </details>
     </>
   );
 }

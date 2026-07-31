@@ -1,6 +1,8 @@
-import { Field, Money, Row, Select, Text, TextArea } from "./Fields";
+import { Field, Row, Select, Text, TextArea } from "./Fields";
 import type { Leg, LegDirection, TravelMode } from "../types";
 
+/** Cost and currency remain columns for the Gmail extractor to fill, but are
+ *  not worth typing by hand, so they are absent from this form. */
 export interface LegDraft {
   mode: TravelMode;
   direction: LegDirection;
@@ -14,8 +16,6 @@ export interface LegDraft {
   arrive_at: string;
   confirmation_code: string;
   seat: string;
-  cost: string;
-  currency: string;
   notes: string;
 }
 
@@ -33,8 +33,6 @@ export function emptyLeg(direction: LegDirection = "inbound"): LegDraft {
     arrive_at: "",
     confirmation_code: "",
     seat: "",
-    cost: "",
-    currency: "",
     notes: "",
   };
 }
@@ -56,8 +54,6 @@ export function legToDraft(leg: Leg): LegDraft {
     arrive_at: trim(leg.arrive_at),
     confirmation_code: leg.confirmation_code,
     seat: leg.seat,
-    cost: leg.cost === null ? "" : String(leg.cost),
-    currency: leg.currency,
     notes: leg.notes,
   };
 }
@@ -69,7 +65,6 @@ export function legDraftToPayload(draft: LegDraft): Record<string, unknown> {
     to_iata: draft.to_iata.toUpperCase(),
     depart_at: draft.depart_at || null,
     arrive_at: draft.arrive_at || null,
-    cost: draft.cost === "" ? null : Number(draft.cost),
   };
 }
 
@@ -97,40 +92,17 @@ export function LegForm({
   const set = <K extends keyof LegDraft>(key: K, value: LegDraft[K]) =>
     onChange({ ...draft, [key]: value });
 
-  const isFlight = draft.mode === "flight";
-
   return (
     <>
       <Row>
         <Field label="Mode">
-          <Select
-            value={draft.mode}
-            onChange={(v) => set("mode", v)}
-            options={MODES}
-          />
+          <Select value={draft.mode} onChange={(v) => set("mode", v)} options={MODES} />
         </Field>
         <Field label="Direction" hint="Drives the missing-travel checks">
           <Select
             value={draft.direction}
             onChange={(v) => set("direction", v)}
             options={DIRECTIONS}
-          />
-        </Field>
-      </Row>
-
-      <Row>
-        <Field label="Carrier">
-          <Text
-            value={draft.carrier}
-            onChange={(v) => set("carrier", v)}
-            placeholder={isFlight ? "Vietnam Airlines" : "JR"}
-          />
-        </Field>
-        <Field label="Number">
-          <Text
-            value={draft.number}
-            onChange={(v) => set("number", v)}
-            placeholder={isFlight ? "VN610" : "Nozomi 21"}
           />
         </Field>
       </Row>
@@ -143,27 +115,6 @@ export function LegForm({
             placeholder="Bangkok"
           />
         </Field>
-        {isFlight && (
-          <Field label="From code">
-            <Text
-              value={draft.from_iata}
-              onChange={(v) => set("from_iata", v.toUpperCase().slice(0, 4))}
-              placeholder="BKK"
-              maxLength={4}
-            />
-          </Field>
-        )}
-      </Row>
-
-      <Field label="Departs" hint="Local time where you depart, as on the ticket">
-        <input
-          type="datetime-local"
-          value={draft.depart_at}
-          onChange={(e) => set("depart_at", e.target.value)}
-        />
-      </Field>
-
-      <Row>
         <Field label="To">
           <Text
             value={draft.to_place}
@@ -171,52 +122,87 @@ export function LegForm({
             placeholder="Hanoi"
           />
         </Field>
-        {isFlight && (
-          <Field label="To code">
-            <Text
-              value={draft.to_iata}
-              onChange={(v) => set("to_iata", v.toUpperCase().slice(0, 4))}
-              placeholder="HAN"
-              maxLength={4}
-            />
-          </Field>
-        )}
       </Row>
-
-      <Field label="Arrives" hint="Local time at the destination">
-        <input
-          type="datetime-local"
-          value={draft.arrive_at}
-          min={draft.depart_at || undefined}
-          onChange={(e) => set("arrive_at", e.target.value)}
-        />
-      </Field>
 
       <Row>
-        <Field label="Confirmation">
-          <Text
-            value={draft.confirmation_code}
-            onChange={(v) => set("confirmation_code", v)}
-            placeholder="VN77KD"
+        <Field label="Departs" hint="Local time, as printed on the ticket">
+          <input
+            type="datetime-local"
+            value={draft.depart_at}
+            onChange={(e) => set("depart_at", e.target.value)}
           />
         </Field>
-        <Field label="Seat">
-          <Text value={draft.seat} onChange={(v) => set("seat", v)} placeholder="34K" />
+        <Field label="Arrives" hint="Local time at the destination">
+          <input
+            type="datetime-local"
+            value={draft.arrive_at}
+            min={draft.depart_at || undefined}
+            onChange={(e) => set("arrive_at", e.target.value)}
+          />
         </Field>
       </Row>
-
-      <Field label="Cost">
-        <Money
-          amount={draft.cost}
-          currency={draft.currency}
-          onAmount={(v) => set("cost", v)}
-          onCurrency={(v) => set("currency", v)}
-        />
-      </Field>
 
       <Field label="Notes" wide>
         <TextArea value={draft.notes} onChange={(v) => set("notes", v)} />
       </Field>
+
+      {/* Everything an e-ticket already tells us. */}
+      <details
+        className="more"
+        open={Boolean(
+          draft.carrier || draft.number || draft.confirmation_code || draft.seat,
+        )}
+      >
+        <summary>Ticket details — usually filled in from your email</summary>
+        <Row>
+          <Field label="Carrier">
+            <Text
+              value={draft.carrier}
+              onChange={(v) => set("carrier", v)}
+              placeholder="Vietnam Airlines"
+            />
+          </Field>
+          <Field label="Number">
+            <Text
+              value={draft.number}
+              onChange={(v) => set("number", v)}
+              placeholder="VN610"
+            />
+          </Field>
+        </Row>
+        {draft.mode === "flight" && (
+          <Row>
+            <Field label="From code">
+              <Text
+                value={draft.from_iata}
+                onChange={(v) => set("from_iata", v.toUpperCase().slice(0, 4))}
+                placeholder="BKK"
+                maxLength={4}
+              />
+            </Field>
+            <Field label="To code">
+              <Text
+                value={draft.to_iata}
+                onChange={(v) => set("to_iata", v.toUpperCase().slice(0, 4))}
+                placeholder="HAN"
+                maxLength={4}
+              />
+            </Field>
+          </Row>
+        )}
+        <Row>
+          <Field label="Confirmation">
+            <Text
+              value={draft.confirmation_code}
+              onChange={(v) => set("confirmation_code", v)}
+              placeholder="VN77KD"
+            />
+          </Field>
+          <Field label="Seat">
+            <Text value={draft.seat} onChange={(v) => set("seat", v)} placeholder="34K" />
+          </Field>
+        </Row>
+      </details>
     </>
   );
 }
