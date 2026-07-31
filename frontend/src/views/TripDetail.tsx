@@ -83,7 +83,6 @@ export function TripDetailPanel({
   }
 
   const segments = trip.country_segments ?? [];
-  const lastStay = trip.stays[trip.stays.length - 1];
 
   return (
     <div className="detail">
@@ -127,6 +126,7 @@ export function TripDetailPanel({
         <CountryBlock
           key={segment.country_code}
           segment={segment}
+          flat={segments.length === 1}
           passports={passports}
           busy={busy}
           onSetPassport={(passportId) => {
@@ -150,7 +150,15 @@ export function TripDetailPanel({
             })
           }
           onEditHotel={(stay) =>
-            setEditing({ kind: "stay", draft: stayToDraft(stay), id: stay.id })
+            setEditing({
+              kind: "stay",
+              draft: stayToDraft(stay),
+              id: stay.id,
+              // Changing one hotel's country would split the trip across two
+              // countries. Only the trip's sole hotel may still move, since
+              // that is just correcting which country the trip is in.
+              lockCountry: trip.stays.length > 1,
+            })
           }
           onDeleteHotel={(stay) =>
             void run(() => api.trips.removeStay(trip.id, stay.id))
@@ -175,18 +183,6 @@ export function TripDetailPanel({
           }
         />
       ))}
-
-      <button
-        className="btn add-country"
-        onClick={() =>
-          setEditing({
-            kind: "stay",
-            draft: emptyStay(lastStay?.check_out ?? ""),
-          })
-        }
-      >
-        + Add a country
-      </button>
 
       {trip.requirements.length > 0 && (
         <section>
@@ -375,6 +371,7 @@ export function TripDetailPanel({
 /** One country: passport at the top, then how you got in, then every hotel. */
 function CountryBlock({
   segment,
+  flat,
   passports,
   busy,
   onSetPassport,
@@ -386,6 +383,8 @@ function CountryBlock({
   onDeleteTravel,
 }: {
   segment: CountrySegment;
+  /** The trip visits only this country, so it needs no card of its own. */
+  flat: boolean;
   passports: Passport[];
   busy: boolean;
   onSetPassport: (id: number | null) => void;
@@ -399,7 +398,7 @@ function CountryBlock({
   const noPassport = segment.passport_id === null;
 
   return (
-    <section className="country-block">
+    <section className={flat ? "country-block flat" : "country-block"}>
       <div className="country-head">
         <span className="flag flag-lg">{countryFlag(segment.country_code)}</span>
         <div className="country-title">
@@ -475,7 +474,7 @@ function CountryBlock({
 
       <div className="country-actions">
         <button className="btn btn-sm" onClick={onAddHotel}>
-          + Hotel in {segment.country_name}
+          {flat ? "+ Add hotel" : `+ Hotel in ${segment.country_name}`}
         </button>
         {segment.legs.length === 0 && (
           <button className="btn btn-sm" onClick={onAddTravel}>

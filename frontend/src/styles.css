@@ -1040,3 +1040,21 @@ textarea {
   color: var(--warn);
   margin-top: 2px;
 }
+
+/* A trip is one international stay in one country, so its country reads as the
+   trip's own header rather than a card nested inside it. The bordered form is
+   kept for the rare trip that already spans two. */
+.country-block.flat {
+  border: none;
+  padding: 0;
+  background: none;
+  margin-bottom: 8px;
+}
+.country-block.flat .country-head {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
+.country-block.flat .item-row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
