@@ -90,6 +90,12 @@ export function TripList({ trips, selectedId, onSelect, onCreated }: Props) {
                     {trip.nights > 0 && ` · ${trip.nights} nights`}
                   </div>
                 )}
+                {trip.unbooked_nights > 0 && (
+                  <div className="trip-card-gap">
+                    {trip.unbooked_nights} night
+                    {trip.unbooked_nights === 1 ? "" : "s"} with no hotel
+                  </div>
+                )}
                 {trip.start_date && trip.status !== "past" && (
                   <div className="trip-card-when">
                     {trip.status === "ongoing"

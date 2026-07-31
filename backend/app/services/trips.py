@@ -82,6 +82,49 @@ def trip_label(trip: Trip, stays: list[Stay]) -> str:
     return f"{' → '.join(cities[:2])} +{len(cities) - 2} more"
 
 
+def _period_start(stays: list[Stay], legs: list[Leg]) -> Optional[date]:
+    """When you are first in the country: the arrival, or the first check-in."""
+    candidates: list[date] = [s.check_in for s in stays]
+    for leg in legs:
+        when = leg.arrive_at or leg.depart_at
+        if when:
+            candidates.append(when.date())
+    return min(candidates) if candidates else None
+
+
+def _uncovered(
+    start: Optional[date], end: Optional[date], stays: list[Stay]
+) -> list[dict]:
+    """Nights inside a country with no hotel booked.
+
+    Being in a country from the 30th to the 6th with hotels covering only the
+    30th to the 3rd means three nights with nowhere to sleep -- almost always a
+    booking that was forgotten rather than a deliberate choice. Walks the stays
+    in order and reports every stretch nobody covers, including before the first
+    hotel and after the last.
+    """
+    if start is None or end is None or end <= start:
+        return []
+
+    gaps: list[tuple[date, date]] = []
+    cursor = start
+    for stay in sorted(stays, key=lambda s: s.check_in):
+        if stay.check_in > cursor:
+            gaps.append((cursor, min(stay.check_in, end)))
+        if stay.check_out > cursor:
+            cursor = stay.check_out
+        if cursor >= end:
+            break
+    if cursor < end:
+        gaps.append((cursor, end))
+
+    return [
+        {"from": str(a), "to": str(b), "nights": (b - a).days}
+        for a, b in gaps
+        if b > a
+    ]
+
+
 def country_segments(session: Session, trip: Trip) -> list[dict]:
     """The trip broken into the countries it visits, in arrival order.
 
@@ -118,11 +161,30 @@ def country_segments(session: Session, trip: Trip) -> list[dict]:
             grouped[code] = []
             order.append(code)
 
-    segments = []
+    raw = []
     for code in order:
         group = grouped[code]
-        entry = entry_by_code.get(code)
         arrivals = [leg for leg in legs if leg.country_code.upper() == code]
+        raw.append((code, group, arrivals, _period_start(group, arrivals)))
+
+    # Countries in the order you are actually in them. Anything with no date at
+    # all sorts last, since it cannot bound anything.
+    raw.sort(key=lambda r: (r[3] is None, r[3] or date.max))
+
+    segments = []
+    for index, (code, group, arrivals, starts_on) in enumerate(raw):
+        entry = entry_by_code.get(code)
+
+        # You leave a country when the next one begins. For the final country
+        # there is nothing to bound it -- return travel is not tracked -- so it
+        # ends at the last checkout and can never report a trailing gap.
+        next_start = next(
+            (r[3] for r in raw[index + 1 :] if r[3] is not None), None
+        )
+        ends_on = next_start or (
+            max((s.check_out for s in group), default=None) if group else None
+        )
+
         segments.append(
             {
                 "country_code": code,
@@ -130,7 +192,10 @@ def country_segments(session: Session, trip: Trip) -> list[dict]:
                 "entry": entry.model_dump() if entry else None,
                 "passport_id": entry.passport_id if entry else None,
                 "entered_on": str(entry.entered_on) if entry else None,
+                "starts_on": str(starts_on) if starts_on else None,
+                "ends_on": str(ends_on) if ends_on else None,
                 "nights": sum(s.nights for s in group),
+                "unbooked": _uncovered(starts_on, ends_on, group),
                 "stays": [{**s.model_dump(), "nights": s.nights} for s in group],
                 "legs": [leg.model_dump() for leg in arrivals],
             }

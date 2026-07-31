@@ -26,6 +26,7 @@ from app.schemas import (
 )
 from app.services.geocode import fill_coordinates
 from app.services.trips import (
+    country_segments,
     refresh_trip_dates,
     sync_country_entries,
     trip_detail,
@@ -55,14 +56,21 @@ def list_trips(
     out = []
     for trip in trips:
         stays = session.exec(select(Stay).where(Stay.trip_id == trip.id)).all()
+        segments = country_segments(session, trip)
+        # Surfaced on the card so a forgotten hotel is visible without opening
+        # the trip -- the thing most worth noticing at a glance.
+        unbooked = sum(
+            gap["nights"] for seg in segments for gap in seg["unbooked"]
+        )
         out.append(
             {
                 **trip.model_dump(),
                 "label": trip_label(trip, stays),
                 "status": trip_status(trip),
-                "countries": sorted({s.country_code for s in stays}),
+                "countries": [seg["country_code"] for seg in segments],
                 "cities": [s.city for s in sorted(stays, key=lambda s: s.check_in)],
                 "nights": sum(s.nights for s in stays),
+                "unbooked_nights": unbooked,
             }
         )
     # Undated trips sort last; otherwise most recent start first.

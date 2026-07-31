@@ -127,17 +127,29 @@ export interface TripSummary {
   countries: string[];
   cities: string[];
   nights: number;
+  /** Total nights inside this journey with no hotel booked. */
+  unbooked_nights: number;
 }
 
 /** One country within a journey: how you got in, on which passport, and every
  *  hotel you stayed in while there. */
+export interface UnbookedStretch {
+  from: string;
+  to: string;
+  nights: number;
+}
+
 export interface CountrySegment {
   country_code: string;
   country_name: string;
   entry: CountryEntry | null;
   passport_id: number | null;
   entered_on: string | null;
+  starts_on: string | null;
+  ends_on: string | null;
   nights: number;
+  /** Stretches inside this country with no hotel booked. */
+  unbooked: UnbookedStretch[];
   stays: Stay[];
   legs: Leg[];
 }

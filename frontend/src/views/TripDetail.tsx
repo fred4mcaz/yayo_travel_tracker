@@ -432,6 +432,25 @@ function CountryBlock({
         </select>
       </div>
 
+      {segment.unbooked.length > 0 && (
+        <div className="unbooked">
+          <strong>
+            {segment.unbooked.reduce((n, g) => n + g.nights, 0)} night
+            {segment.unbooked.reduce((n, g) => n + g.nights, 0) === 1 ? "" : "s"} with
+            no hotel booked
+          </strong>
+          {segment.unbooked.map((gap) => (
+            <span key={gap.from}>
+              {formatRange(gap.from, gap.to)} · {gap.nights} night
+              {gap.nights === 1 ? "" : "s"}
+            </span>
+          ))}
+          <button className="btn btn-sm" onClick={onAddHotel}>
+            Book something for these nights
+          </button>
+        </div>
+      )}
+
       {segment.legs.map((leg) => (
         <LegRow
           key={leg.id}

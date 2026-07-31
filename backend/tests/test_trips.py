@@ -385,3 +385,120 @@ def test_single_country_trip_is_still_named_by_city(client):
     trip_id = client.post("/api/trips", json={}).json()["id"]
     detail = _stay_in(client, trip_id, "VN", "Hanoi", 10, hotel_name="Sofitel")
     assert detail["label"] == "Hanoi · Sofitel"
+
+
+# --- unbooked nights ------------------------------------------------------
+
+
+def _segments(client, trip_id):
+    detail = client.get(f"/api/trips/{trip_id}").json()
+    return {s["country_code"]: s for s in detail["country_segments"]}
+
+
+def test_gap_between_two_hotels_in_one_country(client):
+    """Vietnam 10th-20th with hotels covering 10th-13th and 16th-20th leaves
+    three nights nobody booked."""
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    _stay_in(client, trip_id, "VN", "Hanoi", 10, nights=3)
+    _stay_in(client, trip_id, "VN", "Hue", 16, nights=4)
+    _stay_in(client, trip_id, "TH", "Bangkok", 20, nights=3)
+
+    vn = _segments(client, trip_id)["VN"]
+    assert vn["unbooked"] == [
+        {
+            "from": str(TODAY + timedelta(days=13)),
+            "to": str(TODAY + timedelta(days=16)),
+            "nights": 3,
+        }
+    ]
+
+
+def test_no_gap_when_hotels_run_back_to_back(client):
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    _stay_in(client, trip_id, "VN", "Hanoi", 10, nights=3)
+    _stay_in(client, trip_id, "VN", "Hue", 13, nights=3)
+    _stay_in(client, trip_id, "TH", "Bangkok", 16, nights=2)
+
+    assert _segments(client, trip_id)["VN"]["unbooked"] == []
+
+
+def test_gap_before_the_next_country_starts(client):
+    """Hotels stop on the 14th but you do not fly to Thailand until the 18th."""
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    _stay_in(client, trip_id, "VN", "Hanoi", 10, nights=4)
+    _stay_in(client, trip_id, "TH", "Bangkok", 18, nights=3)
+
+    vn = _segments(client, trip_id)["VN"]
+    assert vn["unbooked"] == [
+        {
+            "from": str(TODAY + timedelta(days=14)),
+            "to": str(TODAY + timedelta(days=18)),
+            "nights": 4,
+        }
+    ]
+
+
+def test_gap_between_landing_and_the_first_hotel(client):
+    """Landing the day before the first booking is a night with nowhere to go."""
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    _stay_in(client, trip_id, "VN", "Hanoi", 10, nights=4)
+    client.post(
+        f"/api/trips/{trip_id}/legs",
+        json={
+            "country_code": "VN",
+            "to_place": "Hanoi",
+            "arrive_at": f"{TODAY + timedelta(days=9)}T21:30:00",
+        },
+    )
+    vn = _segments(client, trip_id)["VN"]
+    assert vn["unbooked"] == [
+        {
+            "from": str(TODAY + timedelta(days=9)),
+            "to": str(TODAY + timedelta(days=10)),
+            "nights": 1,
+        }
+    ]
+
+
+def test_last_country_never_reports_a_trailing_gap(client):
+    """Return travel is not tracked, so there is no date to measure against."""
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    _stay_in(client, trip_id, "VN", "Hanoi", 10, nights=3)
+    _stay_in(client, trip_id, "JP", "Osaka", 20, nights=4)
+
+    assert _segments(client, trip_id)["JP"]["unbooked"] == []
+
+
+def test_country_with_a_flight_but_no_hotel_at_all(client):
+    """A booked flight and no room is the loudest version of this problem."""
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    _stay_in(client, trip_id, "VN", "Hanoi", 10, nights=3)
+    client.post(
+        f"/api/trips/{trip_id}/legs",
+        json={
+            "country_code": "TH",
+            "to_place": "Bangkok",
+            "arrive_at": f"{TODAY + timedelta(days=13)}T10:00:00",
+        },
+    )
+    _stay_in(client, trip_id, "JP", "Osaka", 18, nights=3)
+
+    th = _segments(client, trip_id)["TH"]
+    assert th["stays"] == []
+    assert th["unbooked"] == [
+        {
+            "from": str(TODAY + timedelta(days=13)),
+            "to": str(TODAY + timedelta(days=18)),
+            "nights": 5,
+        }
+    ]
+
+
+def test_overlapping_hotels_are_not_a_gap(client):
+    """Double-booked is a different problem; it must not read as unbooked."""
+    trip_id = client.post("/api/trips", json={}).json()["id"]
+    _stay_in(client, trip_id, "VN", "Hanoi", 10, nights=5)
+    _stay_in(client, trip_id, "VN", "Hue", 12, nights=2)
+    _stay_in(client, trip_id, "TH", "Bangkok", 15, nights=2)
+
+    assert _segments(client, trip_id)["VN"]["unbooked"] == []
