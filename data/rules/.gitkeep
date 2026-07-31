@@ -1,0 +1,3 @@
+# Placeholder so git tracks this directory before the rulesets land in stage 6.
+# Without a tracked file here, `COPY data/` in the Dockerfile fails on a fresh
+# clone. See ../README.md.

@@ -4,23 +4,62 @@ Serves the JSON API under /api and the built React SPA for everything else.
 """
 
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlmodel import Session
 
-from app.api import notes, passports, trips
+from app.api import auth, notes, passports, trips
 from app.config import get_settings
+from app.db import engine
+from app.services.auth import (
+    has_any_passkey,
+    issue_enrollment_token,
+    purge_expired_sessions,
+)
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger("yayo")
 
-app = FastAPI(title="Yayo travel", docs_url=None, redoc_url=None, openapi_url=None)
-
 # The SPA build lands here in the Docker image; absent during backend-only dev.
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    with Session(engine) as session:
+        removed = purge_expired_sessions(session)
+        if removed:
+            log.info("purged %d expired session(s)", removed)
+
+        if not has_any_passkey(session):
+            # No way into the app yet. Print a one-time enrollment link; only its
+            # hash is stored, so this log line is the only place it exists.
+            token = issue_enrollment_token(session)
+            log.warning(
+                "\n"
+                "=========================================================\n"
+                " No passkey registered yet. Open this once to enroll:\n"
+                "   %s/enroll?token=%s\n"
+                " This link works once and is not recoverable from the DB.\n"
+                "=========================================================",
+                settings.site_origin,
+                token,
+            )
+    yield
+
+
+app = FastAPI(
+    title="Yayo travel",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+    lifespan=lifespan,
+)
 
 
 @app.middleware("http")
@@ -42,6 +81,7 @@ async def security_headers(request: Request, call_next):
 
 @app.get("/api/health")
 def health() -> dict:
+    """Unauthenticated: the Docker healthcheck and Caddy both hit this."""
     return {
         "status": "ok",
         "rp_id": settings.rp_id,
@@ -49,13 +89,20 @@ def health() -> dict:
     }
 
 
-# API routes must be registered before the SPA catch-all below, otherwise the
-# catch-all pattern matches first and shadows every one of them.
-app.include_router(trips.router)
-app.include_router(passports.router)
-app.include_router(notes.router)
+# Auth endpoints police themselves — /status and the login flow must be
+# reachable while logged out.
+app.include_router(auth.router)
+
+# Everything holding trip data is gated at the router level rather than
+# per-endpoint, so a route added later cannot accidentally ship unprotected.
+protected = [Depends(auth.require_auth)]
+app.include_router(trips.router, dependencies=protected)
+app.include_router(passports.router, dependencies=protected)
+app.include_router(notes.router, dependencies=protected)
 
 
+# The SPA catch-all must come last: it matches every path, so any route
+# registered after it would be shadowed and never reached.
 if FRONTEND_DIST.is_dir():
     app.mount(
         "/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets"
