@@ -174,6 +174,50 @@ export interface Passport {
   entry_count?: number;
 }
 
+export type ExtractionStatus = "pending" | "accepted" | "rejected";
+
+export type BookingKind =
+  | "hotel"
+  | "flight"
+  | "train"
+  | "bus"
+  | "ferry"
+  | "car"
+  | "other";
+
+/** A booking as the model read it. Every field the model was unsure of is null;
+ *  the reviewer fills those in before accepting. */
+export interface ReviewBooking {
+  kind: BookingKind;
+  country_code: string | null;
+  country_name: string | null;
+  city: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  hotel_name: string | null;
+  carrier: string | null;
+  confirmation_code: string | null;
+}
+
+/** One proposal awaiting review: what the email said, what was read out of it,
+ *  and which trip it would join. */
+export interface ReviewItem {
+  id: number;
+  status: ExtractionStatus;
+  model: string;
+  confidence: number | null;
+  created_at: string;
+  email: {
+    id: number | null;
+    from_addr: string;
+    subject: string;
+    snippet: string;
+    received_at: string | null;
+  };
+  booking: ReviewBooking;
+  suggestion: { trip_id: number; label: string } | null;
+}
+
 export interface AuthStatus {
   authenticated: boolean;
   enrolled: boolean;

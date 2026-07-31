@@ -2,6 +2,7 @@ import type {
   AuthStatus,
   Note,
   Passport,
+  ReviewItem,
   TripDetail,
   TripSummary,
 } from "../types";
@@ -161,6 +162,21 @@ export const api = {
     update: (id: number, body: Record<string, unknown>) =>
       patch<Note>(`/api/notes/${id}`, body),
     remove: (id: number) => del<void>(`/api/notes/${id}`),
+  },
+
+  review: {
+    list: () => get<ReviewItem[]>("/api/review"),
+    count: () => get<{ pending: number }>("/api/review/count"),
+    accept: (id: number, overrides: Record<string, unknown> = {}) =>
+      post<{
+        accepted: boolean;
+        trip_id: number;
+        created_new_trip: boolean;
+        stay_id: number | null;
+        leg_id: number | null;
+      }>(`/api/review/${id}/accept`, overrides),
+    reject: (id: number) =>
+      post<{ rejected: boolean }>(`/api/review/${id}/reject`),
   },
 };
 

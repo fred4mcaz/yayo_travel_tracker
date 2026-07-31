@@ -1084,3 +1084,95 @@ textarea {
   font-size: 12px;
   color: var(--text-muted);
 }
+
+/* --- Review queue (stage 8) ------------------------------------------------ */
+
+.review {
+  padding: 16px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.tab-badge {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  border-radius: 9px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.review-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 16px;
+}
+
+.review-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.review-kind {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.review-email {
+  border-left: 3px solid var(--border);
+  padding-left: 10px;
+  margin-bottom: 12px;
+}
+
+.review-subject {
+  font-weight: 600;
+}
+
+.review-snippet {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  max-height: 3.6em;
+  overflow: hidden;
+}
+
+.review-destination {
+  background: var(--surface-alt);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.review-fields {
+  margin-bottom: 4px;
+}
+
+.review-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.review-when {
+  margin-left: auto;
+  font-size: 13px;
+}

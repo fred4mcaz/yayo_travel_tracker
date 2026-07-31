@@ -5,11 +5,12 @@ import type { AuthStatus, Note, Passport, TripDetail, TripSummary } from "./type
 import { Auth } from "./views/Auth";
 import { Calendar } from "./views/Calendar";
 import { MapView } from "./views/Map";
+import { ReviewQueue } from "./views/Review";
 import { Settings } from "./views/Settings";
 import { TripDetailPanel } from "./views/TripDetail";
 import { TripList } from "./views/Trips";
 
-type Tab = "trips" | "calendar" | "map" | "settings";
+type Tab = "trips" | "calendar" | "map" | "review" | "settings";
 
 export function App() {
   const [status, setStatus] = useState<AuthStatus | null>(null);
@@ -21,6 +22,8 @@ export function App() {
   // Set for a trip created moments ago, so its detail opens on the stay form.
   const [justCreated, setJustCreated] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Proposals awaiting review, for the tab badge.
+  const [reviewCount, setReviewCount] = useState(0);
 
   // The enrollment link carries its token in the query string.
   const enrollmentToken = new URLSearchParams(window.location.search).get("token");
@@ -55,6 +58,17 @@ export function App() {
   useEffect(() => {
     if (status?.authenticated) void loadTrips();
   }, [status?.authenticated, loadTrips]);
+
+  const refreshReviewCount = useCallback(() => {
+    api.review
+      .count()
+      .then((c) => setReviewCount(c.pending))
+      .catch(() => setReviewCount(0));
+  }, []);
+
+  useEffect(() => {
+    if (status?.authenticated) refreshReviewCount();
+  }, [status?.authenticated, refreshReviewCount]);
 
   const openTrip = useCallback(async (id: number) => {
     const detail = await api.trips.get(id);
@@ -127,13 +141,16 @@ export function App() {
       <header className="topbar">
         <span className="brand">Yayo travel</span>
         <nav className="tabs">
-          {(["trips", "calendar", "map", "settings"] as Tab[]).map((t) => (
+          {(["trips", "calendar", "map", "review", "settings"] as Tab[]).map((t) => (
             <button
               key={t}
               className={tab === t ? "tab active" : "tab"}
               onClick={() => setTab(t)}
             >
               {t[0].toUpperCase() + t.slice(1)}
+              {t === "review" && reviewCount > 0 && (
+                <span className="tab-badge">{reviewCount}</span>
+              )}
             </button>
           ))}
         </nav>
@@ -186,6 +203,17 @@ export function App() {
           </div>
         )}
 
+        {tab === "review" && (
+          <div className="pane">
+            <ReviewQueue
+              onReviewed={() => {
+                refreshReviewCount();
+                void loadTrips();
+              }}
+            />
+          </div>
+        )}
+
         {tab === "settings" && (
           <div className="pane">
             <Settings
@@ -198,7 +226,7 @@ export function App() {
       </main>
 
       <nav className="bottom-tabs">
-        {(["trips", "calendar", "map", "settings"] as Tab[]).map((t) => (
+        {(["trips", "calendar", "map", "review", "settings"] as Tab[]).map((t) => (
           <button
             key={t}
             className={tab === t ? "btab active" : "btab"}
@@ -208,6 +236,9 @@ export function App() {
             }}
           >
             {t[0].toUpperCase() + t.slice(1)}
+            {t === "review" && reviewCount > 0 && (
+              <span className="tab-badge">{reviewCount}</span>
+            )}
           </button>
         ))}
       </nav>

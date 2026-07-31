@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 
-from app.api import auth, geo, notes, passports, trips
+from app.api import auth, geo, notes, passports, review, trips
 from app.config import get_settings
 from app.db import engine
 from app.services.auth import (
@@ -121,6 +121,7 @@ app.include_router(trips.router, dependencies=protected)
 app.include_router(geo.router, dependencies=protected)
 app.include_router(passports.router, dependencies=protected)
 app.include_router(notes.router, dependencies=protected)
+app.include_router(review.router, dependencies=protected)
 
 
 # The SPA catch-all must come last: it matches every path, so any route

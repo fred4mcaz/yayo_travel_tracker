@@ -1,0 +1,230 @@
+import { useCallback, useEffect, useState } from "react";
+
+import { api, ApiError } from "../lib/api";
+import { countryFlag, formatDateTime, formatRange } from "../lib/format";
+import type { ReviewBooking, ReviewItem } from "../types";
+import { Field, Row, Text } from "../components/Fields";
+
+interface Props {
+  onReviewed: () => void;
+}
+
+/** The review queue: proposals extracted from email, awaiting a decision.
+ *
+ *  Nothing here writes trip data on its own -- the two buttons post to the
+ *  accept and reject endpoints, and only accept touches a trip. A proposal the
+ *  model read incompletely can be corrected inline before it is accepted. */
+export function ReviewQueue({ onReviewed }: Props) {
+  const [items, setItems] = useState<ReviewItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setItems(await api.review.list());
+      setError(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const afterDecision = useCallback(() => {
+    void load();
+    onReviewed();
+  }, [load, onReviewed]);
+
+  if (items === null) {
+    return (
+      <div className="review">
+        <span className="pill">Loading…</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="review">
+      <div className="section-head">
+        <h2>Review</h2>
+        {items.length > 0 && <span className="pill">{items.length} waiting</span>}
+      </div>
+
+      {error && <p className="alert alert-danger">{error}</p>}
+
+      {items.length === 0 ? (
+        <div className="empty-state">
+          <p>Nothing to review.</p>
+          <p className="muted">
+            Bookings found in your email will appear here for you to accept
+            before anything is added to a trip.
+          </p>
+        </div>
+      ) : (
+        <div className="review-list">
+          {items.map((item) => (
+            <ReviewCard key={item.id} item={item} onDone={afterDecision} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const KIND_LABEL: Record<string, string> = {
+  hotel: "Hotel",
+  flight: "Flight",
+  train: "Train",
+  bus: "Bus",
+  ferry: "Ferry",
+  car: "Car",
+  other: "Booking",
+};
+
+function ReviewCard({
+  item,
+  onDone,
+}: {
+  item: ReviewItem;
+  onDone: () => void;
+}) {
+  const [edit, setEdit] = useState<Partial<ReviewBooking>>({});
+  const [busy, setBusy] = useState<"accept" | "reject" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const b = item.booking;
+  const isHotel = b.kind === "hotel";
+  // Field value: the reviewer's edit if they've touched it, else the model's.
+  const val = (k: keyof ReviewBooking): string =>
+    (edit[k] ?? b[k] ?? "") as string;
+  const set = (k: keyof ReviewBooking, v: string) =>
+    setEdit((e) => ({ ...e, [k]: v }));
+
+  async function accept() {
+    setBusy("accept");
+    setError(null);
+    try {
+      // Send only the fields the reviewer actually changed.
+      const overrides = Object.fromEntries(
+        Object.entries(edit).filter(([, v]) => v !== undefined && v !== ""),
+      );
+      await api.review.accept(item.id, overrides);
+      onDone();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+      setBusy(null);
+    }
+  }
+
+  async function reject() {
+    setBusy("reject");
+    setError(null);
+    try {
+      await api.review.reject(item.id);
+      onDone();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+      setBusy(null);
+    }
+  }
+
+  const country = val("country_code");
+
+  return (
+    <div className="review-card">
+      <div className="review-card-head">
+        <span className="review-kind">
+          {country && <span className="flag">{countryFlag(country)}</span>}
+          {KIND_LABEL[b.kind] ?? "Booking"}
+          {b.country_name && <span className="muted"> · {b.country_name}</span>}
+        </span>
+        {item.confidence !== null && (
+          <span className="pill" title="Model confidence">
+            {Math.round(item.confidence * 100)}%
+          </span>
+        )}
+      </div>
+
+      <div className="review-email">
+        <div className="review-subject">{item.email.subject || "(no subject)"}</div>
+        <div className="muted">
+          {item.email.from_addr}
+          {item.email.received_at && ` · ${formatDateTime(item.email.received_at)}`}
+        </div>
+        {item.email.snippet && (
+          <div className="review-snippet">{item.email.snippet}</div>
+        )}
+      </div>
+
+      <div className="review-destination">
+        {item.suggestion ? (
+          <>Joins <strong>{item.suggestion.label}</strong></>
+        ) : (
+          <>Creates a <strong>new trip</strong></>
+        )}
+      </div>
+
+      <div className="review-fields">
+        <Row>
+          <Field label="Country">
+            <Text
+              value={country}
+              onChange={(v) => set("country_code", v.toUpperCase())}
+              placeholder="e.g. VN"
+              maxLength={2}
+            />
+          </Field>
+          {isHotel && (
+            <Field label="City">
+              <Text value={val("city")} onChange={(v) => set("city", v)} />
+            </Field>
+          )}
+        </Row>
+        <Row>
+          <Field label={isHotel ? "Check-in" : "Departs"}>
+            <Text
+              value={val("start_date")}
+              onChange={(v) => set("start_date", v)}
+              type="date"
+            />
+          </Field>
+          {isHotel && (
+            <Field label="Check-out">
+              <Text
+                value={val("end_date")}
+                onChange={(v) => set("end_date", v)}
+                type="date"
+              />
+            </Field>
+          )}
+        </Row>
+        {isHotel ? (
+          <Field label="Hotel" wide>
+            <Text value={val("hotel_name")} onChange={(v) => set("hotel_name", v)} />
+          </Field>
+        ) : (
+          <Field label="Carrier" wide>
+            <Text value={val("carrier")} onChange={(v) => set("carrier", v)} />
+          </Field>
+        )}
+      </div>
+
+      {error && <p className="alert alert-danger">{error}</p>}
+
+      <div className="review-actions">
+        <button className="btn btn-primary" onClick={accept} disabled={busy !== null}>
+          {busy === "accept" ? "…" : "Accept"}
+        </button>
+        <button className="btn btn-link" onClick={reject} disabled={busy !== null}>
+          {busy === "reject" ? "…" : "Dismiss"}
+        </button>
+        {item.suggestion && (
+          <span className="review-when muted">
+            {formatRange(val("start_date") || null, val("end_date") || null)}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
