@@ -11,9 +11,17 @@ interface Props {
 export function Sheet({ title, onClose, children, footer }: Props) {
   const panel = useRef<HTMLDivElement>(null);
 
+  // Callers pass an inline arrow for onClose, so its identity changes on every
+  // render. Depending on it here re-ran this effect on every keystroke, and the
+  // autofocus below then yanked the caret back to the first field -- which is
+  // why you could only type one character at a time. Hold it in a ref so the
+  // effect can run exactly once, on mount, while the handler stays current.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     }
     document.addEventListener("keydown", onKey);
     // Stop the page behind from scrolling while the sheet is open.
@@ -24,7 +32,7 @@ export function Sheet({ title, onClose, children, footer }: Props) {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = previous;
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div

@@ -12,6 +12,7 @@ import {
 } from "../components/StayForm";
 import type { StayDraft } from "../components/StayForm";
 import { api, ApiError } from "../lib/api";
+import { countryName } from "../lib/countries";
 import {
   countryFlag,
   formatDate,
@@ -26,6 +27,8 @@ import type { Leg, Passport, Stay, TripDetail as Detail } from "../types";
 interface Props {
   trip: Detail;
   passports: Passport[];
+  /** Countries from every trip, floated to the top of the country picker. */
+  recentCountries: string[];
   onChange: (trip: Detail) => void;
   onDeleted: () => void;
   onClose?: () => void;
@@ -48,6 +51,7 @@ const MODE_LABEL: Record<string, string> = {
 export function TripDetailPanel({
   trip,
   passports,
+  recentCountries,
   onChange,
   onDeleted,
   onClose,
@@ -186,7 +190,7 @@ export function TripDetailPanel({
             <div className="entry-row" key={entry.id}>
               <span className="flag">{countryFlag(entry.country_code)}</span>
               <div className="entry-main">
-                <strong>{entry.country_code}</strong>
+                <strong>{countryName(entry.country_code)}</strong>
                 <span className="muted">
                   entered {formatDateShort(entry.entered_on)}
                 </span>
@@ -322,6 +326,7 @@ export function TripDetailPanel({
           <StayForm
             draft={editing.draft}
             onChange={(draft) => setEditing({ ...editing, draft })}
+            recentCountries={recentCountries}
           />
         </Sheet>
       )}
@@ -430,6 +435,13 @@ function StayRow({
           {stay.hotel_name || "No hotel yet"}
           {stay.confirmation_code ? ` · ${stay.confirmation_code}` : " · unconfirmed"}
         </span>
+        {stay.lat === null && (
+          // Say so rather than just quietly omitting the pin, so an unrecognised
+          // city name is something you can notice and correct.
+          <span className="muted">
+            Not on the map — try the nearest larger city
+          </span>
+        )}
         {stay.cost !== null && (
           <span className="muted">{formatMoney(stay.cost, stay.currency)}</span>
         )}

@@ -81,10 +81,16 @@ export function App() {
     );
   }
 
+  // Every country already on record, so the picker offers them first.
+  const recentCountries = Array.from(
+    new Set(trips.flatMap((t) => t.countries)),
+  );
+
   const detailPanel = selected ? (
     <TripDetailPanel
       trip={selected}
       passports={passports}
+      recentCountries={recentCountries}
       onChange={(trip) => {
         setSelected(trip);
         void loadTrips();

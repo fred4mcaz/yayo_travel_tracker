@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { CountrySelect } from "./CountrySelect";
 import { Field, Row, Text, TextArea } from "./Fields";
 import { nightsBetween } from "../lib/format";
 import type { Stay } from "../types";
@@ -48,9 +49,11 @@ export function draftToPayload(draft: StayDraft): Record<string, unknown> {
 export function StayForm({
   draft,
   onChange,
+  recentCountries = [],
 }: {
   draft: StayDraft;
   onChange: (d: StayDraft) => void;
+  recentCountries?: string[];
 }) {
   const set = <K extends keyof StayDraft>(key: K, value: StayDraft[K]) =>
     onChange({ ...draft, [key]: value });
@@ -63,25 +66,22 @@ export function StayForm({
 
   return (
     <>
-      <Row>
-        <Field label="Country" hint="Two-letter code">
-          <Text
-            value={draft.country_code}
-            onChange={(v) => set("country_code", v.toUpperCase().slice(0, 2))}
-            placeholder="VN"
-            maxLength={2}
-            required
-          />
-        </Field>
-        <Field label="City">
-          <Text
-            value={draft.city}
-            onChange={(v) => set("city", v)}
-            placeholder="Hanoi"
-            required
-          />
-        </Field>
-      </Row>
+      <Field label="Country" wide>
+        <CountrySelect
+          value={draft.country_code}
+          onChange={(v) => set("country_code", v)}
+          recent={recentCountries}
+        />
+      </Field>
+
+      <Field label="City" hint="Places the pin on the map" wide>
+        <Text
+          value={draft.city}
+          onChange={(v) => set("city", v)}
+          placeholder="Hanoi"
+          required
+        />
+      </Field>
 
       <Row>
         <Field label="Check in">
