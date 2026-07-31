@@ -54,7 +54,12 @@ and the backend will serve the built SPA from :8000 directly.
 See [docs/DEPLOY.md](docs/DEPLOY.md). Short version: `git pull` on the server, then
 `./deploy/deploy.sh`.
 
-## Status
+## Picking this up
 
-Stage 1 complete — skeleton, container, deploy path, health endpoint. See the build order in
-`docs/DEPLOY.md` for what lands next.
+Start with **[docs/HANDOFF.md](docs/HANDOFF.md)** — the domain model, current state,
+what is next, and the traps already hit.
+
+## The model, in one line
+
+A trip is one international stay in one country: one passport, one arrival, many hotels.
+Going to Vietnam then Thailand is two trips.
