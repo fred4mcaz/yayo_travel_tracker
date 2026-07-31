@@ -14,7 +14,7 @@ from sqlmodel import Session, create_engine
 from app.config import get_settings
 
 settings = get_settings()
-settings.var_dir.mkdir(parents=True, exist_ok=True)
+settings.ensure_dirs()
 
 engine = create_engine(
     settings.database_url,

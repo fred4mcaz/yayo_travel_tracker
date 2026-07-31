@@ -32,7 +32,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ /srv/backend/
 COPY data/ /srv/data/
+COPY deploy/entrypoint.sh /srv/entrypoint.sh
 COPY --from=frontend /build/dist /srv/frontend/dist
+RUN chmod +x /srv/entrypoint.sh
 
 # Run unprivileged. /data is a mounted volume owned by this uid.
 RUN useradd --system --uid 10001 --create-home yayo \
@@ -45,4 +47,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8000/api/health || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["/srv/entrypoint.sh"]

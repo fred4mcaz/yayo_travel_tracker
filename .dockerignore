@@ -1,0 +1,27 @@
+# Without this, `COPY backend/` and `COPY frontend/` drag the local virtualenv
+# and node_modules into the image — hundreds of MB of platform-wrong binaries,
+# and a slow build on a small box.
+**/.venv/
+**/venv/
+**/node_modules/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+
+# Runtime state must come from the mounted volume, never baked into the image.
+var/
+
+# Secrets. Belt and braces: these are gitignored too.
+.env
+deploy/.env
+
+# The frontend is rebuilt inside the image; a stale local dist would shadow it.
+frontend/dist/
+
+.git/
+.github/
+.claude/
+docs/
+*.md

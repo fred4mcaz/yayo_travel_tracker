@@ -55,6 +55,15 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.site_origin.startswith("https://")
 
+    def ensure_dirs(self) -> None:
+        """Create the runtime directories.
+
+        Both the app and Alembic need this, and Alembic does not import app.db,
+        so it lives here rather than as a side effect of engine creation.
+        """
+        self.var_dir.mkdir(parents=True, exist_ok=True)
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api import notes, passports, trips
 from app.config import get_settings
 
 settings = get_settings()
@@ -46,6 +47,13 @@ def health() -> dict:
         "rp_id": settings.rp_id,
         "email_ingest_enabled": settings.email_ingest_enabled,
     }
+
+
+# API routes must be registered before the SPA catch-all below, otherwise the
+# catch-all pattern matches first and shadows every one of them.
+app.include_router(trips.router)
+app.include_router(passports.router)
+app.include_router(notes.router)
 
 
 if FRONTEND_DIST.is_dir():
