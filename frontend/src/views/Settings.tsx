@@ -180,6 +180,25 @@ export function Settings({ passports, onPassportsChanged, onLoggedOut }: Props) 
       </section>
 
       <section>
+        <h3>Export</h3>
+        <p className="muted small">
+          Download everything — trips, hotels, and travel. JSON keeps the full
+          detail and is the copy to keep. The CSV is a spreadsheet: a{" "}
+          <code>.zip</code> of trips, hotels, and legs.
+        </p>
+        <div className="export-buttons">
+          {/* Same-origin GETs: the session cookie rides along, and
+              Content-Disposition makes the browser download rather than open. */}
+          <a className="btn btn-sm" href="/api/export/trips.json" download>
+            Download JSON
+          </a>
+          <a className="btn btn-sm" href="/api/export/trips.zip" download>
+            Download CSV (.zip)
+          </a>
+        </div>
+      </section>
+
+      <section>
         <h3>Session</h3>
         <button
           className="btn btn-sm"

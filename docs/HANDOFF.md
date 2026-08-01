@@ -62,7 +62,8 @@ in `backend/app/api/trips.py`.
 | Map | Canvas world map, country fill, city pins, route arcs. No tile server |
 | Passports | MX (expires 2036-04-06) and US (expires 2035-11-17), last-4 only |
 | Gmail ingest | **Live and on.** Fetch → filter → extract → propose; you accept. §8 |
-| Export / backup | Nightly DB backup on deploy only. No export UI yet |
+| Export | **Live.** Settings → Export: full JSON, or a CSV zip (trips/hotels/legs) |
+| Backup | Pre-deploy SQLite snapshot only. No schedule, no off-box copy |
 
 ### Missing-hotel detection (the feature he cares most about)
 
@@ -265,15 +266,21 @@ per triaged candidate, Sonnet only when triage says yes.
   note that has a `trip_id`. No note has one yet, so it has not surfaced. Swap to
   the derived label (see `api/review.py`'s `_trip_label`).
 - **`Requirement` rows** render read-only on trip detail; nothing creates them.
-- **Export, nightly backup cron, ICS feed (stage 9)** are unbuilt. Only the
-  pre-deploy backup in `deploy.sh` exists.
+- **Export is live** — `api/export.py`, Settings → Export: `/trips.json` (full
+  nested dump) and `/trips.zip` (trips/hotels/legs CSVs). Cookie-authed anchor
+  downloads; no frontend blob handling.
+- **Backup is still thin.** Only the pre-deploy snapshot in `deploy.sh` exists:
+  same disk, no schedule, no off-box copy, and `YAYO_BACKUP_KEEP_DAYS` is
+  defined but unwired (nothing prunes). He was offered scheduled/off-box
+  backups and declined for now — export was the piece he wanted.
+- **Nightly backup cron and the ICS feed (stage 9)** are unbuilt.
 - **Visa-free advisory dataset** (`data/rules/visa-free.json`,
   `entry-requirements.json`) was designed but never built. `email-filter.json`
   is the only thing in `data/rules/` so far.
 
 ### Smaller things he was once offered
 Entry-card/visa reminders per country, passport-expiry warnings against entry
-dates, CSV/JSON export, an ICS subscribe feed.
+dates, scheduled/off-box backups, an ICS subscribe feed.
 
 ---
 

@@ -1187,3 +1187,15 @@ textarea {
   margin: -4px 0 12px;
   font-size: 14px;
 }
+
+.export-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+/* Anchor styled as a button: keep it in line with real .btn text. */
+a.btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
