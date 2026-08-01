@@ -179,9 +179,15 @@ h3 {
   background: none;
   border: none;
   color: var(--text-muted);
-  font-size: 15px;
+  font-size: 18px;
   cursor: pointer;
-  padding: 6px 8px;
+  /* A comfortable tap target -- these were fiddly to hit before. */
+  min-width: 40px;
+  min-height: 40px;
+  padding: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--radius);
   line-height: 1;
 }
@@ -632,8 +638,10 @@ textarea {
   position: relative;
   background: var(--surface);
   border-radius: 4px;
-  padding: 3px 5px;
+  padding: 4px 6px;
   font-size: 12px;
+  /* Give each date real room; the grid was cramped vertically. */
+  min-height: 52px;
 }
 .cal-day.outside {
   opacity: 0.4;
@@ -658,7 +666,7 @@ textarea {
   position: absolute;
   left: 0;
   right: 0;
-  top: 22px;
+  top: 24px;
   pointer-events: none;
 }
 .cal-bars .cal-bar {
@@ -666,15 +674,18 @@ textarea {
 }
 .cal-bar {
   position: absolute;
-  height: 19px;
+  height: 20px;
   font: inherit;
   font-size: 11px;
   text-align: left;
   padding: 0 6px;
   border: none;
-  border-radius: 4px;
+  border-radius: 5px;
   color: #fff;
+  /* Colour is set per trip inline (see barColor); this is only the fallback. */
   background: var(--past);
+  /* Keep the label legible on any of the generated fills. */
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.28);
   cursor: pointer;
   overflow: hidden;
   white-space: nowrap;
@@ -682,17 +693,9 @@ textarea {
   display: flex;
   align-items: center;
 }
-.cal-bar.status-ongoing {
-  background: #1d9e75;
-}
-.cal-bar.status-future {
-  background: #378add;
-}
+/* A finished trip fades back a little without losing its own colour. */
 .cal-bar.status-past {
-  background: #888780;
-}
-.cal-bar.status-undated {
-  background: #ba7517;
+  opacity: 0.72;
 }
 /* Square off the edge where a trip runs into the next or previous week, so it
    reads as one continuous bar rather than separate blocks. */

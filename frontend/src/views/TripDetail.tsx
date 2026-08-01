@@ -21,6 +21,8 @@ import {
   formatTime,
   formatMoney,
   relativeDays,
+  toISODate,
+  today,
 } from "../lib/format";
 import type {
   TripCountry,
@@ -401,6 +403,17 @@ function CountryBlock({
 }) {
   const noPassport = segment.passport_id === null;
 
+  // The leaving date drives unbooked-night detection, so start it somewhere
+  // useful rather than blank. Today, normally -- but for a trip that has not
+  // started yet, today is before you even arrive (and below the field's min),
+  // so fall back to the last checkout, which is the natural day to leave.
+  const todayIso = toISODate(today());
+  const leavingValue =
+    segment.leaving_on ??
+    (segment.starts_on && todayIso < segment.starts_on
+      ? (segment.ends_on ?? segment.starts_on)
+      : todayIso);
+
   return (
     <section className="country-block">
       <div className="country-head">
@@ -438,12 +451,15 @@ function CountryBlock({
       <div className="leaving-row">
         <label htmlFor={`leaving-${segment.country_code}`}>Leaving on</label>
         <DateField
-          value={segment.leaving_on ?? ""}
+          value={leavingValue}
           min={segment.starts_on ?? undefined}
           onChange={onSetLeaving}
         />
         {!segment.leaving_on && (
-          <small>Set this and any nights you have not booked will show up.</small>
+          <small>
+            Set this to when you actually leave, and any nights you have not
+            booked will show up.
+          </small>
         )}
       </div>
 

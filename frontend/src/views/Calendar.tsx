@@ -99,7 +99,7 @@ export function Calendar({ trips, notes, onSelect }: Props) {
                 weeks instead of to the week above it. */}
             <div
               className="cal-days"
-              style={{ minHeight: 32 + laneCount * 22 }}
+              style={{ minHeight: 52 + laneCount * 24 }}
             >
               {week.map((day) => {
                 const iso = toISODate(day);
@@ -125,26 +125,40 @@ export function Calendar({ trips, notes, onSelect }: Props) {
             </div>
 
             <div className="cal-bars">
-              {bars.map((bar) => (
-                <button
-                  key={`${bar.trip.id}-${bar.start}`}
-                  className={`cal-bar status-${bar.trip.status}${
-                    bar.continuesLeft ? " cont-l" : ""
-                  }${bar.continuesRight ? " cont-r" : ""}`}
-                  style={{
-                    left: `${(bar.start / 7) * 100}%`,
-                    width: `${(bar.span / 7) * 100}%`,
-                    top: bar.lane * 22,
-                  }}
-                  title={`${bar.trip.country_name} · ${bar.trip.label}\n${formatRange(
-                    bar.trip.start_date,
-                    bar.trip.end_date,
-                  )}`}
-                  onClick={() => onSelect(bar.trip.id)}
-                >
-                  <span>{bar.trip.label}</span>
-                </button>
-              ))}
+              {bars.map((bar) => {
+                // Start at the right half of the arrival day and end at the left
+                // half of the departure day: you check in in the afternoon and
+                // out in the morning. A bar continuing from an adjacent week
+                // keeps its cut edge flush so it still reads as one span.
+                const startFrac = bar.continuesLeft ? bar.start : bar.start + 0.5;
+                const endFrac = bar.continuesRight
+                  ? bar.start + bar.span
+                  : bar.start + bar.span - 0.5;
+                const leftPct = (startFrac / 7) * 100;
+                // Never let a same-day span collapse to nothing to click.
+                const widthPct = Math.max(((endFrac - startFrac) / 7) * 100, 3.5);
+                return (
+                  <button
+                    key={`${bar.trip.id}-${bar.start}`}
+                    className={`cal-bar status-${bar.trip.status}${
+                      bar.continuesLeft ? " cont-l" : ""
+                    }${bar.continuesRight ? " cont-r" : ""}`}
+                    style={{
+                      left: `${leftPct}%`,
+                      width: `${widthPct}%`,
+                      top: bar.lane * 24,
+                      background: barColor(bar.trip.id),
+                    }}
+                    title={`${bar.trip.country_name} · ${bar.trip.label}\n${formatRange(
+                      bar.trip.start_date,
+                      bar.trip.end_date,
+                    )}`}
+                    onClick={() => onSelect(bar.trip.id)}
+                  >
+                    <span>{bar.trip.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         );
@@ -157,6 +171,15 @@ export function Calendar({ trips, notes, onSelect }: Props) {
       )}
     </div>
   );
+}
+
+/** A distinct, stable colour per trip, so overlapping stays are easy to tell
+ *  apart at a glance. Golden-angle hue rotation keeps neighbours far apart, and
+ *  a fixed saturation/lightness keeps every fill legible under white text in
+ *  both themes. */
+function barColor(id: number): string {
+  const hue = (id * 137.508) % 360;
+  return `hsl(${hue.toFixed(1)}, 58%, 42%)`;
 }
 
 /** Six weeks starting on the Monday on or before the 1st. */
