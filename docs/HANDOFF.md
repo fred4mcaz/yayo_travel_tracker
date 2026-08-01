@@ -3,8 +3,8 @@
 Everything a fresh session needs to pick this up. Read this first, then
 [DEPLOY.md](DEPLOY.md) when you need to ship.
 
-**Live:** https://travel.foryayo.com · **Deployed commit:** `9eb346d` ·
-**178 tests passing**, ruff and typecheck clean.
+**Live:** https://travel.foryayo.com · **Deployed commit:** `ea24a52` ·
+**185 tests passing**, ruff and typecheck clean.
 
 ---
 
@@ -57,13 +57,18 @@ in `backend/app/api/trips.py`.
 | Auth | Passkeys only. 1 passkey enrolled, 10 unused recovery codes |
 | Data model | 14 tables, 3 Alembic migrations, runs on container start |
 | Trip entry | Working end to end: country picker, city autocomplete, date steppers |
-| Missing hotels | Working — see below |
-| Calendar | Month grid, trips as bars, notes as dots |
+| Trip detail | Country-first panel, capped to 70% width and left-justified (`.pane-detail`) |
+| Missing hotels | Working — see below. "Leaving on" sits at the bottom of the country block |
+| Calendar | Month grid; each trip a distinctly-coloured bar, offset to start mid-arrival-day and end mid-checkout-day; notes as dots |
 | Map | Canvas world map, country fill, city pins, route arcs. No tile server |
 | Passports | MX (expires 2036-04-06) and US (expires 2035-11-17), last-4 only |
 | Gmail ingest | **Live and on.** Fetch → filter → extract → propose; you accept. §8 |
-| Export | **Live.** Settings → Export: full JSON, or a CSV zip (trips/hotels/legs) |
+| Export | **Live.** Settings → Export: full JSON, or a CSV zip (trips/hotels/legs), ASCII-folded |
 | Backup | Pre-deploy SQLite snapshot only. No schedule, no off-box copy |
+
+Dates render **month-first everywhere** — "Aug 1", "Aug 18–24, 2026" (see
+`lib/format.ts`). The calendar bars are **per-trip by explicit choice** (a trip
+is one country stay); do not switch them to per-hotel without asking.
 
 ### Missing-hotel detection (the feature he cares most about)
 
@@ -185,6 +190,11 @@ The frontend builds fine on that box despite the RAM; that was checked.
 - A bind mount keeps the *host* directory's ownership. The container runs as the
   host uid (`YAYO_UID`) so it can write `var/`.
 - SQLite cannot add a `NOT NULL` column without `server_default`.
+- The **CSV export ASCII-folds every cell** (`_ascii` in `api/export.py`): the
+  `city · hotel` label separator is a UTF-8 middle dot that a Windows-codepage
+  spreadsheet renders as `Â·`. Folding to a plain dash — and stripping accents —
+  is deliberate; do not "fix" it back to raw UTF-8. The **JSON export stays
+  full-fidelity**; only the spreadsheet is flattened.
 
 **React / frontend.**
 - `Sheet`'s effect must not depend on `onClose` — callers pass inline arrows, so
@@ -273,7 +283,8 @@ per triaged candidate, Sonnet only when triage says yes.
   same disk, no schedule, no off-box copy, and `YAYO_BACKUP_KEEP_DAYS` is
   defined but unwired (nothing prunes). He was offered scheduled/off-box
   backups and declined for now — export was the piece he wanted.
-- **Nightly backup cron and the ICS feed (stage 9)** are unbuilt.
+- **Nightly backup cron and the ICS feed (stage 9)** are unbuilt. The `ics`
+  dependency is already pinned in `requirements.txt`, ready for the feed.
 - **Visa-free advisory dataset** (`data/rules/visa-free.json`,
   `entry-requirements.json`) was designed but never built. `email-filter.json`
   is the only thing in `data/rules/` so far.
