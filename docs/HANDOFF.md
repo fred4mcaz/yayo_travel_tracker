@@ -3,7 +3,7 @@
 Everything a fresh session needs to pick this up. Read this first, then
 [DEPLOY.md](DEPLOY.md) when you need to ship.
 
-**Live:** https://travel.foryayo.com · **Deployed commit:** `9bb3e75` ·
+**Live:** https://travel.foryayo.com · **Deployed commit:** `9eb346d` ·
 **178 tests passing**, ruff and typecheck clean.
 
 ---
