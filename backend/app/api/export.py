@@ -15,6 +15,7 @@ Content-Disposition so the browser downloads rather than renders them.
 
 import csv
 import io
+import unicodedata
 import zipfile
 from datetime import datetime
 
@@ -78,14 +79,45 @@ LEG_COLUMNS = [
 ]
 
 
+# Punctuation the app uses that is not ASCII, mapped to plain equivalents. The
+# label separator `·` is the usual culprit: written UTF-8, a spreadsheet opened
+# under a Windows codepage reads its two bytes as "Â·". Everything else is folded
+# to ASCII (accents dropped: café -> cafe) so the CSV is plain English, whatever
+# the spreadsheet's encoding. The JSON export keeps full fidelity; only the
+# spreadsheet is flattened.
+_ASCII_PUNCT = {
+    "·": "-",     # · middle dot -- the "city · hotel" separator
+    "→": "->",    # → route arrow
+    "–": "-",     # – en dash
+    "—": "-",     # — em dash
+    "‘": "'", "’": "'",     # ‘ ’ curly single quotes
+    "“": '"', "”": '"',     # “ ” curly double quotes
+    "…": "...",   # … ellipsis
+}
+
+
+def _ascii(text: str) -> str:
+    for uni, plain in _ASCII_PUNCT.items():
+        text = text.replace(uni, plain)
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+
+
+def _cell(value):
+    if value is None:
+        # None renders as the string "None" through csv; empty is what a
+        # spreadsheet expects for a blank cell.
+        return ""
+    if isinstance(value, str):
+        return _ascii(value)
+    return value
+
+
 def _csv_bytes(rows: list[dict], columns: list[str]) -> bytes:
     buf = io.StringIO(newline="")
     writer = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore")
     writer.writeheader()
     for row in rows:
-        # None renders as the string "None" through csv; empty is what a
-        # spreadsheet expects for a blank cell.
-        writer.writerow({k: ("" if v is None else v) for k, v in row.items()})
+        writer.writerow({k: _cell(v) for k, v in row.items()})
     return buf.getvalue().encode("utf-8")
 
 

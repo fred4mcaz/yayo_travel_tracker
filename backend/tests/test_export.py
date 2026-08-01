@@ -120,7 +120,8 @@ def test_csv_export_is_a_zip_of_three_tables(client, session: Session):
 
     assert len(tables["trips.csv"]) == 1
     assert tables["trips.csv"][0]["country_name"] == "Vietnam"
-    assert tables["trips.csv"][0]["label"] == "Hanoi · Sofitel Legend"
+    # The `·` separator is folded to a plain dash for the spreadsheet.
+    assert tables["trips.csv"][0]["label"] == "Hanoi - Sofitel Legend"
 
     assert len(tables["hotels.csv"]) == 1
     assert tables["hotels.csv"][0]["hotel_name"] == "Sofitel Legend"
@@ -140,6 +141,40 @@ def test_csv_blank_cells_are_empty_not_the_string_none(client, session: Session)
     # The seeded hotel has no cost and no address.
     assert tables["hotels.csv"][0]["cost"] == ""
     assert tables["hotels.csv"][0]["address"] == ""
+
+
+def test_csv_export_is_plain_ascii(client, session: Session):
+    """A spreadsheet opened under a Windows codepage mangles UTF-8; the CSV
+    exports as plain English characters so it never happens."""
+    trip = Trip(notes="")
+    session.add(trip)
+    session.commit()
+    session.refresh(trip)
+    # An accented city and a non-ASCII hotel name; the label the app derives
+    # will also carry a `·` separator.
+    session.add(
+        Stay(
+            trip_id=trip.id,
+            country_code="ID",
+            city="Batam",
+            hotel_name="Oakwood Grand Batam — Café",
+            check_in=date(2026, 8, 30),
+            check_out=date(2026, 9, 2),
+        )
+    )
+    session.commit()
+    refresh_trip_dates(session, trip)
+    session.commit()
+
+    content = client.get("/api/export/trips.zip").content
+    tables = _read_zip(content)
+
+    hotel = tables["hotels.csv"][0]
+    assert hotel["hotel_name"] == "Oakwood Grand Batam - Cafe"  # dash + folded
+    # The whole archive is ASCII -- no byte can trip a spreadsheet's codepage.
+    with zipfile.ZipFile(io.BytesIO(content)) as z:
+        for name in z.namelist():
+            z.read(name).decode("ascii")  # raises if any non-ASCII slipped through
 
 
 def test_csv_export_has_headers_even_with_no_trips(client):

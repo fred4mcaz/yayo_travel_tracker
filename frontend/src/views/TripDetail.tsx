@@ -448,21 +448,6 @@ function CountryBlock({
         </select>
       </div>
 
-      <div className="leaving-row">
-        <label htmlFor={`leaving-${segment.country_code}`}>Leaving on</label>
-        <DateField
-          value={leavingValue}
-          min={segment.starts_on ?? undefined}
-          onChange={onSetLeaving}
-        />
-        {!segment.leaving_on && (
-          <small>
-            Set this to when you actually leave, and any nights you have not
-            booked will show up.
-          </small>
-        )}
-      </div>
-
       {segment.unbooked.length > 0 && (
         <div className="unbooked">
           <strong>
@@ -512,6 +497,21 @@ function CountryBlock({
           <button className="btn btn-sm" onClick={onAddTravel}>
             + How you get there
           </button>
+        )}
+      </div>
+
+      <div className="leaving-row">
+        <label htmlFor={`leaving-${segment.country_code}`}>Leaving on</label>
+        <DateField
+          value={leavingValue}
+          min={segment.starts_on ?? undefined}
+          onChange={onSetLeaving}
+        />
+        {!segment.leaving_on && (
+          <small>
+            Set this to when you actually leave, and any nights you have not
+            booked will show up.
+          </small>
         )}
       </div>
     </section>

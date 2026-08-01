@@ -32,25 +32,25 @@ const MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ");
 export function formatDate(iso: string | null): string {
   if (!iso) return "—";
   const d = parseDate(iso);
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
 
 export function formatDateShort(iso: string | null): string {
   if (!iso) return "—";
   const d = parseDate(iso);
-  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 
-/** "18–24 Mar 2026", collapsing the repeated month and year where possible. */
+/** "Mar 18–24, 2026", collapsing the repeated month and year where possible. */
 export function formatRange(from: string | null, to: string | null): string {
   if (!from || !to) return formatDate(from ?? to);
   const a = parseDate(from);
   const b = parseDate(to);
   if (a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth()) {
-    return `${a.getDate()}–${b.getDate()} ${MONTHS[a.getMonth()]} ${a.getFullYear()}`;
+    return `${MONTHS[a.getMonth()]} ${a.getDate()}–${b.getDate()}, ${a.getFullYear()}`;
   }
   if (a.getFullYear() === b.getFullYear()) {
-    return `${a.getDate()} ${MONTHS[a.getMonth()]} – ${b.getDate()} ${MONTHS[b.getMonth()]} ${a.getFullYear()}`;
+    return `${MONTHS[a.getMonth()]} ${a.getDate()} – ${MONTHS[b.getMonth()]} ${b.getDate()}, ${a.getFullYear()}`;
   }
   return `${formatDate(from)} – ${formatDate(to)}`;
 }
@@ -63,7 +63,7 @@ export function formatDateTime(iso: string | null): string {
   const [datePart, timePart = "00:00"] = clean.split("T");
   const d = parseDate(datePart);
   const [hh, mm] = timePart.split(":");
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${hh}:${mm}`;
+  return `${MONTHS[d.getMonth()]} ${d.getDate()} ${hh}:${mm}`;
 }
 
 export function formatTime(iso: string | null): string {
