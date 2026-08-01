@@ -3,8 +3,8 @@
 Everything a fresh session needs to pick this up. Read this first, then
 [DEPLOY.md](DEPLOY.md) when you need to ship.
 
-**Live:** https://travel.foryayo.com · **Deployed commit:** `b40ec0a` ·
-**81 tests passing**, ruff and typecheck clean.
+**Live:** https://travel.foryayo.com · **Deployed commit:** `9bb3e75` ·
+**178 tests passing**, ruff and typecheck clean.
 
 ---
 
@@ -61,7 +61,7 @@ in `backend/app/api/trips.py`.
 | Calendar | Month grid, trips as bars, notes as dots |
 | Map | Canvas world map, country fill, city pins, route arcs. No tile server |
 | Passports | MX (expires 2036-04-06) and US (expires 2035-11-17), last-4 only |
-| Gmail ingest | **Not built.** Stage 8. The biggest remaining gap |
+| Gmail ingest | **Live and on.** Fetch → filter → extract → propose; you accept. §8 |
 | Export / backup | Nightly DB backup on deploy only. No export UI yet |
 
 ### Missing-hotel detection (the feature he cares most about)
@@ -199,51 +199,80 @@ The frontend builds fine on that box despite the RAM; that was checked.
 
 ---
 
-## 8. What to do next
+## 8. Gmail ingest (stage 8) — built, deployed, and on
 
-**Gmail ingest (stage 8)** is the highest-value remaining work and the reason
-the forms ask for so little. The design is already agreed:
+The reason the forms ask for so little: a booking email becomes a trip, with a
+human accept in the middle. Full phased history and the lessons each phase cost
+are in [STAGE8_PLAN.md](STAGE8_PLAN.md).
 
-1. IMAP over TLS every 10 min, `UID > last_seen`, watermarked at first run —
-   **no historical backfill**, he chose "going forward only".
-2. A cheap **local** sender/keyword pre-filter. This is a privacy control, not
-   just a cost one: most of his inbox must never leave the box.
-3. Candidates go to the Claude API with a strict tool schema (`claude-haiku-4-5`
-   to triage, `claude-sonnet-5` to extract).
-4. Results land in `extraction` with `status=pending` and appear in a **review
-   queue**. **Nothing writes to trip data without an explicit accept** — he has
-   been told this twice and it must stay true.
-5. Matching: attach to an existing trip by ±2 day date overlap, else propose a
-   new trip. Remember the one-country rule — an extraction for a different
-   country must propose a *new trip*, not fail.
+**The cycle, every 10 minutes** — APScheduler, started from the app lifespan
+(`services/scheduler.py`):
 
-The tables (`email_message`, `extraction`) already exist and are empty.
-`YAYO_EMAIL_INGEST_ENABLED=false` in `deploy/.env` gates it.
+1. **Fetch** — `services/email_ingest.py`. IMAP over TLS, `UID > watermark`. The
+   first run records the watermark and **ingests nothing** — no historical
+   backfill, by his choice. Dedupes on Message-ID; survives the IMAP `n:*` range
+   quirk (the newest message comes back even when nothing is above `n`) and a
+   `UIDVALIDITY` reset. Stores only sender, subject and a 400-char snippet in
+   `email_message` — never the full body.
+2. **Filter** — `services/email_filter.py`, rules in
+   `data/rules/email-filter.json`. **The privacy boundary.** Only mail from an
+   allow-listed booking sender, carrying a confirmation keyword and no marketing
+   keyword, is marked `looks_like_travel`. Everything else stays on the box and
+   never reaches the API. A privacy control, not a cost one — extend the
+   allow-list as new senders show up.
+3. **Extract** — `services/extraction.py`. Candidates go to the Claude API
+   behind **strict** tool schemas: `claude-haiku-4-5` triages ("is this really a
+   booking?"), and only on a yes does `claude-sonnet-5` pull out the structured
+   booking. Results land in `extraction` as `status=pending`; a malformed
+   response is validated out and persists nothing. The model is injected behind
+   a Protocol, so the whole pipeline tests offline.
+4. **Match** — `services/review.py`. `find_matching_trip` attaches a booking to
+   an existing trip by same-country **and** ±2-day date overlap, otherwise
+   proposes a new trip. A different-country booking becomes its own trip **by
+   construction** — the one-country rule holds without ever failing the guard.
+5. **Review** — `api/review.py`, `views/Review.tsx`. Proposals appear in the
+   **Review tab** with a badge count. Accept or dismiss; correct a field the
+   model missed first (overrides are allow-listed to booking fields). **Accepting
+   is the only thing that writes trip data** — matching and dismissing touch
+   none. That boundary is asserted as a row-count test, and a *failed* accept
+   leaves no orphan trip.
 
-**Needs from him, not yet provided:**
-- Google App Password (requires 2FA on `req4233@gmail.com`)
-- Anthropic API key
+**The gate.** `YAYO_EMAIL_INGEST_ENABLED` controls all of it. Off: nothing
+starts, connects, or reads a credential. On but a credential missing: the
+container **fails to boot loudly**, naming the unset vars (never their values).
+It is now **on** in `deploy/.env`, with the Gmail app password and Anthropic key
+in place. `POST /api/review/poll` (the "Check email now" button) runs one cycle
+on demand, gated identically — 409 with the reason if off or unconfigured.
 
-Both go into `deploy/.env` on the server. **Never accept secrets pasted into
-chat** — give him the file to edit.
-
-### Smaller alternatives he was offered
-Entry-card/visa reminders per country, passport-expiry warnings against entry
-dates, a notes-creation UI (the API exists, there is no way to add one from the
-UI), CSV/JSON export and an ICS subscribe feed.
-
-### Known unfinished edges
-- `Requirement` rows render read-only on trip detail; nothing creates them yet.
-- Notes have a full API and appear on the calendar and trip detail, but there is
-  no UI to create one.
-- Export, nightly backup cron, and the ICS feed (stage 9) are unbuilt. Only the
-  pre-deploy backup in `deploy.sh` exists.
-- `data/rules/` is empty — the visa-free advisory dataset was designed but never
-  built.
+**Verified live** against the real mailbox (2026-07-31): baselined at UID 168354
+ingesting nothing, then picked up new mail going forward; the filter gated
+correctly and triage produced no false proposals. Costs a little now — Haiku
+per triaged candidate, Sonnet only when triage says yes.
 
 ---
 
-## 9. How he works
+## 9. What's left
+
+- **Notes creation UI.** The notes API is complete and notes render on the
+  calendar and trip detail, but there is still no way to create one from the UI.
+- **`api/notes.py` bug (flagged, task chip open).** `list_notes` reads
+  `Trip.title`, which was deleted in `b40ec0a`, so `GET /api/notes` 500s for any
+  note that has a `trip_id`. No note has one yet, so it has not surfaced. Swap to
+  the derived label (see `api/review.py`'s `_trip_label`).
+- **`Requirement` rows** render read-only on trip detail; nothing creates them.
+- **Export, nightly backup cron, ICS feed (stage 9)** are unbuilt. Only the
+  pre-deploy backup in `deploy.sh` exists.
+- **Visa-free advisory dataset** (`data/rules/visa-free.json`,
+  `entry-requirements.json`) was designed but never built. `email-filter.json`
+  is the only thing in `data/rules/` so far.
+
+### Smaller things he was once offered
+Entry-card/visa reminders per country, passport-expiry warnings against entry
+dates, CSV/JSON export, an ICS subscribe feed.
+
+---
+
+## 10. How he works
 
 - **He iterates by using it and reporting friction.** Expect the model to keep
   moving. When he corrects the design, take the correction literally and delete
