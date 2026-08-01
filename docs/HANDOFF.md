@@ -220,12 +220,17 @@ are in [STAGE8_PLAN.md](STAGE8_PLAN.md).
    keyword, is marked `looks_like_travel`. Everything else stays on the box and
    never reaches the API. A privacy control, not a cost one — extend the
    allow-list as new senders show up.
-3. **Extract** — `services/extraction.py`. Candidates go to the Claude API
-   behind **strict** tool schemas: `claude-haiku-4-5` triages ("is this really a
-   booking?"), and only on a yes does `claude-sonnet-5` pull out the structured
-   booking. Results land in `extraction` as `status=pending`; a malformed
-   response is validated out and persists nothing. The model is injected behind
-   a Protocol, so the whole pipeline tests offline.
+3. **Extract** — `services/extraction.py`. Candidates go through **OpenRouter's
+   OpenAI-compatible API** (`openai` SDK pointed at openrouter.ai) behind
+   **strict** function-calling tools: Claude Haiku triages ("is this really a
+   booking?"), and only on a yes does Claude Sonnet pull out the structured
+   booking — same models as before, routed via OpenRouter. Model slugs are
+   config (`YAYO_TRIAGE_MODEL` / `YAYO_EXTRACT_MODEL`, defaulting to
+   `anthropic/claude-haiku-4.5` and `anthropic/claude-sonnet-5` — confirm at
+   openrouter.ai/models). Results land in `extraction` as `status=pending`; a
+   malformed response is validated out and persists nothing regardless of
+   whether the provider enforced strict. The model is injected behind a
+   Protocol, so the whole pipeline tests offline.
 4. **Match** — `services/review.py`. `find_matching_trip` attaches a booking to
    an existing trip by same-country **and** ±2-day date overlap, otherwise
    proposes a new trip. A different-country booking becomes its own trip **by
@@ -240,8 +245,8 @@ are in [STAGE8_PLAN.md](STAGE8_PLAN.md).
 **The gate.** `YAYO_EMAIL_INGEST_ENABLED` controls all of it. Off: nothing
 starts, connects, or reads a credential. On but a credential missing: the
 container **fails to boot loudly**, naming the unset vars (never their values).
-It is now **on** in `deploy/.env`, with the Gmail app password and Anthropic key
-in place. `POST /api/review/poll` (the "Check email now" button) runs one cycle
+It is now **on** in `deploy/.env`, with the Gmail app password and OpenRouter
+key in place. `POST /api/review/poll` (the "Check email now" button) runs one cycle
 on demand, gated identically — 409 with the reason if off or unconfigured.
 
 **Verified live** against the real mailbox (2026-07-31): baselined at UID 168354

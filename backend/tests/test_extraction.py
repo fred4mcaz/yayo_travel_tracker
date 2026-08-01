@@ -1,8 +1,8 @@
 """Phase 3: extraction behind a strict tool schema.
 
 No network. The model is injected behind a Protocol, and the one test that
-exercises the real Anthropic client hands it a mock HTTP transport so the strict
-tool schema is validated end to end without a socket.
+exercises the real OpenRouter client hands it a mock HTTP transport so the
+strict tool schema is validated end to end without a socket.
 
 The line under test: extractions land as pending proposals, and a malformed
 model response is rejected rather than persisted. Nothing here touches trip
@@ -20,8 +20,8 @@ from app.models import EmailMessage, Extraction, ExtractionStatus
 from app.services.extraction import (
     EXTRACT_TOOL,
     TRIAGE_TOOL,
-    AnthropicModel,
     Booking,
+    OpenRouterModel,
     TriageResult,
     process_email,
     run_extractions,
@@ -36,6 +36,8 @@ from app.services.extraction import (
 
 class FakeModel:
     """Canned triage and extraction, and a record of what it was asked."""
+
+    extract_model = "anthropic/claude-sonnet-5"
 
     def __init__(self, triage: TriageResult, extract=None):
         self._triage = triage
@@ -243,78 +245,97 @@ def test_process_email_returns_the_extraction_or_none(session: Session):
 # --------------------------------------------------------------------------
 
 
-def _anthropic_tool_response(tool_name: str, tool_input: dict) -> httpx.Response:
-    """A Messages API response containing a single tool_use block."""
+def _openrouter_tool_response(tool_name: str, tool_input: dict) -> httpx.Response:
+    """A Chat Completions response with a single tool call.
+
+    Note the OpenAI shape: the arguments are a JSON *string*, not an object.
+    """
     return httpx.Response(
         200,
         json={
-            "id": "msg_test",
-            "type": "message",
-            "role": "assistant",
-            "model": "claude-sonnet-5",
-            "content": [
+            "id": "chatcmpl-test",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "anthropic/claude-sonnet-5",
+            "choices": [
                 {
-                    "type": "tool_use",
-                    "id": "toolu_test",
-                    "name": tool_name,
-                    "input": tool_input,
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_test",
+                                "type": "function",
+                                "function": {
+                                    "name": tool_name,
+                                    "arguments": json.dumps(tool_input),
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
                 }
             ],
-            "stop_reason": "tool_use",
-            "stop_sequence": None,
-            "usage": {"input_tokens": 10, "output_tokens": 20},
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
         },
     )
 
 
-def _model_with_transport(handler) -> AnthropicModel:
-    import anthropic
+def _model_with_transport(handler) -> OpenRouterModel:
+    from openai import OpenAI
 
-    client = anthropic.Anthropic(
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
         api_key="test-key",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
-    return AnthropicModel(client)
+    return OpenRouterModel(
+        client, "anthropic/claude-haiku-4.5", "anthropic/claude-sonnet-5"
+    )
 
 
-def test_real_client_sends_strict_tools_and_reads_the_tool_use(session: Session):
-    """The strict schema goes out on the wire; the tool input comes back."""
+def test_real_client_sends_strict_tools_and_reads_the_tool_call(session: Session):
+    """The strict schema goes out on the wire; the tool call comes back."""
     sent: dict = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         sent.update(payload)
-        name = payload["tool_choice"]["name"]
+        name = payload["tool_choice"]["function"]["name"]
         if name == TRIAGE_TOOL["name"]:
-            return _anthropic_tool_response(
+            return _openrouter_tool_response(
                 name, {"is_booking": True, "confidence": 0.9, "reason": "ok"}
             )
-        return _anthropic_tool_response(name, VALID_BOOKING)
+        return _openrouter_tool_response(name, VALID_BOOKING)
 
     model = _model_with_transport(handler)
 
     triage = model.triage("Your booking", "Sofitel, Hanoi")
     assert triage.is_booking is True
-    # The tool that went out was declared strict.
-    assert sent["tools"][0]["strict"] is True
-    assert sent["tools"][0]["name"] == TRIAGE_TOOL["name"]
+    # The function tool that went out was declared strict, in OpenAI shape.
+    assert sent["tools"][0]["type"] == "function"
+    assert sent["tools"][0]["function"]["strict"] is True
+    assert sent["tools"][0]["function"]["name"] == TRIAGE_TOOL["name"]
+    assert sent["model"] == "anthropic/claude-haiku-4.5"
 
     booking = validate_booking(model.extract("Your booking", "Sofitel, Hanoi"))
     assert booking is not None
     assert booking.country_code == "VN"
-    assert sent["tools"][0]["name"] == EXTRACT_TOOL["name"]
+    assert sent["tools"][0]["function"]["name"] == EXTRACT_TOOL["name"]
+    assert sent["model"] == "anthropic/claude-sonnet-5"
 
 
 def test_real_client_end_to_end_creates_a_pending_extraction(session: Session):
     email = _candidate(session)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        name = json.loads(request.content)["tool_choice"]["name"]
+        name = json.loads(request.content)["tool_choice"]["function"]["name"]
         if name == TRIAGE_TOOL["name"]:
-            return _anthropic_tool_response(
+            return _openrouter_tool_response(
                 name, {"is_booking": True, "confidence": 0.95, "reason": "booking"}
             )
-        return _anthropic_tool_response(name, VALID_BOOKING)
+        return _openrouter_tool_response(name, VALID_BOOKING)
 
     model = _model_with_transport(handler)
 
@@ -325,3 +346,5 @@ def test_real_client_end_to_end_creates_a_pending_extraction(session: Session):
     assert len(rows) == 1
     assert rows[0].status == ExtractionStatus.pending
     assert rows[0].email_message_id == email.id
+    # The recorded model is the OpenRouter slug used for extraction.
+    assert rows[0].model == "anthropic/claude-sonnet-5"

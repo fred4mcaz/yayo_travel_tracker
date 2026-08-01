@@ -19,7 +19,7 @@ from sqlmodel import Session
 
 from app.config import Settings
 from app.services.email_ingest import run_ingest
-from app.services.extraction import AnthropicModel, run_extractions
+from app.services.extraction import OpenRouterModel, run_extractions
 
 log = logging.getLogger("yayo.scheduler")
 
@@ -30,7 +30,7 @@ POLL_INTERVAL_MINUTES = 10
 REQUIRED_CREDENTIALS = (
     ("imap_user", "YAYO_IMAP_USER"),
     ("imap_app_password", "YAYO_IMAP_APP_PASSWORD"),
-    ("anthropic_api_key", "YAYO_ANTHROPIC_API_KEY"),
+    ("openrouter_api_key", "YAYO_OPENROUTER_API_KEY"),
 )
 
 
@@ -58,7 +58,7 @@ def run_poll_cycle(engine) -> dict:
     """One pass: fetch and filter new mail, then extract the candidates."""
     with Session(engine) as session:
         ingest = run_ingest(session)
-        model = AnthropicModel.from_settings()
+        model = OpenRouterModel.from_settings()
         extraction = run_extractions(session, model)
     return {"ingest": ingest, "extraction": extraction}
 

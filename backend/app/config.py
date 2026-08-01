@@ -39,7 +39,16 @@ class Settings(BaseSettings):
     imap_port: int = 993
     imap_user: str = ""
     imap_app_password: str = ""
-    anthropic_api_key: str = ""
+
+    # Extraction goes through OpenRouter's OpenAI-compatible API. The models are
+    # still Claude Haiku (triage) and Claude Sonnet (extract), just routed via
+    # OpenRouter -- so the model ids are OpenRouter slugs. Confirm the exact
+    # slugs at https://openrouter.ai/models; they are overridable from the env
+    # without a code change.
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    triage_model: str = "anthropic/claude-haiku-4.5"
+    extract_model: str = "anthropic/claude-sonnet-5"
     email_ingest_enabled: bool = False
 
     # --- behaviour ----------------------------------------------------------

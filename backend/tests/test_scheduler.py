@@ -22,7 +22,7 @@ from app.services.scheduler import (
 )
 
 SECRET_PW = "hunter2-app-password"
-SECRET_KEY = "sk-ant-secret-key"
+SECRET_KEY = "sk-or-secret-key"
 
 
 def _settings(**kw) -> Settings:
@@ -30,7 +30,7 @@ def _settings(**kw) -> Settings:
         email_ingest_enabled=False,
         imap_user="",
         imap_app_password="",
-        anthropic_api_key="",
+        openrouter_api_key="",
     )
     base.update(kw)
     return Settings(**base)
@@ -41,7 +41,7 @@ def _configured() -> Settings:
         email_ingest_enabled=True,
         imap_user="eduardo@gmail.com",
         imap_app_password=SECRET_PW,
-        anthropic_api_key=SECRET_KEY,
+        openrouter_api_key=SECRET_KEY,
     )
 
 
@@ -80,7 +80,7 @@ def test_missing_credentials_lists_env_names():
     assert missing_credentials(_settings(email_ingest_enabled=True)) == [
         "YAYO_IMAP_USER",
         "YAYO_IMAP_APP_PASSWORD",
-        "YAYO_ANTHROPIC_API_KEY",
+        "YAYO_OPENROUTER_API_KEY",
     ]
     assert missing_credentials(_configured()) == []
 
@@ -97,7 +97,7 @@ def test_decision_on_and_incomplete():
         _settings(email_ingest_enabled=True, imap_user="x")
     )
     assert should_start is True
-    assert missing == ["YAYO_IMAP_APP_PASSWORD", "YAYO_ANTHROPIC_API_KEY"]
+    assert missing == ["YAYO_IMAP_APP_PASSWORD", "YAYO_OPENROUTER_API_KEY"]
 
 
 def test_decision_on_and_complete():
@@ -124,7 +124,7 @@ def test_enabled_but_missing_credentials_raises_loudly():
         start_scheduler(engine=object(), settings=_settings(email_ingest_enabled=True))
     msg = str(exc.value)
     assert "YAYO_IMAP_USER" in msg
-    assert "YAYO_ANTHROPIC_API_KEY" in msg
+    assert "YAYO_OPENROUTER_API_KEY" in msg
 
 
 def test_enabled_and_configured_starts_the_poller(monkeypatch, caplog):

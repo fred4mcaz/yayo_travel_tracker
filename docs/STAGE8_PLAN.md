@@ -293,6 +293,16 @@ Updated at each phase boundary.
 
 ### Phase 3
 
+- **Later: the provider was switched from Anthropic to OpenRouter.** Same
+  models (Claude Haiku triage, Claude Sonnet extract), same strict two-tool
+  funnel, but the calls now go through OpenRouter's OpenAI-compatible API via
+  the `openai` SDK instead of the `anthropic` SDK. The neutral tool schemas are
+  translated to OpenAI function-calling at the call site (`_as_function_tool`);
+  `validate_booking` still re-checks everything, so it does not matter whether a
+  given OpenRouter-routed provider enforces `strict`. Credential is
+  `YAYO_OPENROUTER_API_KEY`; model slugs are config. The `ExtractionModel`
+  Protocol and the whole downstream pipeline were untouched — the seam paid off.
+
 - **The SDK pin moved 0.42.0 → 0.120.2, pinned exactly.** Latest at the time.
   0.42's `ToolParam` had four fields; 0.120's has `strict` (and
   `allowed_callers`, `defer_loading`, `input_examples`, `eager_input_streaming`,

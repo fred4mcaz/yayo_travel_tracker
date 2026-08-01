@@ -3,11 +3,16 @@
 This is the only place mail leaves the box, and it is deliberately a two-stage
 funnel:
 
-  1. **Triage** with the cheap model (`claude-haiku-4-5`): is this actually a
-     booking worth reading closely? The local filter already gated on sender
-     and keywords; this is the first time an LLM sees the text.
-  2. **Extract** with the capable model (`claude-sonnet-5`): pull the structured
+  1. **Triage** with the cheap model (Claude Haiku): is this actually a booking
+     worth reading closely? The local filter already gated on sender and
+     keywords; this is the first time an LLM sees the text.
+  2. **Extract** with the capable model (Claude Sonnet): pull the structured
      booking out, against a *strict* tool schema so the shape is guaranteed.
+
+Both calls go through **OpenRouter's OpenAI-compatible API** rather than
+Anthropic directly -- same models, one key, routed through OpenRouter. The tool
+schemas are declared once here in a neutral form and translated to OpenAI
+function-calling at the call site.
 
 The output is an `Extraction` row with `status=pending`. **Nothing here touches
 trip data.** A proposal is not a fact until it is accepted (phase 4).
@@ -28,9 +33,6 @@ from sqlmodel import Session, select
 from app.models import EmailMessage, Extraction, ExtractionStatus, utcnow
 
 log = logging.getLogger("yayo.extraction")
-
-TRIAGE_MODEL = "claude-haiku-4-5"
-EXTRACT_MODEL = "claude-sonnet-5"
 
 BOOKING_KINDS = ("hotel", "flight", "train", "bus", "ferry", "car", "other")
 
@@ -139,7 +141,11 @@ class TriageResult:
 
 
 class ExtractionModel(Protocol):
-    """What the pipeline needs from an LLM. The real one calls Anthropic."""
+    """What the pipeline needs from an LLM. The real one calls OpenRouter."""
+
+    # The extract model's id, recorded on each Extraction so a proposal can be
+    # traced to what produced it.
+    extract_model: str
 
     def triage(self, subject: str, body: str) -> TriageResult:
         ...
@@ -274,7 +280,7 @@ def process_email(
         if booking is not None:
             extraction = Extraction(
                 email_message_id=email.id,
-                model=EXTRACT_MODEL,
+                model=model.extract_model,
                 payload_json=json.dumps(booking.payload(), sort_keys=True),
                 confidence=booking.confidence,
                 status=ExtractionStatus.pending,
@@ -306,32 +312,60 @@ def run_extractions(
 
 
 # --------------------------------------------------------------------------
-# The real model
+# The real model -- Claude via OpenRouter's OpenAI-compatible API
 # --------------------------------------------------------------------------
 
 
-class AnthropicModel:
-    """Triage with Haiku, extract with Sonnet, both behind strict tools."""
+def _as_function_tool(tool: dict) -> dict:
+    """Our neutral tool schema, in OpenAI function-calling shape.
 
-    def __init__(self, client=None) -> None:
+    `strict` and `additionalProperties: false` carry over unchanged -- the
+    schemas were written strict-compatible for Anthropic and the requirements
+    are the same here. Even so, `validate_booking` re-checks everything, so
+    whether a given OpenRouter-routed provider enforces strict or not, a
+    malformed tool call is caught rather than trusted.
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": tool["name"],
+            "description": tool["description"],
+            "strict": tool.get("strict", False),
+            "parameters": tool["input_schema"],
+        },
+    }
+
+
+class OpenRouterModel:
+    """Triage with Haiku, extract with Sonnet, both via OpenRouter."""
+
+    def __init__(self, client, triage_model: str, extract_model: str) -> None:
         self._client = client
+        self._triage_model = triage_model
+        self.extract_model = extract_model
 
     @classmethod
-    def from_settings(cls) -> "AnthropicModel":
+    def from_settings(cls) -> "OpenRouterModel":
         from app.config import get_settings
 
-        key = get_settings().anthropic_api_key
-        if not key:
+        s = get_settings()
+        if not s.openrouter_api_key:
             raise RuntimeError(
-                "Anthropic API key is not configured. Set YAYO_ANTHROPIC_API_KEY "
+                "OpenRouter API key is not configured. Set YAYO_OPENROUTER_API_KEY "
                 "in deploy/.env."
             )
-        import anthropic
+        from openai import OpenAI
 
-        return cls(anthropic.Anthropic(api_key=key))
+        client = OpenAI(
+            base_url=s.openrouter_base_url,
+            api_key=s.openrouter_api_key,
+            # Shows up on the OpenRouter dashboard; harmless if ignored.
+            default_headers={"X-Title": "Yayo travel"},
+        )
+        return cls(client, s.triage_model, s.extract_model)
 
     def triage(self, subject: str, body: str) -> TriageResult:
-        result = self._call(TRIAGE_MODEL, TRIAGE_TOOL, subject, body)
+        result = self._call(self._triage_model, TRIAGE_TOOL, subject, body)
         if result is None:
             return TriageResult(False, 0.0, "no tool call returned")
         return TriageResult(
@@ -341,24 +375,20 @@ class AnthropicModel:
         )
 
     def extract(self, subject: str, body: str) -> Optional[dict]:
-        return self._call(EXTRACT_MODEL, EXTRACT_TOOL, subject, body)
+        return self._call(self.extract_model, EXTRACT_TOOL, subject, body)
 
     def _call(self, model: str, tool: dict, subject: str, body: str) -> Optional[dict]:
-        message = self._client.messages.create(
+        response = self._client.chat.completions.create(
             model=model,
             max_tokens=1024,
-            tools=[tool],
-            tool_choice={"type": "tool", "name": tool["name"]},
+            tools=[_as_function_tool(tool)],
+            tool_choice={"type": "function", "function": {"name": tool["name"]}},
             messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"Subject: {subject}\n\n{body}"
-                    ),
-                }
+                {"role": "user", "content": f"Subject: {subject}\n\n{body}"},
             ],
         )
-        for block in message.content:
-            if block.type == "tool_use":
-                return dict(block.input)
+        message = response.choices[0].message
+        if message.tool_calls:
+            # OpenAI returns the arguments as a JSON string, not an object.
+            return json.loads(message.tool_calls[0].function.arguments)
         return None

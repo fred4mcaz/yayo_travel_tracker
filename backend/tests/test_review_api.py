@@ -270,7 +270,7 @@ def test_poll_when_configured_runs_a_cycle(client, monkeypatch):
         email_ingest_enabled=True,
         imap_user="e@gmail.com",
         imap_app_password="pw",
-        anthropic_api_key="sk-ant",
+        openrouter_api_key="sk-or",
     )
     # Stub the actual cycle: this test is about the endpoint wiring, not IMAP.
     monkeypatch.setattr(

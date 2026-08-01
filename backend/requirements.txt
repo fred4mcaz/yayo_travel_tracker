@@ -10,9 +10,10 @@ webauthn==2.5.0
 
 # Stage 8 — Gmail + extraction
 imap-tools==1.7.4
-# 0.120.2 for strict tool use: the pinned 0.42 ToolParam had no `strict` field,
-# so the strict extraction schema could not be expressed. Pinned exactly.
-anthropic==0.120.2
+# Extraction runs through OpenRouter's OpenAI-compatible API, so the client is
+# the openai SDK pointed at openrouter.ai -- not the Anthropic SDK. Same models
+# (Claude Haiku + Sonnet), routed via OpenRouter.
+openai==2.52.0
 APScheduler==3.11.0
 
 # Stage 9 — calendar feed
