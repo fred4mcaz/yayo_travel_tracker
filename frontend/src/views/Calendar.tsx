@@ -99,7 +99,7 @@ export function Calendar({ trips, notes, onSelect }: Props) {
                 weeks instead of to the week above it. */}
             <div
               className="cal-days"
-              style={{ minHeight: 52 + laneCount * 24 }}
+              style={{ minHeight: 64 + laneCount * 24 }}
             >
               {week.map((day) => {
                 const iso = toISODate(day);

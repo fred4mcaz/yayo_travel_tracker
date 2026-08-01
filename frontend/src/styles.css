@@ -313,6 +313,10 @@ h3 {
 .pane-detail {
   flex: 1;
   min-width: 0;
+  /* Cap the detail column to 70% of the width it would otherwise fill (the
+     layout minus the 340px list), and let the flex row's default flex-start
+     leave the freed space on the right. */
+  max-width: calc(70% - 238px);
 }
 .placeholder {
   flex: 1;
@@ -641,7 +645,7 @@ textarea {
   padding: 4px 6px;
   font-size: 12px;
   /* Give each date real room; the grid was cramped vertically. */
-  min-height: 52px;
+  min-height: 64px;
 }
 .cal-day.outside {
   opacity: 0.4;
@@ -781,6 +785,10 @@ textarea {
   .pane-list {
     width: 100%;
     border-right: none;
+  }
+  /* Full width on a phone; the 70% desktop cap would be a sliver here. */
+  .pane-detail {
+    max-width: none;
   }
   /* One pane at a time: the list, or the detail once a trip is picked. */
   .layout.has-detail .pane-list {
