@@ -44,8 +44,19 @@ country to a trip returns 409 naming both countries. See `_guard_single_country`
 in `backend/app/api/trips.py`.
 
 Dates render **month-first everywhere** — "Aug 1", "Aug 18–24, 2026" (see
-`frontend/src/lib/format.ts`). Calendar bars are **per-trip by explicit choice**
-(a trip is one country stay); do not switch them to per-hotel without asking.
+`frontend/src/lib/format.ts`). The calendar week runs **Sunday to Saturday**.
+
+**A calendar bar is one hotel booking; the box around it is the country stay.**
+Bars used to be per-trip, which read like a booking but wasn't one. Each hotel
+now gets its own colour and its own check-in → check-out, labelled
+`City · Hotel`, drawn inside an outlined wrapper spanning the whole country
+stay. That wrapper is the point: **any stretch of it with no bar over it is a
+night in that country with nowhere to sleep** — the missing-hotel feature,
+visible without opening the trip. A dated trip with no hotel at all is still a
+wrapper, so nothing disappears from the grid. `layoutWeek` therefore returns
+*groups*, not bars, and each group reserves its whole block of rows at once;
+reserving only the top row let the next trip's bars land inside the previous
+trip's box.
 
 **Dragging across calendar days creates a trip.** The dragged span maps
 straight to check-in/check-out (`rangeFromDrag` in `lib/calendarRange.ts`), so
@@ -62,7 +73,9 @@ hotels, between landing and the first booking, and after the last booking.
 Shown amber inside the country block with a button straight to the form, and
 counted on the trip card.
 
-**The "Leaving on" date is load-bearing.** Without it the stay can only end at
+**The "Leaving Country On" date is load-bearing.** It is named for the country
+on purpose — the one thing it must never be mistaken for is a hotel checkout.
+Without it the stay can only end at
 the last checkout, so "two weeks in Vietnam, first four nights booked" — the
 most common way to forget a hotel — looks complete. It is optional; if unset,
 only gaps *between* bookings show. It also extends the trip's date span.
@@ -92,7 +105,10 @@ backend/app/
   models.py            14 tables. Times are naive local wall-clock, by design
   schemas.py           Create/Update payloads, separate from tables
   countries.py         GENERATED — run scripts/build_countries.py
-  api/trips.py         Trips, hotels, travel, paperwork, passport-used
+  api/trips.py         Trips, hotels, travel, paperwork, passport-used.
+                       GET /api/trips carries a compact stay per hotel, because
+                       the calendar draws a bar for each and only ever sees the
+                       list payload
   api/{auth,passports,notes,geo,review,export}.py
   services/trips.py    All derived state: label, status, country, unbooked gaps
   services/auth.py     WebAuthn, sessions, recovery codes — all hashed
@@ -117,8 +133,8 @@ data/geo/              GENERATED — run scripts/build_geo.py
 | Data model | 14 tables, 3 Alembic migrations, run on container start |
 | Trip entry | Country picker, city autocomplete, date steppers — works end to end |
 | Trip detail | Country-first panel, capped to 70% width and left-justified (`.pane-detail`) |
-| Missing hotels | See §1. "Leaving on" sits at the bottom of the country block |
-| Calendar | Month grid; each trip a distinctly-coloured bar offset to start mid-arrival-day and end mid-checkout-day; notes as dots. Drag across days to start a new trip with those dates pre-filled |
+| Missing hotels | See §1. "Leaving Country On" sits at the bottom of the country block, and the uncovered part of a calendar wrapper says the same thing visually |
+| Calendar | Sunday-to-Saturday month grid; one distinctly-coloured bar per hotel, offset to start mid-check-in-day and end mid-checkout-day, inside an outlined wrapper for the country stay; notes as dots. Drag across days to start a new trip with those dates pre-filled |
 | Map | Canvas world map, country fill, city pins, route arcs. No tile server |
 | Passports | Two passports (MX, US), last-4 only |
 | Gmail ingest | Live and on — fetch → filter → extract → propose → you accept. §5 |
@@ -196,7 +212,11 @@ reading code. To skip the passkey during local verification:
   there, and remove it all afterwards.
 - **Trust `getBoundingClientRect` and `input.value` over eyeballing a
   screenshot** — screenshots letterbox, and the a11y tree reports an input's
-  *placeholder* as its accessible name. Two "bugs" were misread that way.
+  *placeholder* as its accessible name. Two "bugs" were misread that way. The
+  preview pane also cannot always composite frames (screenshots then time out),
+  so measuring is sometimes the *only* option — it is the better one regardless.
+  The calendar wrapper's missing bottom border was found exactly this way: two
+  rects reporting `bottom: 297`.
 - **Never click and then read the DOM in the same injected script.** React 18
   batches state updates, so the DOM you read back is the *pre-click* one. A
   click-then-assert loop reported a sheet as still open through five tab
@@ -406,9 +426,10 @@ when on: Haiku per triaged candidate, Sonnet only when triage says yes.
   phone — where the calendar is most used. Needs `touchmove` +
   `document.elementFromPoint`, since touch events stay targeted at the element
   the gesture started on and never fire `mouseover` on the ones it crosses.
-- **The frontend suite covers only the calendar drag and the stay-form-on-mount
-  lifecycle** (17 tests). Everything else in the SPA is still untested; there is
-  no `App`-level test, because that needs the `api` module mocked.
+- **The frontend suite covers only the calendar (drag, week layout, hotel bars)
+  and the stay-form-on-mount lifecycle** (24 tests). Everything else in the SPA
+  is still untested; there is no `App`-level test, because that needs the `api`
+  module mocked.
 - **Backup is still thin.** Only the pre-deploy snapshot in `deploy.sh` exists:
   same disk, no schedule, no off-box copy, and `YAYO_BACKUP_KEEP_DAYS` is
   defined but unwired (nothing prunes). He was offered scheduled/off-box backups
