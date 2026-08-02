@@ -59,6 +59,15 @@ export function TripList({ trips, selectedId, onSelect, onCreated }: Props) {
 
       {GROUPS.map(({ status, label }) => {
         const group = trips.filter((t) => t.status === status);
+        // Upcoming reads next-trip-first: the soonest departure on top, then
+        // each later one below it. Every other group keeps the API's order
+        // (most recent start first). The API sorts descending for all, so only
+        // this group needs flipping.
+        if (status === "future") {
+          group.sort((a, b) =>
+            (a.start_date ?? "").localeCompare(b.start_date ?? ""),
+          );
+        }
         if (group.length === 0) return null;
         return (
           <div className="trip-group" key={status}>
