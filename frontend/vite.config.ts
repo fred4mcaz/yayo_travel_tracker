@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -14,5 +15,11 @@ export default defineConfig({
     proxy: {
       "/api": "http://127.0.0.1:8000",
     },
+  },
+  test: {
+    // Component tests need a DOM; the pure helpers run fine under it too.
+    environment: "jsdom",
+    globals: true,
+    include: ["src/**/*.test.{ts,tsx}"],
   },
 });
