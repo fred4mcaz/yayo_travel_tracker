@@ -261,7 +261,7 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
                     </button>
 
                     {group.bars.map((bar) => {
-                      const b = place(bar);
+                      const b = placeBar(group, bar);
                       return (
                         <button
                           key={`${bar.stay.id}-${bar.start}`}
@@ -333,17 +333,57 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
  *  departure day: you check in in the afternoon and out in the morning. A span
  *  continuing from an adjacent week keeps its cut edge flush so it still reads
  *  as one run. */
+function bounds(
+  s: Span,
+  trimLeft = 0,
+  trimRight = 0,
+): { start: number; end: number } {
+  return {
+    start: (s.continuesLeft ? s.start : s.start + 0.5) + trimLeft,
+    end: (s.continuesRight ? s.start + s.span : s.start + s.span - 0.5) - trimRight,
+  };
+}
+
+/** Smallest span worth drawing, in day-fractions -- a same-day booking must
+ *  still be wide enough to click. ~3.5% of a week. */
+const MIN_SPAN = 0.25;
+/** How far a hotel bar sits inside its wrapper's real edges, so it never
+ *  touches the outline or pokes past a boundary-day trim. In day-fractions --
+ *  a hair of breathing room, not a wide margin. */
+const BAR_INSET = 0.05;
+
 function place(
   s: Span,
   trimLeft = 0,
   trimRight = 0,
 ): { left: string; width: string } {
-  const startFrac = (s.continuesLeft ? s.start : s.start + 0.5) + trimLeft;
-  const endFrac = (s.continuesRight ? s.start + s.span : s.start + s.span - 0.5) - trimRight;
+  const { start, end } = bounds(s, trimLeft, trimRight);
   return {
-    left: `${(startFrac / 7) * 100}%`,
+    left: `${(start / 7) * 100}%`,
     // Never let a same-day span collapse to nothing to click.
-    width: `${Math.max(((endFrac - startFrac) / 7) * 100, 3.5)}%`,
+    width: `${Math.max(((end - start) / 7) * 100, (MIN_SPAN / 7) * 100)}%`,
+  };
+}
+
+/** A hotel bar, clamped to sit cleanly inside its country wrapper. It never
+ *  reaches the outline or spills past a trimmed edge; a run continuing into the
+ *  next week stays flush there so it still reads as one bar across the seam. */
+function placeBar(group: Group, bar: StayBar): { left: string; width: string } {
+  const wrap = bounds(group, group.trimLeft, group.trimRight);
+  const lo = wrap.start + (group.continuesLeft ? 0 : BAR_INSET);
+  const hi = wrap.end - (group.continuesRight ? 0 : BAR_INSET);
+  const b = bounds(bar);
+  let start = Math.min(Math.max(b.start, lo), hi);
+  let end = Math.min(Math.max(b.end, lo), hi);
+  if (end - start < MIN_SPAN) {
+    // Grow to the clickable minimum without breaching the wrapper: rightward
+    // first, then left if the right edge is what's tight.
+    end = Math.min(hi, start + MIN_SPAN);
+    start = Math.max(lo, end - MIN_SPAN);
+  }
+  return {
+    left: `${(start / 7) * 100}%`,
+    width: `${((end - start) / 7) * 100}%`,
   };
 }
 

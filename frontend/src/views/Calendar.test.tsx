@@ -187,17 +187,62 @@ describe("Calendar hotel bars", () => {
     expect(container.querySelectorAll(".cal-country")).toHaveLength(1);
   });
 
-  it("spans each bar over its own hotel dates, not the trip's", () => {
+  it("keeps each hotel bar cleanly inside its country wrapper", () => {
     const { container } = renderCalendar({
       // The trip runs the 10th to the 14th; the hotel covers only the 10th–12th.
       trips: [trip({ stays: [stay()] })],
     });
     const wrapper = container.querySelector<HTMLElement>(".cal-country")!;
     const bar = container.querySelector<HTMLElement>(".cal-bar")!;
-    // Same start, but the bar stops short -- that bare tail is the unbooked
-    // stretch, and it is the whole reason the wrapper is still drawn.
-    expect(bar.style.left).toBe(wrapper.style.left);
+    const wl = parseFloat(wrapper.style.left);
+    const wr = wl + parseFloat(wrapper.style.width);
+    const bl = parseFloat(bar.style.left);
+    const br = bl + parseFloat(bar.style.width);
+    // Inset from the wrapper's left edge, and safely within its right edge --
+    // never touching the outline or spilling past it.
+    expect(bl).toBeGreaterThan(wl);
+    expect(br).toBeLessThanOrEqual(wr);
+    // Still stops short of the far edge: that bare tail is the unbooked stretch,
+    // the whole reason the wrapper is drawn.
     expect(parseFloat(bar.style.width)).toBeLessThan(parseFloat(wrapper.style.width));
+  });
+
+  it("keeps hotel bars inside a wrapper trimmed for a boundary day", () => {
+    // Vietnam ends Aug 12, Thailand begins Aug 12, each fully booked. The trim
+    // that opens the hop gap (Phase 3) must not leave a bar poking out.
+    const { container } = renderCalendar({
+      trips: [
+        trip({
+          id: 1,
+          country_code: "VN",
+          country_name: "Vietnam",
+          start_date: "2026-08-10",
+          end_date: "2026-08-12",
+          stays: [stay({ id: 1, check_in: "2026-08-10", check_out: "2026-08-12" })],
+        }),
+        trip({
+          id: 2,
+          country_code: "TH",
+          country_name: "Thailand",
+          start_date: "2026-08-12",
+          end_date: "2026-08-14",
+          stays: [stay({ id: 2, check_in: "2026-08-12", check_out: "2026-08-14" })],
+        }),
+      ],
+    });
+    const wraps = Array.from(
+      container.querySelectorAll<HTMLElement>(".cal-country"),
+    );
+    const bars = Array.from(container.querySelectorAll<HTMLElement>(".cal-bar"));
+    // DOM order pairs each wrapper with its own bar: VN, then TH.
+    for (let i = 0; i < 2; i++) {
+      const wl = parseFloat(wraps[i].style.left);
+      const wr = wl + parseFloat(wraps[i].style.width);
+      const bl = parseFloat(bars[i].style.left);
+      const br = bl + parseFloat(bars[i].style.width);
+      expect(bl).toBeGreaterThanOrEqual(wl);
+      expect(br).toBeLessThanOrEqual(wr);
+    }
   });
 
   it("still shows the country for a dated trip with no hotel booked", () => {
