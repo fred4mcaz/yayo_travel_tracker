@@ -212,7 +212,10 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
                         left: box.left,
                         width: box.width,
                         top: group.lane * LANE,
-                        height: group.lanes * LANE - 3,
+                        // Clear the last hotel bar by a couple of pixels, or
+                        // the bar lands exactly on the wrapper's bottom border
+                        // and the box loses its floor.
+                        height: group.lanes * LANE - 1,
                         borderColor: countryEdge(trip.id),
                         background: countryFill(trip.id),
                       }}
