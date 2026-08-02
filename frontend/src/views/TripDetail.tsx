@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Field, TextArea } from "../components/Fields";
 import { LegForm, emptyLeg, legDraftToPayload, legToDraft } from "../components/LegForm";
@@ -41,6 +41,10 @@ interface Props {
   /** When opening straight onto the stay form (a just-created trip), seed its
    *  dates — e.g. from a calendar drag. Ignored unless openStayOnMount. */
   initialStayDates?: StayDates;
+  /** Fired once, when openStayOnMount has actually been acted on, so the caller
+   *  can drop the flag. Without it the flag stays set and every later remount
+   *  of this panel — switching to Calendar and back — reopens the form. */
+  onStayOpened?: () => void;
   onChange: (trip: Detail) => void;
   onDeleted: () => void;
   onClose?: () => void;
@@ -66,6 +70,7 @@ export function TripDetailPanel({
   recentCountries,
   openStayOnMount,
   initialStayDates,
+  onStayOpened,
   onChange,
   onDeleted,
   onClose,
@@ -80,6 +85,15 @@ export function TripDetailPanel({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Burn the one-shot as soon as it has been used. `editing` above is state, so
+  // the sheet stays open once the flag flips back off; only a later remount is
+  // affected, which is exactly what we want to stop.
+  useEffect(() => {
+    if (openStayOnMount) onStayOpened?.();
+    // Mount only: re-firing on a prop change would defeat the point.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function run(fn: () => Promise<Detail | void>) {
     setBusy(true);

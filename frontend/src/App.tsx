@@ -136,6 +136,11 @@ export function App() {
 
   const detailPanel = selected ? (
     <TripDetailPanel
+      // Remount when the trip changes. openStayOnMount is honoured by the
+      // panel's state initializer, which only runs on a real mount — without
+      // this, creating a trip while another was already open just swapped props
+      // and the stay form silently never appeared.
+      key={selected.id}
       trip={selected}
       passports={passports}
       recentCountries={recentCountries}
@@ -143,6 +148,10 @@ export function App() {
       initialStayDates={
         selected.id === justCreated ? (pendingStayDates ?? undefined) : undefined
       }
+      onStayOpened={() => {
+        setJustCreated(null);
+        setPendingStayDates(null);
+      }}
       onChange={(trip) => {
         setSelected(trip);
         void loadTrips();
