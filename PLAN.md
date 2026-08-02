@@ -12,7 +12,7 @@ complete until it is committed and its line here carries the commit hash.
 - **Phase 2 — Backend: arrival travel mode on the trip summary.** `GET /api/trips`
   carries `arrival_mode: TravelMode | null` (the earliest arrival leg's mode);
   add it to the `TripSummary` type. Tests: flight leg → "flight"; no leg → null;
-  earliest leg wins. — `<hash>`
+  earliest leg wins. — `4cafc71`
 - **Phase 3 — Calendar: gap between consecutive trips.** Let an
   `end-day == next-start-day` pair share a lane and trim the shared boundary so a
   visible gap opens; truly overlapping stays still stack. Tests: adjacent pair

@@ -42,16 +42,36 @@ interface StayBar extends Span {
 
 /** One country stay clipped to this week, wrapping the hotels booked inside it.
  *  `lane` is the wrapper's own row; the hotel bars sit on the rows below, and
- *  `lanes` counts the pair so the next trip stacks clear of the whole block. */
+ *  `lanes` counts the pair so the next trip stacks clear of the whole block.
+ *  `trimRight`/`trimLeft` shave a wrapper edge that abuts the next trip on the
+ *  same row, so a hop marker has room to sit in the gap (see `layoutWeek`). */
 interface Group extends Span {
   trip: TripSummary;
   lane: number;
   lanes: number;
   bars: StayBar[];
+  trimLeft: number;
+  trimRight: number;
+}
+
+/** A travel hop drawn in the gap between two consecutive trips that share a row
+ *  in one week: how you travelled into `into`, centred at `at` (a fraction of
+ *  the week, 0..7) on row `lane`. */
+interface Connector {
+  at: number;
+  lane: number;
+  into: TripSummary;
 }
 
 /** Row height in px, and how much of one a bar occupies. */
 const LANE = 22;
+
+/** How many days apart two same-row trips may sit and still get a hop marker
+ *  between them. Beyond a day the gap is real empty time, not a connection. */
+const CONNECTOR_MAX_GAP = 1;
+/** Day-fraction shaved off each wrapper edge where two trips share a boundary
+ *  day, so the wrappers separate and the marker has somewhere to sit. */
+const BOUNDARY_TRIM = 0.3;
 
 export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
   const now = today();
@@ -150,7 +170,7 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
       <p className="cal-hint">Drag across days to start a trip on those dates.</p>
 
       {weeks.map((week, wi) => {
-        const groups = layoutWeek(week, dated);
+        const { groups } = layoutWeek(week, dated);
         const laneCount = groups.reduce((m, g) => Math.max(m, g.lane + g.lanes), 0);
         return (
           <div className="cal-week" key={wi}>
@@ -198,7 +218,7 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
             <div className="cal-bars">
               {groups.map((group) => {
                 const { trip } = group;
-                const box = place(group);
+                const box = place(group, group.trimLeft, group.trimRight);
                 return (
                   <Fragment key={trip.id}>
                     {/* The country stay. It wraps its hotels rather than
@@ -280,9 +300,13 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
  *  departure day: you check in in the afternoon and out in the morning. A span
  *  continuing from an adjacent week keeps its cut edge flush so it still reads
  *  as one run. */
-function place(s: Span): { left: string; width: string } {
-  const startFrac = s.continuesLeft ? s.start : s.start + 0.5;
-  const endFrac = s.continuesRight ? s.start + s.span : s.start + s.span - 0.5;
+function place(
+  s: Span,
+  trimLeft = 0,
+  trimRight = 0,
+): { left: string; width: string } {
+  const startFrac = (s.continuesLeft ? s.start : s.start + 0.5) + trimLeft;
+  const endFrac = (s.continuesRight ? s.start + s.span : s.start + s.span - 0.5) - trimRight;
   return {
     left: `${(startFrac / 7) * 100}%`,
     // Never let a same-day span collapse to nothing to click.
@@ -342,8 +366,13 @@ function buildWeeks(cursor: Date): Date[][] {
 }
 
 /** Clip each country stay to this week, lay its hotels out inside it, and stack
- *  overlapping trips so no two blocks ever share a row. */
-function layoutWeek(week: Date[], trips: TripSummary[]): Group[] {
+ *  overlapping trips so no two blocks ever share a row. Two trips that only meet
+ *  at a boundary day (one ends the day the next begins) do share a row -- they
+ *  have no night in common -- and get a trimmed gap with a travel hop between. */
+function layoutWeek(
+  week: Date[],
+  trips: TripSummary[],
+): { groups: Group[]; connectors: Connector[] } {
   const weekStart = week[0];
   const weekEnd = week[6];
   const groups: Group[] = [];
@@ -396,9 +425,48 @@ function layoutWeek(week: Date[], trips: TripSummary[]): Group[] {
     while (!rowsFree(rowEnds, lane, lanes, outer.start)) lane++;
     for (let i = 0; i < lanes; i++) rowEnds[lane + i] = end;
 
-    groups.push({ ...outer, trip, lane, lanes, bars });
+    groups.push({ ...outer, trip, lane, lanes, bars, trimLeft: 0, trimRight: 0 });
   }
-  return groups;
+
+  return { groups, connectors: connectBoundaries(groups) };
+}
+
+/** Mark the gap between consecutive trips that share a row this week with a
+ *  travel hop, and shave the wrappers apart where they meet on a boundary day
+ *  so the marker has room. The hop shows how you got into the *later* trip. */
+function connectBoundaries(groups: Group[]): Connector[] {
+  const byLane = new Map<number, Group[]>();
+  for (const g of groups) {
+    const list = byLane.get(g.lane) ?? [];
+    list.push(g);
+    byLane.set(g.lane, list);
+  }
+
+  const connectors: Connector[] = [];
+  for (const list of byLane.values()) {
+    list.sort((a, b) => a.start - b.start);
+    for (let i = 1; i < list.length; i++) {
+      const prev = list[i - 1];
+      const next = list[i];
+      // A wrapper spilling into an adjacent week has no edge here to anchor to.
+      if (prev.continuesRight || next.continuesLeft) continue;
+      // Same row means they never overlap, so this is >= 0.
+      const gap = next.start - (prev.start + prev.span - 1);
+      if (gap > CONNECTOR_MAX_GAP) continue;
+      if (gap === 0) {
+        prev.trimRight = BOUNDARY_TRIM;
+        next.trimLeft = BOUNDARY_TRIM;
+      }
+      const prevEdge = prev.start + prev.span - 0.5 - prev.trimRight;
+      const nextEdge = next.start + 0.5 + next.trimLeft;
+      connectors.push({
+        at: (prevEdge + nextEdge) / 2,
+        lane: next.lane,
+        into: next.trip,
+      });
+    }
+  }
+  return connectors;
 }
 
 /** Where `from`–`to` falls inside this week, or null if it misses it entirely. */
@@ -423,7 +491,9 @@ function rowsFree(
   start: number,
 ): boolean {
   for (let i = top; i < top + count; i++) {
-    if (rowEnds[i] !== undefined && rowEnds[i] >= start) return false;
+    // `> start`, not `>=`: a trip may share a row with one that ends the very
+    // day it begins -- they have no night in common, only a boundary day.
+    if (rowEnds[i] !== undefined && rowEnds[i] > start) return false;
   }
   return true;
 }

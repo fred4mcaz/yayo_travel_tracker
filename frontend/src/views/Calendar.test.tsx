@@ -207,6 +207,40 @@ describe("Calendar hotel bars", () => {
     expect(container.querySelectorAll(".cal-bar")).toHaveLength(0);
   });
 
+  it("shares a row but leaves a gap between trips that meet on a boundary day", () => {
+    // Vietnam ends Aug 12, Thailand begins Aug 12: no night in common, so they
+    // sit on one row -- but a visible gap opens between them for the hop marker.
+    const { container } = renderCalendar({
+      trips: [
+        trip({
+          id: 1,
+          country_code: "VN",
+          country_name: "Vietnam",
+          start_date: "2026-08-10",
+          end_date: "2026-08-12",
+        }),
+        trip({
+          id: 2,
+          country_code: "TH",
+          country_name: "Thailand",
+          start_date: "2026-08-12",
+          end_date: "2026-08-14",
+        }),
+      ],
+    });
+    const wraps = Array.from(
+      container.querySelectorAll<HTMLElement>(".cal-country"),
+    );
+    expect(wraps).toHaveLength(2);
+    const [vn, th] = wraps;
+    // Same row...
+    expect(vn.style.top).toBe(th.style.top);
+    // ...with clear air between the end of one and the start of the next.
+    const vnRight = parseFloat(vn.style.left) + parseFloat(vn.style.width);
+    const thLeft = parseFloat(th.style.left);
+    expect(vnRight).toBeLessThan(thLeft);
+  });
+
   it("stacks two overlapping trips clear of each other", () => {
     const { container } = renderCalendar({
       trips: [
