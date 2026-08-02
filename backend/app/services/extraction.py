@@ -24,7 +24,7 @@ bottom of the file.
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Optional, Protocol
 
@@ -150,8 +150,14 @@ class ExtractionModel(Protocol):
     def triage(self, subject: str, body: str) -> TriageResult:
         ...
 
-    def extract(self, subject: str, body: str) -> Optional[dict]:
-        """The raw tool input, or None if the model would not produce one."""
+    def extract(
+        self, subject: str, body: str, received_on: Optional[date] = None
+    ) -> Optional[dict]:
+        """The raw tool input, or None if the model would not produce one.
+
+        `received_on` is the date the confirmation arrived: the one hard anchor
+        for the year, since a booking is always for a stay on or after it.
+        """
         ...
 
 
@@ -244,6 +250,52 @@ def validate_booking(payload) -> Optional[Booking]:
 
 
 # --------------------------------------------------------------------------
+# Year sanity -- the second layer under the prompt anchor
+# --------------------------------------------------------------------------
+
+# A confirmation email is for a stay on or after the day it arrived, and this
+# mailbox never backfills old mail (see email_ingest), so a check-in that lands
+# a whole year or more before the email is not a real past booking -- it is the
+# model having read the wrong year, the classic "what year is it" failure. The
+# slack keeps ordinary cases untouched: a stay booked to start the evening the
+# confirmation lands, or one straddling New Year booked days before, is only
+# days on the wrong side, not a year.
+YEAR_SANITY_SLACK_DAYS = 60
+
+
+def _add_years(d: date, years: int) -> date:
+    try:
+        return d.replace(year=d.year + years)
+    except ValueError:
+        # Feb 29 into a non-leap year; land on the 28th.
+        return d.replace(year=d.year + years, day=28)
+
+
+def correct_year(booking: Booking, received_on: Optional[date]) -> Booking:
+    """Roll a deep-past check-in forward to the year the email implies.
+
+    Only corrects a *cross-year* error -- a check-in in an earlier year than the
+    email -- and only when it is well into the past, so a legitimately recent
+    date is never rewritten. The checkout shifts by the same span, so the stay
+    keeps its length. Returns the booking unchanged when there is nothing to fix.
+    """
+    if received_on is None or booking.start_date is None:
+        return booking
+    start = date.fromisoformat(booking.start_date)
+    if (received_on - start).days <= YEAR_SANITY_SLACK_DAYS:
+        return booking  # not in the deep past
+    bump = received_on.year - start.year
+    if bump <= 0:
+        return booking  # same-year past date -- not the wrong-year bug
+    new_start = _add_years(start, bump)
+    shift = new_start - start
+    new_end = booking.end_date
+    if booking.end_date is not None:
+        new_end = (date.fromisoformat(booking.end_date) + shift).isoformat()
+    return replace(booking, start_date=new_start.isoformat(), end_date=new_end)
+
+
+# --------------------------------------------------------------------------
 # The pipeline
 # --------------------------------------------------------------------------
 
@@ -271,13 +323,25 @@ def process_email(
     None if none was created.
     """
     subject, body = email.subject, email.snippet
+    received_on = email.received_at.date() if email.received_at else None
     extraction: Optional[Extraction] = None
 
     triage = model.triage(subject, body)
     if triage.is_booking:
-        raw = model.extract(subject, body)
+        raw = model.extract(subject, body, received_on)
         booking = validate_booking(raw)
         if booking is not None:
+            corrected = correct_year(booking, received_on)
+            if corrected.start_date != booking.start_date:
+                log.info(
+                    "email %s: corrected check-in year %s -> %s "
+                    "(confirmation received %s)",
+                    email.id,
+                    booking.start_date,
+                    corrected.start_date,
+                    received_on,
+                )
+                booking = corrected
             extraction = Extraction(
                 email_message_id=email.id,
                 model=model.extract_model,
@@ -374,18 +438,46 @@ class OpenRouterModel:
             reason=str(result.get("reason") or ""),
         )
 
-    def extract(self, subject: str, body: str) -> Optional[dict]:
-        return self._call(self.extract_model, EXTRACT_TOOL, subject, body)
+    def extract(
+        self, subject: str, body: str, received_on: Optional[date] = None
+    ) -> Optional[dict]:
+        return self._call(
+            self.extract_model, EXTRACT_TOOL, subject, body, received_on
+        )
 
-    def _call(self, model: str, tool: dict, subject: str, body: str) -> Optional[dict]:
+    def _call(
+        self,
+        model: str,
+        tool: dict,
+        subject: str,
+        body: str,
+        received_on: Optional[date] = None,
+    ) -> Optional[dict]:
+        messages: list[dict] = []
+        if received_on is not None:
+            # The model has no other way to know the year. A confirmation is for
+            # a future stay, so anchoring on the day it arrived stops the "wrong
+            # year" default the extractor otherwise reaches for.
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        f"This confirmation email arrived on {received_on.isoformat()}. "
+                        "The stay or journey it describes is on or after that date -- "
+                        "a booking is never in the past. Read every date from the email "
+                        "itself, and whenever a year is missing or ambiguous choose the "
+                        "one that puts the trip on or after the arrival date. Never "
+                        "return a check-in earlier than the day this email arrived."
+                    ),
+                }
+            )
+        messages.append({"role": "user", "content": f"Subject: {subject}\n\n{body}"})
         response = self._client.chat.completions.create(
             model=model,
             max_tokens=1024,
             tools=[_as_function_tool(tool)],
             tool_choice={"type": "function", "function": {"name": tool["name"]}},
-            messages=[
-                {"role": "user", "content": f"Subject: {subject}\n\n{body}"},
-            ],
+            messages=messages,
         )
         message = response.choices[0].message
         if message.tool_calls:

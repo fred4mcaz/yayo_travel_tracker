@@ -10,7 +10,7 @@ data -- that is phase 4.
 """
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 
 import httpx
 import pytest
@@ -23,6 +23,7 @@ from app.services.extraction import (
     Booking,
     OpenRouterModel,
     TriageResult,
+    correct_year,
     process_email,
     run_extractions,
     validate_booking,
@@ -49,8 +50,8 @@ class FakeModel:
         self.triaged.append((subject, body))
         return self._triage
 
-    def extract(self, subject, body):
-        self.extracted.append((subject, body))
+    def extract(self, subject, body, received_on=None):
+        self.extracted.append((subject, body, received_on))
         return self._extract
 
 
@@ -240,6 +241,81 @@ def test_process_email_returns_the_extraction_or_none(session: Session):
 
 
 # --------------------------------------------------------------------------
+# The wrong-year guard: a confirmation is never for a past stay
+# --------------------------------------------------------------------------
+
+
+def _hotel(start: str, end: str | None = None) -> Booking:
+    return validate_booking(
+        {"kind": "hotel", "country_code": "VN", "city": "Hanoi",
+         "start_date": start, "end_date": end}
+    )
+
+
+def test_correct_year_rolls_a_wrong_year_checkin_forward():
+    # The reported bug: email received in 2026, model read the year as 2025.
+    booking = _hotel("2025-08-10", "2025-08-14")
+    fixed = correct_year(booking, date(2026, 7, 15))
+    assert fixed.start_date == "2026-08-10"
+    # Checkout shifts with it, so the stay keeps its four nights.
+    assert fixed.end_date == "2026-08-14"
+
+
+def test_correct_year_bridges_more_than_one_year():
+    booking = _hotel("2024-03-01", "2024-03-05")
+    fixed = correct_year(booking, date(2026, 1, 20))
+    assert fixed.start_date == "2026-03-01"
+    assert fixed.end_date == "2026-03-05"
+
+
+def test_correct_year_leaves_a_future_date_alone():
+    booking = _hotel("2026-08-10", "2026-08-14")
+    assert correct_year(booking, date(2026, 7, 15)) == booking
+
+
+def test_correct_year_leaves_a_date_booked_days_before_check_in_alone():
+    # Booked the same week you travel: check-in a few days before the email
+    # would be received is inside the slack, not a wrong-year read.
+    booking = _hotel("2026-07-10", "2026-07-12")
+    assert correct_year(booking, date(2026, 7, 12)) == booking
+
+
+def test_correct_year_does_not_touch_a_same_year_past_date():
+    # A same-year past date (a stray receipt) is not the cross-year bug; leave
+    # it for the human rather than inventing a future booking.
+    booking = _hotel("2026-01-10", "2026-01-12")
+    assert correct_year(booking, date(2026, 9, 1)) == booking
+
+
+def test_correct_year_needs_a_received_date():
+    booking = _hotel("2025-08-10", "2025-08-14")
+    assert correct_year(booking, None) == booking
+
+
+def test_process_email_corrects_the_extracted_year(session: Session):
+    email = _candidate(session, received_at=datetime(2026, 7, 15, 9, 0))
+    wrong_year = {**VALID_BOOKING, "start_date": "2025-08-30", "end_date": "2025-09-03"}
+    model = FakeModel(TriageResult(True, 0.9, "yes"), wrong_year)
+
+    process_email(session, model, email)
+    session.commit()
+
+    payload = json.loads(_extractions(session)[0].payload_json)
+    assert payload["start_date"] == "2026-08-30"
+    assert payload["end_date"] == "2026-09-03"
+
+
+def test_extract_is_handed_the_received_date(session: Session):
+    email = _candidate(session, received_at=datetime(2026, 7, 15, 9, 0))
+    model = FakeModel(TriageResult(True, 0.9, "yes"), VALID_BOOKING)
+
+    process_email(session, model, email)
+
+    # The extractor was given the anchor, not just subject and body.
+    assert model.extracted[0][2] == date(2026, 7, 15)
+
+
+# --------------------------------------------------------------------------
 # The real Anthropic client, against a mock transport -- exercises the strict
 # tool schema without a network call
 # --------------------------------------------------------------------------
@@ -324,6 +400,36 @@ def test_real_client_sends_strict_tools_and_reads_the_tool_call(session: Session
     assert booking.country_code == "VN"
     assert sent["tools"][0]["function"]["name"] == EXTRACT_TOOL["name"]
     assert sent["model"] == "anthropic/claude-sonnet-5"
+
+
+def test_real_client_puts_the_received_date_in_the_prompt(session: Session):
+    """The year anchor goes out on the wire as a system message."""
+    sent: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        sent.update(payload)
+        return _openrouter_tool_response(EXTRACT_TOOL["name"], VALID_BOOKING)
+
+    model = _model_with_transport(handler)
+    model.extract("Your booking", "Sofitel, Hanoi", date(2026, 7, 15))
+
+    system = [m for m in sent["messages"] if m["role"] == "system"]
+    assert len(system) == 1
+    assert "2026-07-15" in system[0]["content"]
+
+
+def test_real_client_omits_the_system_message_without_a_date(session: Session):
+    sent: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(json.loads(request.content))
+        return _openrouter_tool_response(EXTRACT_TOOL["name"], VALID_BOOKING)
+
+    model = _model_with_transport(handler)
+    model.extract("Your booking", "Sofitel, Hanoi")
+
+    assert [m for m in sent["messages"] if m["role"] == "system"] == []
 
 
 def test_real_client_end_to_end_creates_a_pending_extraction(session: Session):
