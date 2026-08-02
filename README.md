@@ -46,6 +46,13 @@ in `backend/app/api/trips.py`.
 Dates render **month-first everywhere** — "Aug 1", "Aug 18–24, 2026" (see
 `frontend/src/lib/format.ts`). The calendar week runs **Sunday to Saturday**.
 
+**The Trips list is grouped, not one flat list**: Ongoing, Upcoming, No dates
+yet, Past (see `GROUPS` in `views/Trips.tsx`). `GET /api/trips` sorts every trip
+start-date descending, which is what Ongoing and Past want (most recent first).
+**Upcoming is the exception** — it reads next-trip-first, so `Trips.tsx` flips
+just that group to ascending: the soonest departure on top, each later one
+below. Undated trips sort last.
+
 **A calendar bar is one hotel booking; the box around it is the country stay.**
 Bars used to be per-trip, which read like a booking but wasn't one. Each hotel
 now gets its own colour and its own check-in → check-out, labelled
@@ -158,7 +165,8 @@ data/geo/              GENERATED — run scripts/build_geo.py
 | Trip entry | Country picker, city autocomplete, date steppers — works end to end |
 | Trip detail | Country-first panel, capped to 70% width and left-justified (`.pane-detail`) |
 | Missing hotels | See §1. "Leaving Country On" sits at the bottom of the country block, and the uncovered part of a calendar wrapper says the same thing visually |
-| Merge trips | See §1. Detail panel offers a merge for a same-country, near-dated trip; folds it in and deletes it. Refused across countries |
+| Trips list | Grouped Ongoing / Upcoming / No dates yet / Past; Upcoming ordered soonest-first, the rest most-recent-first. See §1 |
+| Merge trips | See §1. Detail panel offers a merge for a same-country, near-dated trip; folds it in and deletes it. Refused across countries. "Keep separate" persistently dismisses a suggestion (`merge_dismissal` table) |
 | Calendar | Sunday-to-Saturday month grid; one distinctly-coloured bar per hotel, offset to start mid-check-in-day and end mid-checkout-day, inside an outlined wrapper for the country stay; notes as dots. Drag across days to start a new trip with those dates pre-filled |
 | Map | Canvas world map, country fill, city pins, route arcs. No tile server |
 | Passports | Two passports (MX, US), last-4 only |
