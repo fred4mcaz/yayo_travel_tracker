@@ -147,6 +147,36 @@ export function TripDetailPanel({
         <p className="empty">Nothing recorded yet. Add your first hotel.</p>
       )}
 
+      {/* Every Leg is an arrival, so no legs means nothing records how you got
+          to this country. Worth a loud banner for a trip still ahead of you --
+          that is a flight you have yet to book or note. Past trips stay quiet:
+          old flights often go un-backfilled and a banner there is just noise. */}
+      {country &&
+        country.legs.length === 0 &&
+        (trip.status === "future" || trip.status === "ongoing") && (
+          <div className="alert alert-warn missing-travel">
+            <div>
+              <strong>No travel recorded</strong>
+              <span>
+                Nothing shows how you get to {country.country_name}. Add the
+                flight, train, or drive that brings you in.
+              </span>
+            </div>
+            <button
+              className="btn btn-sm"
+              onClick={() =>
+                setEditing({
+                  kind: "leg",
+                  country: country.country_code,
+                  draft: { ...emptyLeg(), country_code: country.country_code },
+                })
+              }
+            >
+              + How you get there
+            </button>
+          </div>
+        )}
+
       {country && (
         <CountryBlock
           segment={country}

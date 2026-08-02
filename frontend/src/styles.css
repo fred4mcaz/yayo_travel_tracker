@@ -207,6 +207,32 @@ h3 {
   background: var(--danger-bg);
   color: var(--danger);
 }
+.alert-warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+/* The missing-travel banner: a prompt with its own call to action, so lay the
+   message and the button side by side rather than stacking. */
+.missing-travel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.missing-travel > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.missing-travel strong {
+  font-weight: 500;
+}
+.missing-travel .btn {
+  flex-shrink: 0;
+  border-color: currentColor;
+  color: inherit;
+  background: transparent;
+}
 
 /* --- auth --------------------------------------------------------------- */
 .auth {

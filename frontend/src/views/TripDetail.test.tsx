@@ -10,7 +10,7 @@ import {
 
 import { TripDetailPanel } from "./TripDetail";
 import { api } from "../lib/api";
-import type { MergeCandidate, TripDetail } from "../types";
+import type { Leg, MergeCandidate, TripCountry, TripDetail } from "../types";
 
 // Keep the real module (ApiError, every other call) and stub only the one
 // network call the keep-separate tests drive.
@@ -106,6 +106,86 @@ describe("TripDetailPanel stay-form-on-mount", () => {
     const { sheetOpen, onStayOpened } = renderPanel();
     expect(sheetOpen()).toBe(false);
     expect(onStayOpened).not.toHaveBeenCalled();
+  });
+});
+
+function tripCountry(over: Partial<TripCountry> = {}): TripCountry {
+  return {
+    country_code: "VN",
+    country_name: "Vietnam",
+    entry: null,
+    passport_id: null,
+    entered_on: "2026-09-10",
+    leaving_on: null,
+    starts_on: "2026-09-10",
+    ends_on: "2026-09-14",
+    nights: 4,
+    unbooked: [],
+    stays: [],
+    legs: [],
+    ...over,
+  };
+}
+
+function leg(over: Partial<Leg> = {}): Leg {
+  return {
+    id: 1,
+    trip_id: 7,
+    mode: "flight",
+    country_code: "VN",
+    carrier: "",
+    number: "",
+    from_place: "Bangkok",
+    from_iata: "",
+    depart_at: null,
+    to_place: "Hanoi",
+    to_iata: "",
+    arrive_at: null,
+    confirmation_code: "",
+    seat: "",
+    cost: null,
+    currency: "",
+    notes: "",
+    ...over,
+  };
+}
+
+describe("TripDetailPanel missing-travel banner", () => {
+  const hasBanner = (c: HTMLElement) =>
+    Array.from(c.querySelectorAll(".missing-travel")).length > 0;
+
+  it("warns when an upcoming trip records no arrival journey", () => {
+    const { container } = renderPanel({
+      trip: {
+        ...TRIP,
+        status: "future",
+        country: tripCountry({ legs: [] }),
+      },
+    });
+    expect(hasBanner(container)).toBe(true);
+  });
+
+  it("stays quiet once a journey is recorded", () => {
+    const { container } = renderPanel({
+      trip: {
+        ...TRIP,
+        status: "future",
+        country: tripCountry({ legs: [leg()] }),
+      },
+    });
+    expect(hasBanner(container)).toBe(false);
+  });
+
+  it("does not nag about a past trip with no journey", () => {
+    // Old flights often go un-backfilled; a banner there is just noise.
+    const { container } = renderPanel({
+      trip: {
+        ...TRIP,
+        status: "past",
+        country: tripCountry({ legs: [] }),
+      },
+    });
+    expect(hasBanner(container)).toBe(false);
   });
 });
 
