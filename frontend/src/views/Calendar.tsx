@@ -1,5 +1,7 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { rangeFromDrag } from "../lib/calendarRange";
+import type { StayDates } from "../lib/calendarRange";
 import {
   formatRange,
   parseDate,
@@ -18,6 +20,8 @@ interface Props {
   trips: TripSummary[];
   notes: Note[];
   onSelect: (id: number) => void;
+  /** A drag across day cells finished: start a new trip over these dates. */
+  onCreateRange: (dates: StayDates) => void;
 }
 
 /** A trip laid out on one week's row: which column it starts at and how wide. */
@@ -30,11 +34,47 @@ interface Bar {
   lane: number;
 }
 
-export function Calendar({ trips, notes, onSelect }: Props) {
+export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
   const now = today();
   const [cursor, setCursor] = useState(
     () => new Date(now.getFullYear(), now.getMonth(), 1),
   );
+
+  // Drag-to-create. The ref is the source of truth the window mouseup reads
+  // (its listener is registered once, so it must not close over stale state);
+  // the state copy exists only to re-render the highlight as the drag grows.
+  const [drag, setDrag] = useState<{ anchor: string; focus: string } | null>(null);
+  const dragRef = useRef<{ anchor: string; focus: string } | null>(null);
+
+  const beginDrag = useCallback((iso: string) => {
+    dragRef.current = { anchor: iso, focus: iso };
+    setDrag(dragRef.current);
+  }, []);
+  const extendDrag = useCallback((iso: string) => {
+    const cur = dragRef.current;
+    if (!cur || cur.focus === iso) return;
+    dragRef.current = { anchor: cur.anchor, focus: iso };
+    setDrag(dragRef.current);
+  }, []);
+
+  // One window-level mouseup so a release anywhere — over a trip bar, off the
+  // grid — still finalizes the selection rather than leaving it stuck.
+  useEffect(() => {
+    function finish() {
+      const d = dragRef.current;
+      dragRef.current = null;
+      setDrag(null);
+      if (d) onCreateRange(rangeFromDrag(d.anchor, d.focus));
+    }
+    window.addEventListener("mouseup", finish);
+    return () => window.removeEventListener("mouseup", finish);
+  }, [onCreateRange]);
+
+  const sel = drag
+    ? drag.anchor <= drag.focus
+      ? { lo: drag.anchor, hi: drag.focus }
+      : { lo: drag.focus, hi: drag.anchor }
+    : null;
 
   const weeks = useMemo(() => buildWeeks(cursor), [cursor]);
   const dated = useMemo(
@@ -55,7 +95,7 @@ export function Calendar({ trips, notes, onSelect }: Props) {
   const todayIso = toISODate(now);
 
   return (
-    <div className="calendar">
+    <div className={"calendar" + (drag ? " dragging" : "")}>
       <div className="cal-head">
         <button
           className="icon-btn"
@@ -88,6 +128,8 @@ export function Calendar({ trips, notes, onSelect }: Props) {
         ))}
       </div>
 
+      <p className="cal-hint">Drag across days to start a trip on those dates.</p>
+
       {weeks.map((week, wi) => {
         const bars = layoutWeek(week, dated);
         const laneCount = bars.reduce((m, b) => Math.max(m, b.lane + 1), 0);
@@ -104,14 +146,24 @@ export function Calendar({ trips, notes, onSelect }: Props) {
               {week.map((day) => {
                 const iso = toISODate(day);
                 const dayNotes = notesByDate.get(iso) ?? [];
+                const selecting = sel !== null && iso >= sel.lo && iso <= sel.hi;
                 return (
                   <div
                     key={iso}
                     className={
                       "cal-day" +
                       (day.getMonth() !== cursor.getMonth() ? " outside" : "") +
-                      (iso === todayIso ? " today" : "")
+                      (iso === todayIso ? " today" : "") +
+                      (selecting ? " selecting" : "")
                     }
+                    onMouseDown={(e) => {
+                      // Left button only; preventDefault stops the drag from
+                      // turning into a text selection of the day numbers.
+                      if (e.button !== 0) return;
+                      e.preventDefault();
+                      beginDrag(iso);
+                    }}
+                    onMouseEnter={() => extendDrag(iso)}
                   >
                     <span className="cal-daynum">{day.getDate()}</span>
                     {dayNotes.length > 0 && (

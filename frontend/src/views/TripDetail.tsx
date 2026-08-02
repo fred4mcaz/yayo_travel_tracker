@@ -5,6 +5,7 @@ import { LegForm, emptyLeg, legDraftToPayload, legToDraft } from "../components/
 import type { LegDraft } from "../components/LegForm";
 import { DateField } from "../components/DateField";
 import { Sheet } from "../components/Sheet";
+import type { StayDates } from "../lib/calendarRange";
 import {
   StayForm,
   draftToPayload,
@@ -37,6 +38,9 @@ interface Props {
   passports: Passport[];
   recentCountries: string[];
   openStayOnMount?: boolean;
+  /** When opening straight onto the stay form (a just-created trip), seed its
+   *  dates — e.g. from a calendar drag. Ignored unless openStayOnMount. */
+  initialStayDates?: StayDates;
   onChange: (trip: Detail) => void;
   onDeleted: () => void;
   onClose?: () => void;
@@ -61,12 +65,18 @@ export function TripDetailPanel({
   passports,
   recentCountries,
   openStayOnMount,
+  initialStayDates,
   onChange,
   onDeleted,
   onClose,
 }: Props) {
   const [editing, setEditing] = useState<Editing>(() =>
-    openStayOnMount ? { kind: "stay", draft: emptyStay() } : { kind: "none" },
+    openStayOnMount
+      ? {
+          kind: "stay",
+          draft: emptyStay(initialStayDates?.check_in, initialStayDates?.check_out),
+        }
+      : { kind: "none" },
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

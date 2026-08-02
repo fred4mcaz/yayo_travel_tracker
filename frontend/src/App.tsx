@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "./lib/api";
+import type { StayDates } from "./lib/calendarRange";
 import type { AuthStatus, Note, Passport, TripDetail, TripSummary } from "./types";
 import { Auth } from "./views/Auth";
 import { Calendar } from "./views/Calendar";
@@ -21,6 +22,9 @@ export function App() {
   const [tab, setTab] = useState<Tab>("trips");
   // Set for a trip created moments ago, so its detail opens on the stay form.
   const [justCreated, setJustCreated] = useState<number | null>(null);
+  // Dates to seed that stay form with, when the trip was born from a calendar
+  // drag rather than the New-trip button.
+  const [pendingStayDates, setPendingStayDates] = useState<StayDates | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Proposals awaiting review, for the tab badge.
   const [reviewCount, setReviewCount] = useState(0);
@@ -78,9 +82,29 @@ export function App() {
   const selectTrip = useCallback(
     (id: number) => {
       setJustCreated(null);
+      setPendingStayDates(null);
       void openTrip(id);
     },
     [openTrip],
+  );
+
+  // A calendar drag: create the trip, then open it straight on the stay form
+  // with those dates already filled in — the same path New-trip takes, only
+  // dated. Cancelling leaves an empty undated trip, exactly as New-trip does.
+  const createTripForRange = useCallback(
+    async (dates: StayDates) => {
+      try {
+        const trip = await api.trips.create();
+        setPendingStayDates(dates);
+        setJustCreated(trip.id);
+        setTab("trips");
+        await loadTrips();
+        void openTrip(trip.id);
+      } catch (e) {
+        setLoadError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [loadTrips, openTrip],
   );
 
   if (status === null) {
@@ -116,6 +140,9 @@ export function App() {
       passports={passports}
       recentCountries={recentCountries}
       openStayOnMount={selected.id === justCreated}
+      initialStayDates={
+        selected.id === justCreated ? (pendingStayDates ?? undefined) : undefined
+      }
       onChange={(trip) => {
         setSelected(trip);
         void loadTrips();
@@ -123,11 +150,13 @@ export function App() {
       onDeleted={() => {
         setSelected(null);
         setJustCreated(null);
+        setPendingStayDates(null);
         void loadTrips();
       }}
       onClose={() => {
         setSelected(null);
         setJustCreated(null);
+        setPendingStayDates(null);
       }}
     />
   ) : (
@@ -168,6 +197,7 @@ export function App() {
                 onSelect={selectTrip}
                 onCreated={async (id) => {
                   setJustCreated(id);
+                  setPendingStayDates(null);
                   await loadTrips();
                   void openTrip(id);
                 }}
@@ -186,6 +216,7 @@ export function App() {
                 setTab("trips");
                 selectTrip(id);
               }}
+              onCreateRange={createTripForRange}
             />
           </div>
         )}

@@ -629,6 +629,16 @@ textarea {
   text-align: center;
   margin-bottom: 4px;
 }
+.cal-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 6px;
+}
+/* Suppress text selection only while a drag is in flight, so the day numbers
+   don't get highlighted as the pointer sweeps across cells. */
+.calendar.dragging {
+  user-select: none;
+}
 .cal-week {
   position: relative;
   margin-bottom: 2px;
@@ -646,6 +656,15 @@ textarea {
   font-size: 12px;
   /* Give each date real room; the grid was cramped vertically. */
   min-height: 64px;
+  /* Days are draggable to spin up a trip; the crosshair advertises it. */
+  cursor: cell;
+}
+/* Days swept by an in-progress drag, so the range you'll get is visible before
+   you release. Sits above the cell background but below the overlaid bars. */
+.cal-day.selecting {
+  background: color-mix(in srgb, var(--accent) 26%, var(--surface));
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
 }
 .cal-day.outside {
   opacity: 0.4;
