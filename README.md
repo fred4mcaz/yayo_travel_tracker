@@ -108,7 +108,7 @@ data/geo/              GENERATED — run scripts/build_geo.py
 | Trip entry | Country picker, city autocomplete, date steppers — works end to end |
 | Trip detail | Country-first panel, capped to 70% width and left-justified (`.pane-detail`) |
 | Missing hotels | See §1. "Leaving on" sits at the bottom of the country block |
-| Calendar | Month grid; each trip a distinctly-coloured bar offset to start mid-arrival-day and end mid-checkout-day; notes as dots |
+| Calendar | Month grid; each trip a distinctly-coloured bar offset to start mid-arrival-day and end mid-checkout-day; notes as dots. Drag across days to start a new trip with those dates pre-filled |
 | Map | Canvas world map, country fill, city pins, route arcs. No tile server |
 | Passports | Two passports (MX, US), last-4 only |
 | Gmail ingest | Live and on — fetch → filter → extract → propose → you accept. §5 |
@@ -164,6 +164,12 @@ Tests, ruff, and typecheck (kept clean):
 
 ```bash
 backend/.venv/Scripts/python.exe -m pytest backend/tests -q
+```
+
+The frontend has a small vitest suite (jsdom, dev-only deps), from `frontend/`:
+
+```bash
+npm test
 ```
 
 ### Verifying UI changes in a browser
