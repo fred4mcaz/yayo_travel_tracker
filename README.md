@@ -65,6 +65,17 @@ wrapper, so nothing disappears from the grid. `layoutWeek` therefore returns
 reserving only the top row let the next trip's bars land inside the previous
 trip's box.
 
+**Two consecutive stays share a row, with a travel hop in the gap.** When one
+country stay ends the very day the next begins they have no night in common, so
+they sit side by side on one row rather than stacking; the wrappers are shaved
+apart at the boundary and a small mode glyph (✈ 🚆 🚌 ⛴ 🚗) floats in the gap,
+showing how you travelled *into the later country* — its arrival leg. A faint
+arrow stands in when that journey isn't recorded, the calendar's echo of the
+missing-travel banner on the trip itself. The glyph is a marker only; it never
+eats a click meant for a wrapper. The hop is drawn only for a pair on the **same
+row in the same week** — cross-week and cross-lane pairs are left unconnected
+(see §7).
+
 **Dragging across calendar days creates a trip.** The dragged span maps
 straight to check-in/check-out (`rangeFromDrag` in `lib/calendarRange.ts`), so
 the bar you get back covers the days you swept; a single click is one night,
@@ -89,6 +100,17 @@ only gaps *between* bookings show. It also extends the trip's date span.
 
 Deliberately silent about: overlapping bookings (double-booked is a different
 problem) and anything after the last hotel when no leaving date is set.
+
+### Missing-travel detection
+
+The sibling of missing-hotel: every `Leg` is an arrival, so a trip with a
+country but no leg records **nothing about how you got there** — usually a
+flight not yet booked. A future or ongoing trip in that state shows a warn
+banner at the top of its detail panel, with a shortcut into the "How you get
+there" form. **Past trips stay quiet** — old flights routinely go
+un-backfilled, so a banner there is noise, not signal. Undated trips are silent
+too. The same emptiness shows on the calendar as the faint-arrow hop between
+this trip and the previous one.
 
 ### Merging two trips into one
 
@@ -165,9 +187,10 @@ data/geo/              GENERATED — run scripts/build_geo.py
 | Trip entry | Country picker, city autocomplete, date steppers — works end to end |
 | Trip detail | Country-first panel, capped to 70% width and left-justified (`.pane-detail`) |
 | Missing hotels | See §1. "Leaving Country On" sits at the bottom of the country block, and the uncovered part of a calendar wrapper says the same thing visually |
+| Missing travel | Warn banner on the trip detail when a future/ongoing trip has a country but no arrival leg, with a shortcut to the leg form. Silent on past and undated trips. See §1 |
 | Trips list | Grouped Ongoing / Upcoming / No dates yet / Past; Upcoming ordered soonest-first, the rest most-recent-first. See §1 |
 | Merge trips | See §1. Detail panel offers a merge for a same-country, near-dated trip; folds it in and deletes it. Refused across countries. "Keep separate" persistently dismisses a suggestion (`merge_dismissal` table) |
-| Calendar | Sunday-to-Saturday month grid; one distinctly-coloured bar per hotel, offset to start mid-check-in-day and end mid-checkout-day, inside an outlined wrapper for the country stay; notes as dots. Drag across days to start a new trip with those dates pre-filled |
+| Calendar | Sunday-to-Saturday month grid; one distinctly-coloured bar per hotel, offset to start mid-check-in-day and end mid-checkout-day, inside an outlined wrapper for the country stay; notes as dots. Consecutive stays share a row with a travel-mode hop in the gap (§1). Drag across days to start a new trip with those dates pre-filled |
 | Map | Canvas world map, country fill, city pins, route arcs. No tile server |
 | Passports | Two passports (MX, US), last-4 only |
 | Gmail ingest | Live and on — fetch → filter → extract → propose → you accept. §5 |
@@ -504,6 +527,11 @@ when on: Haiku per triaged candidate, Sonnet only when triage says yes.
   phone — where the calendar is most used. Needs `touchmove` +
   `document.elementFromPoint`, since touch events stay targeted at the element
   the gesture started on and never fire `mouseover` on the ones it crosses.
+- **Travel hops connect only same-row, same-week pairs.** The mode glyph between
+  two consecutive trips (§1) is drawn only when both wrappers share a row within
+  one week and sit within `CONNECTOR_MAX_GAP` (1) days. A hop across a week
+  boundary, or between trips the layout stacked onto different rows, is left
+  undrawn — the horizontal-gap anchor has nowhere to go in those cases.
 - **The frontend suite covers the calendar (drag, week layout, hotel bars), the
   stay-form-on-mount lifecycle, the Trips-list ordering, and the merge card's
   keep-separate flow** (28 tests). Everything else in the SPA is still untested;

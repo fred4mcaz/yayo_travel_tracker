@@ -21,10 +21,10 @@ complete until it is committed and its line here carries the commit hash.
   (✈ 🚆 🚌 ⛴ 🚗) centered in the gap between consecutive same-lane trips, showing
   the later trip's arrival mode; a neutral marker when none is recorded. Tests:
   connector present with the right glyph/tooltip; count matches adjacencies; none
-  for a lone trip or a cross-week pair. — `<hash>`
+  for a lone trip or a cross-week pair. — `2152a71`
 - **Phase 5 — Docs, browser verification, deploy.** README (calendar bullet,
   feature table, connector limitation), verify both features in the dev browser,
-  then push + deploy. — `<hash>`
+  then push + deploy. — `9bdb6b5`
 
 ## Scope limits (documented, not built)
 - Connectors are drawn only for consecutive trips on the **same row in the same
