@@ -136,6 +136,9 @@ export interface TripSummary {
   /** The hotels booked inside this country stay, earliest check-in first. */
   stays: StaySummary[];
   nights: number;
+  /** The mode of the arrival journey (earliest leg), or null if none is
+   *  recorded. The calendar labels the gap to the next trip with it. */
+  arrival_mode: TravelMode | null;
   /** Nights inside this stay with no hotel booked. */
   unbooked_nights: number;
 }

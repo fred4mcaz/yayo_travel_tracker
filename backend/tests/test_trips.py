@@ -86,6 +86,41 @@ def test_the_trip_list_omits_hotels_for_an_empty_trip(client):
     assert row["stays"] == []
 
 
+def _row(client, trip_id) -> dict:
+    return next(t for t in client.get("/api/trips").json() if t["id"] == trip_id)
+
+
+def test_the_trip_list_carries_the_arrival_mode(client):
+    """The calendar labels the gap to the next trip with how you got in."""
+    trip_id = _mk_trip(client)
+    _mk_stay(client, trip_id)
+    client.post(f"/api/trips/{trip_id}/legs", json={"mode": "train"})
+    assert _row(client, trip_id)["arrival_mode"] == "train"
+
+
+def test_the_arrival_mode_is_null_without_travel(client):
+    trip_id = _mk_trip(client)
+    _mk_stay(client, trip_id)
+    assert _row(client, trip_id)["arrival_mode"] is None
+
+
+def test_the_arrival_mode_is_the_earliest_arriving_leg(client):
+    """Every leg is an arrival; the one that lands first is how you got there."""
+    trip_id = _mk_trip(client)
+    _mk_stay(client, trip_id)
+    # A flight arriving on day 10 and a ferry arriving on day 9: the ferry lands
+    # first, so it is the journey that brought you in.
+    client.post(
+        f"/api/trips/{trip_id}/legs",
+        json={"mode": "flight", "arrive_at": f"{TODAY + timedelta(days=10)}T12:00:00"},
+    )
+    client.post(
+        f"/api/trips/{trip_id}/legs",
+        json={"mode": "ferry", "arrive_at": f"{TODAY + timedelta(days=9)}T08:00:00"},
+    )
+    assert _row(client, trip_id)["arrival_mode"] == "ferry"
+
+
 def test_leg_extends_the_span_before_the_first_checkin(client):
     """A red-eye departing the night before still belongs to the trip."""
     trip_id = _mk_trip(client)

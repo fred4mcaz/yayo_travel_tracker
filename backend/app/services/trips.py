@@ -70,6 +70,25 @@ def trip_country_code(session: Session, trip_id: int) -> Optional[str]:
     return leg.country_code.upper() if leg else None
 
 
+def trip_arrival_mode(session: Session, trip_id: int) -> Optional[str]:
+    """How you got into the country: the mode of the earliest-arriving leg.
+
+    Every Leg is an arrival, so the one that lands first is the journey that
+    brought you in. None when no travel is recorded. The calendar uses this to
+    label the gap between two consecutive trips with how you travelled into the
+    next country.
+    """
+    legs = session.exec(select(Leg).where(Leg.trip_id == trip_id)).all()
+    if not legs:
+        return None
+    dated = [leg for leg in legs if (leg.arrive_at or leg.depart_at) is not None]
+    if dated:
+        first = min(dated, key=lambda leg: leg.arrive_at or leg.depart_at)
+        return first.mode.value
+    # No times on any leg: nothing to order by, so any of them stands in.
+    return legs[0].mode.value
+
+
 def trip_label(stays: list[Stay]) -> str:
     """What to call a trip. Always derived -- trips are never named by hand.
 

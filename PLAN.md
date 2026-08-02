@@ -8,7 +8,7 @@ complete until it is committed and its line here carries the commit hash.
   on `TripDetailPanel` when a future/ongoing trip has a country recorded but no
   arrival leg, with a button that opens the "How you get there" form. Tests:
   banner for a future trip with no legs; hidden once a leg exists; hidden for a
-  past trip. — `<hash>`
+  past trip. — `74b3606`
 - **Phase 2 — Backend: arrival travel mode on the trip summary.** `GET /api/trips`
   carries `arrival_mode: TravelMode | null` (the earliest arrival leg's mode);
   add it to the `TripSummary` type. Tests: flight leg → "flight"; no leg → null;

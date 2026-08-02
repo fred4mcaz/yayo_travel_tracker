@@ -17,6 +17,7 @@ function trip(over: Partial<TripSummary> = {}): TripSummary {
     cities: ["Hanoi"],
     stays: [],
     nights: 4,
+    arrival_mode: null,
     unbooked_nights: 0,
     ...over,
   };

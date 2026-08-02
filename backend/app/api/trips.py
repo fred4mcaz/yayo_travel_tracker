@@ -34,6 +34,7 @@ from app.services.trips import (
     merge_trips,
     refresh_trip_dates,
     sync_country_entries,
+    trip_arrival_mode,
     trip_country,
     trip_country_code,
     trip_detail,
@@ -98,6 +99,10 @@ def list_trips(session: Session = Depends(get_session)) -> list[dict]:
                     for s in sorted(stays, key=lambda s: s.check_in)
                 ],
                 "nights": sum(s.nights for s in stays),
+                # The mode of the arrival leg, so the calendar can mark the gap
+                # between this trip and the previous one with how you travelled
+                # into it. None when nothing records how you got here.
+                "arrival_mode": trip_arrival_mode(session, trip.id),
                 # Surfaced on the card so a forgotten hotel is visible without
                 # opening the trip -- the thing most worth noticing at a glance.
                 "unbooked_nights": sum(
