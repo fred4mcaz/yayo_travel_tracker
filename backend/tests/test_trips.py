@@ -323,6 +323,134 @@ def test_deleting_a_trip_takes_everything_with_it(client, session):
     assert session.exec(select(CountryEntry)).all() == []
 
 
+# --------------------------------------------------------------------------
+# Merging two trips into one
+# --------------------------------------------------------------------------
+
+
+def test_merge_folds_hotels_into_one_trip(client):
+    """The split-stay case: a later hotel that landed as its own trip, pulled
+    back into the first."""
+    keep = _mk_trip(client)
+    _stay_in(client, keep, "VN", "Hanoi", 10, nights=4, hotel_name="Sofitel")
+    absorb = _mk_trip(client)
+    _stay_in(client, absorb, "VN", "Hue", 20, nights=3, hotel_name="Azerai")
+
+    detail = client.post(
+        f"/api/trips/{keep}/merge", json={"other_trip_id": absorb}
+    ).json()
+
+    assert [s["city"] for s in detail["country"]["stays"]] == ["Hanoi", "Hue"]
+    # The span now covers both, earliest check-in to latest checkout.
+    assert detail["start_date"] == str(TODAY + timedelta(days=10))
+    assert detail["end_date"] == str(TODAY + timedelta(days=23))
+    # The absorbed trip is gone.
+    assert client.get(f"/api/trips/{absorb}").status_code == 404
+    assert {t["id"] for t in client.get("/api/trips").json()} == {keep}
+
+
+def test_merge_exposes_the_gap_between_the_two_stays(client):
+    """Once merged, the week with nowhere to sleep shows as unbooked -- the
+    whole point of pulling them back together."""
+    keep = _mk_trip(client)
+    _stay_in(client, keep, "VN", "Hanoi", 10, nights=4)
+    absorb = _mk_trip(client)
+    _stay_in(client, absorb, "VN", "Hue", 20, nights=3)
+
+    detail = client.post(
+        f"/api/trips/{keep}/merge", json={"other_trip_id": absorb}
+    ).json()
+    assert detail["country"]["unbooked"] == [
+        {
+            "from": str(TODAY + timedelta(days=14)),
+            "to": str(TODAY + timedelta(days=20)),
+            "nights": 6,
+        }
+    ]
+
+
+def test_merge_across_countries_is_refused(client):
+    vn = _mk_trip(client)
+    _stay_in(client, vn, "VN", "Hanoi", 10)
+    th = _mk_trip(client)
+    _stay_in(client, th, "TH", "Bangkok", 12)
+
+    r = client.post(f"/api/trips/{vn}/merge", json={"other_trip_id": th})
+    assert r.status_code == 409
+    assert "Vietnam" in r.json()["detail"] and "Thailand" in r.json()["detail"]
+    # Both trips survive untouched.
+    assert client.get(f"/api/trips/{vn}").status_code == 200
+    assert client.get(f"/api/trips/{th}").status_code == 200
+
+
+def test_merge_into_itself_is_refused(client):
+    trip_id = _mk_trip(client)
+    _stay_in(client, trip_id, "VN", "Hanoi", 10)
+    r = client.post(f"/api/trips/{trip_id}/merge", json={"other_trip_id": trip_id})
+    assert r.status_code == 400
+
+
+def test_merge_keeps_the_surviving_trips_passport(client):
+    p = client.post("/api/passports", json={"nationality": "US"}).json()
+    keep = _mk_trip(client)
+    detail = _stay_in(client, keep, "VN", "Hanoi", 10)
+    client.patch(
+        f"/api/trips/{keep}/entries/{detail['country']['entry']['id']}",
+        json={"passport_id": p["id"], "port_of_entry": "Noi Bai"},
+    )
+    absorb = _mk_trip(client)
+    _stay_in(client, absorb, "VN", "Hue", 20)
+
+    detail = client.post(
+        f"/api/trips/{keep}/merge", json={"other_trip_id": absorb}
+    ).json()
+    assert detail["country"]["passport_id"] == p["id"]
+    assert detail["country"]["entry"]["port_of_entry"] == "Noi Bai"
+
+
+def test_merge_absorbs_an_undated_empty_trip(client):
+    keep = _mk_trip(client)
+    _stay_in(client, keep, "VN", "Hanoi", 10)
+    empty = _mk_trip(client)
+
+    r = client.post(f"/api/trips/{keep}/merge", json={"other_trip_id": empty})
+    assert r.status_code == 200
+    assert client.get(f"/api/trips/{empty}").status_code == 404
+
+
+def test_mergeable_lists_a_same_country_adjacent_trip(client):
+    a = _mk_trip(client)
+    _stay_in(client, a, "VN", "Hanoi", 10, nights=4)
+    b = _mk_trip(client)
+    _stay_in(client, b, "VN", "Hue", 20, nights=3)
+
+    a_detail = client.get(f"/api/trips/{a}").json()
+    b_detail = client.get(f"/api/trips/{b}").json()
+    assert [m["id"] for m in a_detail["mergeable"]] == [b]
+    assert [m["id"] for m in b_detail["mergeable"]] == [a]
+    # The candidate carries the derived label and dates, ready to show.
+    assert a_detail["mergeable"][0]["label"] == "Hue · Sofitel Legend"
+    assert a_detail["mergeable"][0]["start_date"] == str(TODAY + timedelta(days=20))
+
+
+def test_mergeable_excludes_a_different_country(client):
+    a = _mk_trip(client)
+    _stay_in(client, a, "VN", "Hanoi", 10)
+    b = _mk_trip(client)
+    _stay_in(client, b, "TH", "Bangkok", 12)
+
+    assert client.get(f"/api/trips/{a}").json()["mergeable"] == []
+
+
+def test_mergeable_excludes_a_distant_trip(client):
+    a = _mk_trip(client)
+    _stay_in(client, a, "VN", "Hanoi", 10, nights=3)
+    b = _mk_trip(client)
+    _stay_in(client, b, "VN", "Hue", 100, nights=3)  # months later
+
+    assert client.get(f"/api/trips/{a}").json()["mergeable"] == []
+
+
 def test_trip_memo_survives_alongside_note_records(client):
     """Regression: trip_detail spread model_dump() (with a `notes` string) and
     then wrote `notes` again as the Note array, dropping the memo."""

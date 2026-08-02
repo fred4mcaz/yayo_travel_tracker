@@ -10,6 +10,7 @@ handler has to remember.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.api.common import apply_update, get_child_or_404, get_or_404
@@ -29,6 +30,7 @@ from app.schemas import (
 )
 from app.services.geocode import fill_coordinates
 from app.services.trips import (
+    merge_trips,
     refresh_trip_dates,
     sync_country_entries,
     trip_country,
@@ -140,6 +142,43 @@ def delete_trip(trip_id: int, session: Session = Depends(get_session)) -> None:
     trip = get_or_404(session, Trip, trip_id, "trip")
     session.delete(trip)
     session.commit()
+
+
+class MergePayload(BaseModel):
+    # The trip to fold into this one. It is deleted; this trip survives.
+    other_trip_id: int
+
+
+@router.post("/{trip_id}/merge")
+def merge_trip(
+    trip_id: int, payload: MergePayload, session: Session = Depends(get_session)
+) -> dict:
+    """Fold another trip into this one -- for when a single stay was split into
+    two trips (a later hotel that landed outside the first trip's dates). This
+    trip survives; the other is absorbed and deleted.
+
+    Refused across countries: a trip is one country, so merging two different
+    ones would break the invariant everything else depends on.
+    """
+    target = get_or_404(session, Trip, trip_id, "trip")
+    if payload.other_trip_id == trip_id:
+        raise HTTPException(status_code=400, detail="A trip cannot be merged into itself.")
+    source = get_or_404(session, Trip, payload.other_trip_id, "trip")
+
+    target_code = trip_country_code(session, trip_id)
+    source_code = trip_country_code(session, source.id)
+    if target_code and source_code and target_code != source_code:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"This trip is a stay in {country_name(target_code)}, "
+                f"the other in {country_name(source_code)}. "
+                "Trips in different countries cannot be merged."
+            ),
+        )
+
+    merge_trips(session, target, source)
+    return trip_detail(session, target)
 
 
 def _after_change(session: Session, trip: Trip) -> dict:

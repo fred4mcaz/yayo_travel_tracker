@@ -14,7 +14,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from app.countries import country_name
-from app.models import CountryEntry, Leg, Note, Stay, Trip, utcnow
+from app.models import CountryEntry, Leg, Note, Requirement, Stay, Trip, utcnow
 
 
 def refresh_trip_dates(session: Session, trip: Trip) -> Trip:
@@ -251,6 +251,103 @@ def _last_passport_used_for(session: Session, country_code: str) -> Optional[int
     return prior.passport_id if prior else None
 
 
+# How far apart two same-country trips may sit and still be offered as one to
+# merge. Generous on purpose: automatic email matching stays strict (an
+# out-of-span hotel makes a new trip), and this is only a *suggestion* the human
+# confirms -- wide enough to catch "first four nights, then a hotel a week later
+# landed as its own trip", which is exactly what merge is for.
+MERGE_ADJACENCY_DAYS = 30
+
+
+def mergeable_trips(session: Session, trip: Trip) -> list[dict]:
+    """Other trips that are plausibly the same trip as this one.
+
+    Same country, both dated, with spans overlapping or within a few weeks. A
+    hint for the UI, nothing more: merging is always a deliberate act.
+    """
+    if trip.start_date is None or trip.end_date is None:
+        return []
+    code = trip_country_code(session, trip.id)
+    if code is None:
+        return []
+
+    others = session.exec(
+        select(Trip)
+        .where(Trip.id != trip.id)
+        .where(Trip.start_date.is_not(None))
+        .where(Trip.end_date.is_not(None))
+    ).all()
+
+    out: list[dict] = []
+    for other in others:
+        if trip_country_code(session, other.id) != code:
+            continue
+        # Positive gap when the spans are disjoint; <= 0 when they touch or
+        # overlap. Only one of the two terms can be positive.
+        gap = max(
+            (other.start_date - trip.end_date).days,
+            (trip.start_date - other.end_date).days,
+        )
+        if gap > MERGE_ADJACENCY_DAYS:
+            continue
+        stays = session.exec(select(Stay).where(Stay.trip_id == other.id)).all()
+        out.append(
+            {
+                "id": other.id,
+                "label": trip_label(stays),
+                "start_date": str(other.start_date),
+                "end_date": str(other.end_date),
+            }
+        )
+    out.sort(key=lambda t: t["start_date"])
+    return out
+
+
+def merge_trips(session: Session, target: Trip, source: Trip) -> Trip:
+    """Fold `source` into `target`, then delete `source`.
+
+    Every hotel, journey, note and requirement moves to `target`, and the one
+    country entry is kept (target's if it has one, else source's). The caller
+    must already have checked the two are the same country -- this only moves
+    rows. Derived state is rebuilt afterwards, exactly as any other edit does.
+    """
+    for model in (Stay, Leg, Requirement, Note):
+        for row in session.exec(
+            select(model).where(model.trip_id == source.id)
+        ).all():
+            row.trip_id = target.id
+            session.add(row)
+
+    # A trip has at most one country entry. Keep target's (it carries the
+    # passport already chosen); otherwise adopt source's. Drop the rest so
+    # sync_country_entries has a single row to normalise.
+    target_entry = session.exec(
+        select(CountryEntry).where(CountryEntry.trip_id == target.id)
+    ).first()
+    for entry in session.exec(
+        select(CountryEntry).where(CountryEntry.trip_id == source.id)
+    ).all():
+        if target_entry is None:
+            entry.trip_id = target.id
+            session.add(entry)
+            target_entry = entry
+        else:
+            session.delete(entry)
+    session.commit()
+
+    # Reload source so its cascade-delete relationships see the now-empty
+    # collections; otherwise deleting it could take the reassigned rows with it.
+    session.expire(source)
+    session.delete(source)
+    session.commit()
+
+    refresh_trip_dates(session, target)
+    session.commit()
+    sync_country_entries(session, target)
+    session.refresh(target)
+    return target
+
+
 def trip_detail(session: Session, trip: Trip) -> dict:
     """Full trip payload: the shape the frontend's detail panel consumes."""
     stays = session.exec(
@@ -270,4 +367,5 @@ def trip_detail(session: Session, trip: Trip) -> dict:
         "nights": sum(s.nights for s in stays),
         "requirements": [r.model_dump() for r in trip.requirements],
         "notes_list": [n.model_dump() for n in notes],
+        "mergeable": mergeable_trips(session, trip),
     }
