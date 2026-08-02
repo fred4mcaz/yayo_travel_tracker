@@ -460,10 +460,6 @@ when on: Haiku per triaged candidate, Sonnet only when triage says yes.
 
 - **Notes creation UI.** The notes API is complete and notes render on the
   calendar and trip detail, but there is still no way to create one from the UI.
-- **`api/notes.py` bug.** `list_notes` reads `Trip.title`, which was deleted, so
-  `GET /api/notes` 500s for any note that has a `trip_id`. No note has one yet,
-  so it has not surfaced. Swap to the derived label (see `api/review.py`'s
-  `_trip_label`).
 - **`Requirement` rows** render read-only on trip detail; nothing creates them.
 - **Calendar drag is mouse-only.** No touch equivalent, so it does nothing on a
   phone — where the calendar is most used. Needs `touchmove` +
