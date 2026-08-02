@@ -224,13 +224,6 @@ export function TripDetailPanel({
           onDeleteHotel={(stay) =>
             void run(() => api.trips.removeStay(trip.id, stay.id))
           }
-          onAddTravel={() =>
-            setEditing({
-              kind: "leg",
-              country: country.country_code,
-              draft: { ...emptyLeg(), country_code: country.country_code },
-            })
-          }
           onEditTravel={(leg) =>
             setEditing({
               kind: "leg",
@@ -491,7 +484,6 @@ function CountryBlock({
   onAddHotel,
   onEditHotel,
   onDeleteHotel,
-  onAddTravel,
   onEditTravel,
   onDeleteTravel,
 }: {
@@ -503,7 +495,6 @@ function CountryBlock({
   onAddHotel: () => void;
   onEditHotel: (stay: Stay) => void;
   onDeleteHotel: (stay: Stay) => void;
-  onAddTravel: () => void;
   onEditTravel: (leg: Leg) => void;
   onDeleteTravel: (leg: Leg) => void;
 }) {
@@ -599,11 +590,9 @@ function CountryBlock({
         <button className="btn btn-sm" onClick={onAddHotel}>
           + Add hotel
         </button>
-        {segment.legs.length === 0 && (
-          <button className="btn btn-sm" onClick={onAddTravel}>
-            + How you get there
-          </button>
-        )}
+        {/* No "+ How you get there" here any more: a trip missing its arrival
+            journey is called out by the banner at the top of the panel, which
+            carries the same shortcut. A second button was redundant. */}
       </div>
 
       <div className="leaving-row">
