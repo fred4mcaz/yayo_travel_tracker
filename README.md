@@ -143,7 +143,7 @@ data/geo/              GENERATED — run scripts/build_geo.py
 | Area | State |
 |---|---|
 | Auth | Passkeys only, bound to the hostname. Recovery codes hashed |
-| Data model | 14 tables, 3 Alembic migrations, run on container start |
+| Data model | 14 tables, 4 Alembic migrations, run on container start |
 | Trip entry | Country picker, city autocomplete, date steppers — works end to end |
 | Trip detail | Country-first panel, capped to 70% width and left-justified (`.pane-detail`) |
 | Missing hotels | See §1. "Leaving Country On" sits at the bottom of the country block, and the uncovered part of a calendar wrapper says the same thing visually |
@@ -378,6 +378,15 @@ the Gmail app password and OpenRouter key in place.
    model missed first (overrides are allow-listed to booking fields). Accepting
    goes through the same derived-state path a manual edit does, so an accepted
    booking and a typed one cannot diverge.
+   **Dismiss is one-way, by design.** It flips the extraction to `rejected` and
+   nothing else — the email keeps its `processed_at` stamp, so a later poll never
+   re-reads it and it does not come back. Re-reading a batch is therefore a
+   deliberate act, done with a one-time data migration that deletes the
+   non-accepted proposals and clears `processed_at` on their emails (accepted
+   trips untouched, IMAP watermark untouched). Migration `f2a7c9d34b58` did
+   exactly this once, to re-read pre-year-anchor mail; copy it if you ever need
+   another clean slate. After it runs the Review tab is empty until the next poll
+   re-extracts.
 
 **The gate.** With the flag off (the default and shipped-off state) nothing
 starts, connects, or reads a credential. On but a credential missing: the
