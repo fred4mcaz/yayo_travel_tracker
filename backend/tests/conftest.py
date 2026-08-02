@@ -28,6 +28,22 @@ def session_fixture(engine):
         yield session
 
 
+@pytest.fixture(autouse=True)
+def _production_auth(monkeypatch):
+    """Keep the passkey wall up for the suite.
+
+    Settings.auth_optional drops the wall for local http dev, but the gating
+    tests bind a real database and assert the wall holds — so neutralize the
+    bypass here. is_production is deliberately left alone (False), so session
+    cookies stay non-secure and survive the http TestClient; patching the origin
+    instead would make them Secure and the cookie tests would drop them. The dev
+    bypass gets its own explicit test that turns it back on.
+    """
+    from app.config import Settings
+
+    monkeypatch.setattr(Settings, "auth_optional", property(lambda self: False))
+
+
 @pytest.fixture(name="_patched_lifespan")
 def patched_lifespan_fixture(engine, monkeypatch):
     """Point the startup hook at the test database.

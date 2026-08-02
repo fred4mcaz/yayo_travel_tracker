@@ -46,6 +46,22 @@ def test_health_and_status_are_open(anon_client):
     assert r.json()["enrolled"] is False
 
 
+def test_local_dev_bypasses_the_passkey_wall(anon_client, monkeypatch):
+    """On local http, review the site with no passkey and no session cookie.
+
+    The autouse fixture neutralizes the bypass for the rest of the suite; turn
+    it back on here to exercise the real local-dev behavior.
+    """
+    from app.config import Settings
+
+    monkeypatch.setattr(Settings, "auth_optional", property(lambda self: True))
+
+    # No cookie, no passkey registered — local dev still gets in.
+    assert anon_client.get("/api/trips").status_code == 200
+    status = anon_client.get("/api/auth/status").json()
+    assert status["authenticated"] is True
+
+
 def test_login_begin_refuses_before_enrollment(anon_client):
     """Nothing to authenticate against yet; say so rather than 500."""
     assert anon_client.post("/api/auth/login/begin").status_code == 409

@@ -215,12 +215,20 @@ npm test
 ### Verifying UI changes in a browser
 
 Every input bug in this project was found by driving the real UI, never by
-reading code. To skip the passkey during local verification:
+reading code. Local verification needs no passkey:
 
-- Mint a session with `create_session` and set the cookie via JS:
-  `document.cookie = "yayo_session=<token>; path=/"`. The `yayo_session` cookie
-  is `httponly`, but that only blocks JS from *reading* it — a JS-set cookie of
-  the same name is still sent, and the server reads by value.
+- **The passkey wall is down in local dev.** `Settings.auth_optional` is
+  `not is_production`, and `is_production` is `site_origin.startswith("https://")`
+  — so on `http://localhost` `require_auth` waves everything through and
+  `/api/auth/status` reports `authenticated: true`, and the frontend skips the
+  login screen. The Hetzner box serves over https, so the wall stands there by
+  construction; there is no flag to forget. The app logs a loud `AUTH BYPASS
+  ACTIVE` banner at startup whenever it is on, so it can never be mistaken for
+  the deployed instance. This changes nothing about where data lives: the local
+  DB is a throwaway dev copy either way — only the online instance is official
+  and saved. (The old trick — minting a session with `create_session` and
+  setting `document.cookie = "yayo_session=<token>; path=/"` — still works if you
+  ever want to test the *real* logged-in path, but you no longer need it.)
 - **Use a throwaway DB, never the real dev DB.** Point `YAYO_VAR_DIR` at a
   scratch dir via a gitignored `backend/.env`, run migrations + a seed script
   there, and remove it all afterwards.

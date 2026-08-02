@@ -79,6 +79,11 @@ def require_auth(
     Applied at the router level rather than per-endpoint so a new route cannot
     accidentally ship unprotected.
     """
+    # Local development runs without a passkey. This is impossible in production
+    # by construction: auth_optional is False whenever the site is served over
+    # https, which the Hetzner box always is. See Settings.auth_optional.
+    if settings.auth_optional:
+        return True
     if resolve_session(session, yayo_session) is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return True
@@ -110,7 +115,11 @@ def auth_status(
     yayo_session: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE),
 ) -> dict:
     """Unauthenticated by design — the login screen needs to read this."""
-    authenticated = resolve_session(session, yayo_session) is not None
+    # In local dev the passkey wall is down (see Settings.auth_optional), so
+    # report authenticated and the frontend skips the login screen entirely.
+    authenticated = (
+        settings.auth_optional or resolve_session(session, yayo_session) is not None
+    )
     return {
         "authenticated": authenticated,
         "enrolled": has_any_passkey(session),

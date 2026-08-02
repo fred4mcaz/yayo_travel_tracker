@@ -72,6 +72,21 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.site_origin.startswith("https://")
 
+    @property
+    def auth_optional(self) -> bool:
+        """Drop the passkey wall for local development.
+
+        Keyed off the same signal as is_production. The Hetzner box serves over
+        https://, so this is always False there and the passkey wall stands
+        exactly as before. Local dev runs on http://localhost, so you can open
+        the site and review changes without registering a passkey.
+
+        This changes nothing about where data is authoritative: the local
+        database is a throwaway dev copy either way — only the online instance
+        is official and saved.
+        """
+        return not self.is_production
+
     def ensure_dirs(self) -> None:
         """Create the runtime directories.
 

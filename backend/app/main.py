@@ -37,7 +37,20 @@ async def lifespan(_: FastAPI):
         if removed:
             log.info("purged %d expired session(s)", removed)
 
-        if not has_any_passkey(session):
+        if settings.auth_optional:
+            # Local dev: the passkey wall is down. Say so loudly so it can never
+            # be mistaken for the deployed instance. Impossible in production —
+            # auth_optional is False whenever the site is served over https.
+            log.warning(
+                "\n"
+                "=========================================================\n"
+                " AUTH BYPASS ACTIVE - local dev (%s).\n"
+                " No passkey required. Local data is a throwaway dev copy;\n"
+                " only the online instance is official and saved.\n"
+                "=========================================================",
+                settings.site_origin,
+            )
+        elif not has_any_passkey(session):
             # No way into the app yet. Print a one-time enrollment link; only its
             # hash is stored, so this log line is the only place it exists.
             token = issue_enrollment_token(session)
