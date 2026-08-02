@@ -4,7 +4,7 @@
     {
       "name": "backend",
       "runtimeExecutable": ".venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--port", "8000"],
+      "runtimeArgs": ["../scripts/dev_backend.py"],
       "cwd": "backend",
       "port": 8000
     },

@@ -184,6 +184,21 @@ python -m venv .venv
 ```
 
 ```bash
+.venv/Scripts/python.exe ../scripts/dev_backend.py
+```
+
+That wrapper pulls a fresh snapshot of the **live production database** into
+`var/travel.db` and then starts uvicorn exactly as before, so local review shows
+the same data as [travel.foryayo.com](https://travel.foryayo.com). The pull runs
+once per launch (uvicorn owns the `--reload` loop), is read-only against the box,
+and is non-fatal — offline, it keeps whatever local copy exists and still starts.
+Because every start overwrites the local DB, **local edits are throwaway**; only
+the online instance is official, which is the intended behaviour. `scripts/
+sync_prod_db.py` does the pull and can be run on its own to refresh without
+restarting. To run against a local DB instead — a throwaway scratch DB for
+destructive testing — start uvicorn directly and skip the wrapper:
+
+```bash
 .venv/Scripts/python.exe -m uvicorn app.main:app --reload --port 8000
 ```
 
