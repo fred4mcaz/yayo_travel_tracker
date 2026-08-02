@@ -241,6 +241,64 @@ describe("Calendar hotel bars", () => {
     expect(vnRight).toBeLessThan(thLeft);
   });
 
+  it("marks the gap with the arrival mode of the trip you travel into", () => {
+    const { container } = renderCalendar({
+      trips: [
+        trip({
+          id: 1,
+          country_code: "VN",
+          country_name: "Vietnam",
+          start_date: "2026-08-10",
+          end_date: "2026-08-12",
+        }),
+        trip({
+          id: 2,
+          country_code: "TH",
+          country_name: "Thailand",
+          start_date: "2026-08-12",
+          end_date: "2026-08-14",
+          arrival_mode: "flight",
+        }),
+      ],
+    });
+    const hops = Array.from(container.querySelectorAll<HTMLElement>(".cal-hop"));
+    expect(hops).toHaveLength(1);
+    expect(hops[0].textContent).toBe("✈");
+    // The hop reads as the journey into the *later* country.
+    expect(hops[0].title).toBe("Flight into Thailand");
+  });
+
+  it("falls back to a neutral marker when no travel is recorded", () => {
+    const { container } = renderCalendar({
+      trips: [
+        trip({
+          id: 1,
+          country_code: "VN",
+          country_name: "Vietnam",
+          start_date: "2026-08-10",
+          end_date: "2026-08-12",
+        }),
+        trip({
+          id: 2,
+          country_code: "TH",
+          country_name: "Thailand",
+          start_date: "2026-08-12",
+          end_date: "2026-08-14",
+          arrival_mode: null,
+        }),
+      ],
+    });
+    const hop = container.querySelector<HTMLElement>(".cal-hop")!;
+    expect(hop.className).toContain("unknown");
+    expect(hop.textContent).toBe("→");
+    expect(hop.title).toBe("Travel into Thailand not recorded");
+  });
+
+  it("draws no hop for a lone trip", () => {
+    const { container } = renderCalendar({ trips: [trip()] });
+    expect(container.querySelectorAll(".cal-hop")).toHaveLength(0);
+  });
+
   it("stacks two overlapping trips clear of each other", () => {
     const { container } = renderCalendar({
       trips: [

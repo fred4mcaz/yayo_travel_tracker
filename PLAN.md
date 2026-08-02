@@ -16,7 +16,7 @@ complete until it is committed and its line here carries the commit hash.
 - **Phase 3 — Calendar: gap between consecutive trips.** Let an
   `end-day == next-start-day` pair share a lane and trim the shared boundary so a
   visible gap opens; truly overlapping stays still stack. Tests: adjacent pair
-  shares a row with a horizontal gap; overlapping pair still stacks. — `<hash>`
+  shares a row with a horizontal gap; overlapping pair still stacks. — `c604b67`
 - **Phase 4 — Calendar: travel indicator in the gap.** A small mode glyph
   (✈ 🚆 🚌 ⛴ 🚗) centered in the gap between consecutive same-lane trips, showing
   the later trip's arrival mode; a neutral marker when none is recorded. Tests:

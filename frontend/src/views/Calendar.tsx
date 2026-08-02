@@ -9,13 +9,22 @@ import {
   toISODate,
   today,
 } from "../lib/format";
-import type { Note, StaySummary, TripSummary } from "../types";
+import type { Note, StaySummary, TravelMode, TripSummary } from "../types";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
+
+/** The glyph and label for a hop's mode, shown in the gap between two trips. */
+const MODE_GLYPH: Record<TravelMode, { glyph: string; label: string }> = {
+  flight: { glyph: "✈", label: "Flight" },
+  train: { glyph: "🚆", label: "Train" },
+  bus: { glyph: "🚌", label: "Bus" },
+  ferry: { glyph: "⛴", label: "Ferry" },
+  car: { glyph: "🚗", label: "Car" },
+};
 
 interface Props {
   trips: TripSummary[];
@@ -170,7 +179,7 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
       <p className="cal-hint">Drag across days to start a trip on those dates.</p>
 
       {weeks.map((week, wi) => {
-        const { groups } = layoutWeek(week, dated);
+        const { groups, connectors } = layoutWeek(week, dated);
         const laneCount = groups.reduce((m, g) => Math.max(m, g.lane + g.lanes), 0);
         return (
           <div className="cal-week" key={wi}>
@@ -278,6 +287,30 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
                       );
                     })}
                   </Fragment>
+                );
+              })}
+
+              {/* A travel hop sits in the gap between two consecutive trips,
+                  showing how you got into the later country. Purely a marker --
+                  it never eats a click meant for a wrapper behind it. */}
+              {connectors.map((c) => {
+                const info = c.into.arrival_mode
+                  ? MODE_GLYPH[c.into.arrival_mode]
+                  : null;
+                const where = c.into.country_name || c.into.label;
+                return (
+                  <span
+                    key={`hop-${c.into.id}`}
+                    className={"cal-hop" + (info ? "" : " unknown")}
+                    style={{ left: `${(c.at / 7) * 100}%`, top: c.lane * LANE }}
+                    title={
+                      info
+                        ? `${info.label} into ${where}`
+                        : `Travel into ${where} not recorded`
+                    }
+                  >
+                    {info ? info.glyph : "→"}
+                  </span>
                 );
               })}
             </div>

@@ -792,6 +792,27 @@ textarea {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
 }
+/* The travel hop between two consecutive trips: a mode glyph floated in the gap
+   where one country ends and the next begins. A marker, never a control -- it
+   must not intercept clicks meant for the wrappers, so it stays pointer-inert
+   (the .cal-bars default) rather than opting back in like bars and wrappers. */
+.cal-hop {
+  position: absolute;
+  transform: translateX(-50%);
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+  z-index: 1;
+}
+/* No mode recorded: a faint arrow that quietly echoes the missing-travel
+   banner on the trip itself, rather than claiming a flight that isn't known. */
+.cal-hop.unknown {
+  color: var(--text-muted);
+  opacity: 0.75;
+}
 
 /* --- map ---------------------------------------------------------------- */
 /* Land must read clearly against ocean at a glance, in both schemes. Keep a
