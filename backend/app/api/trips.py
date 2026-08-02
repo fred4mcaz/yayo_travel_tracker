@@ -80,6 +80,20 @@ def list_trips(session: Session = Depends(get_session)) -> list[dict]:
                 "country_code": country["country_code"] if country else "",
                 "country_name": country["country_name"] if country else "",
                 "cities": [s.city for s in sorted(stays, key=lambda s: s.check_in)],
+                # The calendar draws one bar per hotel, so the list has to carry
+                # them. Only what a bar needs: cost, address and confirmation
+                # code have no business in a payload fetched on every page load.
+                "stays": [
+                    {
+                        "id": s.id,
+                        "city": s.city,
+                        "hotel_name": s.hotel_name,
+                        "check_in": str(s.check_in),
+                        "check_out": str(s.check_out),
+                        "nights": s.nights,
+                    }
+                    for s in sorted(stays, key=lambda s: s.check_in)
+                ],
                 "nights": sum(s.nights for s in stays),
                 # Surfaced on the card so a forgotten hotel is visible without
                 # opening the trip -- the thing most worth noticing at a glance.

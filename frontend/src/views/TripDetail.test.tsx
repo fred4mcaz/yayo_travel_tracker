@@ -17,6 +17,7 @@ const TRIP: TripDetail = {
   country_code: "",
   country_name: "",
   cities: [],
+  stays: [],
   nights: 0,
   unbooked_nights: 0,
   country: null,

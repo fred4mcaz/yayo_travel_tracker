@@ -59,6 +59,31 @@ def test_trip_span_derives_from_hotels(client):
     assert detail["nights"] == 5
 
 
+def test_the_trip_list_carries_the_hotels(client):
+    """The calendar draws a bar per hotel, so the list must hand them over."""
+    trip_id = _mk_trip(client)
+    _stay_in(client, trip_id, "vn", "Hue", 14, nights=2, hotel_name="Azerai")
+    _stay_in(client, trip_id, "vn", "Hanoi", 10, nights=4, hotel_name="Sofitel")
+
+    row = next(t for t in client.get("/api/trips").json() if t["id"] == trip_id)
+    # Earliest check-in first, whatever order they were entered in.
+    assert [s["city"] for s in row["stays"]] == ["Hanoi", "Hue"]
+    assert row["stays"][0] == {
+        "id": row["stays"][0]["id"],
+        "city": "Hanoi",
+        "hotel_name": "Sofitel",
+        "check_in": str(TODAY + timedelta(days=10)),
+        "check_out": str(TODAY + timedelta(days=14)),
+        "nights": 4,
+    }
+
+
+def test_the_trip_list_omits_hotels_for_an_empty_trip(client):
+    trip_id = _mk_trip(client)
+    row = next(t for t in client.get("/api/trips").json() if t["id"] == trip_id)
+    assert row["stays"] == []
+
+
 def test_leg_extends_the_span_before_the_first_checkin(client):
     """A red-eye departing the night before still belongs to the trip."""
     trip_id = _mk_trip(client)

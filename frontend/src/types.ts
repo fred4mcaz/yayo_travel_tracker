@@ -112,6 +112,16 @@ export interface Note {
   done: boolean;
 }
 
+/** Just enough of a hotel booking to draw it on the calendar. */
+export interface StaySummary {
+  id: number;
+  city: string;
+  hotel_name: string;
+  check_in: string;
+  check_out: string;
+  nights: number;
+}
+
 export interface TripSummary {
   id: number;
   /** Always derived from the hotels; trips are never named by hand. */
@@ -123,6 +133,8 @@ export interface TripSummary {
   country_code: string;
   country_name: string;
   cities: string[];
+  /** The hotels booked inside this country stay, earliest check-in first. */
+  stays: StaySummary[];
   nights: number;
   /** Nights inside this stay with no hotel booked. */
   unbooked_nights: number;

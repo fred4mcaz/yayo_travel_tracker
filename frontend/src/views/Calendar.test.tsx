@@ -119,6 +119,7 @@ describe("Calendar drag-to-create", () => {
       country_code: "VN",
       country_name: "Vietnam",
       cities: ["Hanoi"],
+      stays: [],
       nights: 4,
       unbooked_nights: 0,
     };
