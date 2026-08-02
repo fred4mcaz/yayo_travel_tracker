@@ -193,10 +193,10 @@ the same data as [travel.foryayo.com](https://travel.foryayo.com). The pull runs
 once per launch (uvicorn owns the `--reload` loop), is read-only against the box,
 and is non-fatal — offline, it keeps whatever local copy exists and still starts.
 Because every start overwrites the local DB, **local edits are throwaway**; only
-the online instance is official, which is the intended behaviour. `scripts/
-sync_prod_db.py` does the pull and can be run on its own to refresh without
-restarting. To run against a local DB instead — a throwaway scratch DB for
-destructive testing — start uvicorn directly and skip the wrapper:
+the online instance is official, which is the intended behaviour. To refresh
+without restarting, run `scripts/sync_prod_db.py` on its own. To run against a
+local DB instead — an isolated scratch DB for destructive testing, or offline —
+start uvicorn directly and skip the wrapper:
 
 ```bash
 .venv/Scripts/python.exe -m uvicorn app.main:app --reload --port 8000
@@ -244,9 +244,14 @@ reading code. Local verification needs no passkey:
   and saved. (The old trick — minting a session with `create_session` and
   setting `document.cookie = "yayo_session=<token>; path=/"` — still works if you
   ever want to test the *real* logged-in path, but you no longer need it.)
-- **Use a throwaway DB, never the real dev DB.** Point `YAYO_VAR_DIR` at a
-  scratch dir via a gitignored `backend/.env`, run migrations + a seed script
-  there, and remove it all afterwards.
+- **The local DB is a disposable mirror of production.** `dev_backend.py`
+  overwrites `var/travel.db` from the live box on every start (see above), so it
+  is safe to mutate while testing — the next launch refreshes it, and nothing you
+  do locally ever reaches the online data. When you instead need isolation from
+  the real data — destructive testing you don't want re-pulled, or working
+  offline — point `YAYO_VAR_DIR` at a scratch dir via a gitignored `backend/.env`,
+  run migrations + a seed script there, and start uvicorn directly (not the
+  wrapper).
 - **Trust `getBoundingClientRect` and `input.value` over eyeballing a
   screenshot** — screenshots letterbox, and the a11y tree reports an input's
   *placeholder* as its accessible name. Two "bugs" were misread that way. The
