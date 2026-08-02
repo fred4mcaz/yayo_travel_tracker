@@ -47,6 +47,14 @@ Dates render **month-first everywhere** — "Aug 1", "Aug 18–24, 2026" (see
 `frontend/src/lib/format.ts`). Calendar bars are **per-trip by explicit choice**
 (a trip is one country stay); do not switch them to per-hotel without asking.
 
+**Dragging across calendar days creates a trip.** The dragged span maps
+straight to check-in/check-out (`rangeFromDrag` in `lib/calendarRange.ts`), so
+the bar you get back covers the days you swept; a single click is one night,
+the minimum a stay can be. It creates the trip immediately and opens the stay
+form, exactly as the "New trip" button does — cancelling leaves an empty undated
+trip either way. Mouse only for now: touch drag-select needs `elementFromPoint`
+tracking and was left unbuilt.
+
 ### Missing-hotel detection (the feature he cares most about)
 
 Flags any stretch inside a country stay with no hotel booked: between two
@@ -96,6 +104,8 @@ frontend/src/
   components/          CityInput, CountrySelect, DateField, StayForm, LegForm, Sheet
   lib/countries.ts     GENERATED — source of truth for country names
   lib/format.ts        Date formatting and parsing (month-first; parseDate)
+  lib/calendarRange.ts Maps a calendar drag to stay dates (see §1)
+  **/*.test.{ts,tsx}   vitest, colocated with what they cover — `npm test`
 data/geo/              GENERATED — run scripts/build_geo.py
 ```
 
@@ -187,6 +197,16 @@ reading code. To skip the passkey during local verification:
 - **Trust `getBoundingClientRect` and `input.value` over eyeballing a
   screenshot** — screenshots letterbox, and the a11y tree reports an input's
   *placeholder* as its accessible name. Two "bugs" were misread that way.
+- **Never click and then read the DOM in the same injected script.** React 18
+  batches state updates, so the DOM you read back is the *pre-click* one. A
+  click-then-assert loop reported a sheet as still open through five tab
+  switches when it had actually closed. Do one action per injected call and read
+  state in the next call. Anything async (a `POST` before the UI updates) needs a
+  real wait, not just a second call.
+- **Dispatching `mouseenter` by hand does nothing.** React derives
+  `onMouseEnter` from delegated `mouseover`, so a synthetic `mouseenter` alone
+  is dropped and a drag silently collapses to a single cell. Fire `mouseover`
+  too. This looked exactly like a broken date range.
 
 ---
 
@@ -357,6 +377,17 @@ when on: Haiku per triaged candidate, Sonnet only when triage says yes.
 - Never `new Date("2026-03-18")` — that is UTC midnight and renders as the 17th
   west of Greenwich. Use `parseDate` in `lib/format.ts`.
 - Inputs are 16px because iOS Safari zooms on focus below that.
+- **`openStayOnMount` is read by a `useState` initializer, so it only fires on a
+  real mount** — and that cuts both ways. Both halves shipped as bugs:
+  - The detail panel renders inside `tab === "trips" &&`, so leaving the Trips
+    tab unmounts it. A flag left set therefore re-fired on *every* return, and
+    "Add a country" popped open each time you clicked Trips. The flag is a
+    one-shot: the panel calls `onStayOpened` once it has acted, and `App` clears
+    it there. The open sheet survives because `editing` is state, not a prop.
+  - Conversely, selecting a *different* trip does not remount the panel — React
+    reuses the instance and only swaps props — so the initializer never re-ran
+    and the form silently never appeared when a trip was already open. Hence
+    `key={selected.id}` on `TripDetailPanel`.
 - A field named `date` on a SQLModel class shadows the `date` type and pydantic
   cannot resolve it. `Note.on_date` is named that for this reason.
 
@@ -371,6 +402,13 @@ when on: Haiku per triaged candidate, Sonnet only when triage says yes.
   so it has not surfaced. Swap to the derived label (see `api/review.py`'s
   `_trip_label`).
 - **`Requirement` rows** render read-only on trip detail; nothing creates them.
+- **Calendar drag is mouse-only.** No touch equivalent, so it does nothing on a
+  phone — where the calendar is most used. Needs `touchmove` +
+  `document.elementFromPoint`, since touch events stay targeted at the element
+  the gesture started on and never fire `mouseover` on the ones it crosses.
+- **The frontend suite covers only the calendar drag and the stay-form-on-mount
+  lifecycle** (17 tests). Everything else in the SPA is still untested; there is
+  no `App`-level test, because that needs the `api` module mocked.
 - **Backup is still thin.** Only the pre-deploy snapshot in `deploy.sh` exists:
   same disk, no schedule, no off-box copy, and `YAYO_BACKUP_KEEP_DAYS` is
   defined but unwired (nothing prunes). He was offered scheduled/off-box backups
