@@ -37,6 +37,27 @@ function renderCalendar(overrides: Partial<Parameters<typeof Calendar>[0]> = {})
   return { container, onSelect, onCreateRange, cell };
 }
 
+describe("Calendar week layout", () => {
+  it("runs Sunday to Saturday", () => {
+    const { container } = renderCalendar();
+    const heads = Array.from(
+      container.querySelectorAll(".cal-weekdays span"),
+    ).map((s) => s.textContent);
+    expect(heads).toEqual(["S", "M", "T", "W", "T", "F", "S"]);
+  });
+
+  it("starts the grid on the Sunday on or before the 1st", () => {
+    const { container } = renderCalendar();
+    // August 2026 opens on a Saturday, so the grid must lead with Jul 26 --
+    // the Sunday before it -- and Aug 1 must land in the last column.
+    const days = Array.from(container.querySelectorAll(".cal-day"));
+    expect(days[0].querySelector(".cal-daynum")?.textContent).toBe("26");
+    expect(days[0].className).toContain("outside");
+    expect(days[6].querySelector(".cal-daynum")?.textContent).toBe("1");
+    expect(days[6].className).not.toContain("outside");
+  });
+});
+
 describe("Calendar drag-to-create", () => {
   it("creates a range from a forward drag", () => {
     const { onCreateRange, cell } = renderCalendar();

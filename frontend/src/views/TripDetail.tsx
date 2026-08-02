@@ -525,7 +525,7 @@ function CountryBlock({
       </div>
 
       <div className="leaving-row">
-        <label htmlFor={`leaving-${segment.country_code}`}>Leaving on</label>
+        <label htmlFor={`leaving-${segment.country_code}`}>Leaving Country On</label>
         <DateField
           value={leavingValue}
           min={segment.starts_on ?? undefined}

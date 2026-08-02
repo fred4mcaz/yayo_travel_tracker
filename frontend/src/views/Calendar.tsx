@@ -14,7 +14,7 @@ const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
-const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
+const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
 interface Props {
   trips: TripSummary[];
@@ -234,11 +234,11 @@ function barColor(id: number): string {
   return `hsl(${hue.toFixed(1)}, 58%, 42%)`;
 }
 
-/** Six weeks starting on the Monday on or before the 1st. */
+/** Six weeks starting on the Sunday on or before the 1st. */
 function buildWeeks(cursor: Date): Date[][] {
   const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-  // getDay() is 0=Sunday; shift so Monday is the first column.
-  const offset = (first.getDay() + 6) % 7;
+  // getDay() is already 0=Sunday, which is the first column.
+  const offset = first.getDay();
   const start = new Date(first);
   start.setDate(first.getDate() - offset);
 
