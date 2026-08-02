@@ -120,6 +120,37 @@ def test_note_search_and_date_filter(client):
     assert windowed[0]["title"] == "Dentist in Osaka"
 
 
+def test_listing_a_note_attached_to_a_live_trip(client):
+    """Regression: GET /api/notes used to 500 on a trip-linked note.
+
+    list_notes read Trip.title, a column deleted when trips stopped being named
+    by hand; the label is now derived from the trip's hotels. The existing
+    deletion test never caught it because deleting the trip nulls trip_id first.
+    """
+    trip = client.post("/api/trips", json={}).json()
+    client.post(
+        f"/api/trips/{trip['id']}/stays",
+        json={
+            "country_code": "JP",
+            "city": "Osaka",
+            "check_in": str(TODAY - timedelta(days=10)),
+            "check_out": str(TODAY - timedelta(days=5)),
+        },
+    )
+    client.post(
+        "/api/notes",
+        json={"trip_id": trip["id"], "on_date": str(TODAY), "title": "Confirm ryokan"},
+    )
+
+    r = client.get("/api/notes")
+    assert r.status_code == 200
+    note = r.json()[0]
+    assert note["trip_id"] == trip["id"]
+    # Derived from the stay, not a stored title.
+    assert note["trip_title"]
+    assert "Osaka" in note["trip_title"]
+
+
 def test_note_survives_trip_deletion(client):
     trip = client.post("/api/trips", json={}).json()
     client.post(

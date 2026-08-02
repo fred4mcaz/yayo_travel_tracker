@@ -12,10 +12,23 @@ from sqlmodel import Session, or_, select
 
 from app.api.common import apply_update, get_or_404
 from app.db import get_session
-from app.models import Note, Trip
+from app.models import Note, Stay, Trip
 from app.schemas import NoteCreate, NoteUpdate
+from app.services.trips import trip_label
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
+
+
+def _trip_title(session: Session, trip_id: Optional[int]) -> Optional[str]:
+    """A trip's display label, derived from its hotels.
+
+    Trip.title was deleted -- trips are never named by hand -- so the label is
+    computed from the stays, exactly as the review and trips endpoints do.
+    """
+    if trip_id is None:
+        return None
+    stays = session.exec(select(Stay).where(Stay.trip_id == trip_id)).all()
+    return trip_label(stays)
 
 
 @router.get("")
@@ -44,9 +57,7 @@ def list_notes(
     return [
         {
             **n.model_dump(),
-            "trip_title": (
-                session.get(Trip, n.trip_id).title if n.trip_id else None
-            ),
+            "trip_title": _trip_title(session, n.trip_id),
         }
         for n in notes
     ]
