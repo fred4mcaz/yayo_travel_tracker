@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { rangeFromDrag } from "../lib/calendarRange";
 import type { StayDates } from "../lib/calendarRange";
 import {
+  countryFlag,
   formatRange,
   parseDate,
   toISODate,
   today,
 } from "../lib/format";
-import type { Note, TripSummary } from "../types";
+import type { Note, StaySummary, TripSummary } from "../types";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -24,15 +25,33 @@ interface Props {
   onCreateRange: (dates: StayDates) => void;
 }
 
-/** A trip laid out on one week's row: which column it starts at and how wide. */
-interface Bar {
-  trip: TripSummary;
+/** Something laid out on one week's row: which column it starts at, how wide,
+ *  and whether it was cut off by the week's edge. */
+interface Span {
   start: number;
   span: number;
   continuesLeft: boolean;
   continuesRight: boolean;
+}
+
+/** One hotel booking clipped to this week, on its own row inside the country. */
+interface StayBar extends Span {
+  stay: StaySummary;
   lane: number;
 }
+
+/** One country stay clipped to this week, wrapping the hotels booked inside it.
+ *  `lane` is the wrapper's own row; the hotel bars sit on the rows below, and
+ *  `lanes` counts the pair so the next trip stacks clear of the whole block. */
+interface Group extends Span {
+  trip: TripSummary;
+  lane: number;
+  lanes: number;
+  bars: StayBar[];
+}
+
+/** Row height in px, and how much of one a bar occupies. */
+const LANE = 22;
 
 export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
   const now = today();
@@ -131,8 +150,8 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
       <p className="cal-hint">Drag across days to start a trip on those dates.</p>
 
       {weeks.map((week, wi) => {
-        const bars = layoutWeek(week, dated);
-        const laneCount = bars.reduce((m, b) => Math.max(m, b.lane + 1), 0);
+        const groups = layoutWeek(week, dated);
+        const laneCount = groups.reduce((m, g) => Math.max(m, g.lane + g.lanes), 0);
         return (
           <div className="cal-week" key={wi}>
             {/* Day cells grow to fit however many trip bars overlap this week,
@@ -141,7 +160,7 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
                 weeks instead of to the week above it. */}
             <div
               className="cal-days"
-              style={{ minHeight: 64 + laneCount * 24 }}
+              style={{ minHeight: 64 + laneCount * LANE }}
             >
               {week.map((day) => {
                 const iso = toISODate(day);
@@ -177,38 +196,65 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
             </div>
 
             <div className="cal-bars">
-              {bars.map((bar) => {
-                // Start at the right half of the arrival day and end at the left
-                // half of the departure day: you check in in the afternoon and
-                // out in the morning. A bar continuing from an adjacent week
-                // keeps its cut edge flush so it still reads as one span.
-                const startFrac = bar.continuesLeft ? bar.start : bar.start + 0.5;
-                const endFrac = bar.continuesRight
-                  ? bar.start + bar.span
-                  : bar.start + bar.span - 0.5;
-                const leftPct = (startFrac / 7) * 100;
-                // Never let a same-day span collapse to nothing to click.
-                const widthPct = Math.max(((endFrac - startFrac) / 7) * 100, 3.5);
+              {groups.map((group) => {
+                const { trip } = group;
+                const box = place(group);
                 return (
-                  <button
-                    key={`${bar.trip.id}-${bar.start}`}
-                    className={`cal-bar status-${bar.trip.status}${
-                      bar.continuesLeft ? " cont-l" : ""
-                    }${bar.continuesRight ? " cont-r" : ""}`}
-                    style={{
-                      left: `${leftPct}%`,
-                      width: `${widthPct}%`,
-                      top: bar.lane * 24,
-                      background: barColor(bar.trip.id),
-                    }}
-                    title={`${bar.trip.country_name} · ${bar.trip.label}\n${formatRange(
-                      bar.trip.start_date,
-                      bar.trip.end_date,
-                    )}`}
-                    onClick={() => onSelect(bar.trip.id)}
-                  >
-                    <span>{bar.trip.label}</span>
-                  </button>
+                  <Fragment key={trip.id}>
+                    {/* The country stay. It wraps its hotels rather than
+                        standing in for them: any part of it not covered by a
+                        bar is a night in the country with nowhere booked. */}
+                    <button
+                      className={`cal-country status-${trip.status}${
+                        group.continuesLeft ? " cont-l" : ""
+                      }${group.continuesRight ? " cont-r" : ""}`}
+                      style={{
+                        left: box.left,
+                        width: box.width,
+                        top: group.lane * LANE,
+                        height: group.lanes * LANE - 3,
+                        borderColor: countryEdge(trip.id),
+                        background: countryFill(trip.id),
+                      }}
+                      title={`${trip.country_name} · ${trip.label}\n${formatRange(
+                        trip.start_date,
+                        trip.end_date,
+                      )}`}
+                      onClick={() => onSelect(trip.id)}
+                    >
+                      <span>
+                        {countryFlag(trip.country_code)}{" "}
+                        {trip.country_name || trip.label}
+                      </span>
+                    </button>
+
+                    {group.bars.map((bar) => {
+                      const b = place(bar);
+                      return (
+                        <button
+                          key={`${bar.stay.id}-${bar.start}`}
+                          className={`cal-bar status-${trip.status}${
+                            bar.continuesLeft ? " cont-l" : ""
+                          }${bar.continuesRight ? " cont-r" : ""}`}
+                          style={{
+                            left: b.left,
+                            width: b.width,
+                            top: (group.lane + 1 + bar.lane) * LANE,
+                            background: barColor(bar.stay.id),
+                          }}
+                          title={`${stayLabel(bar.stay)}\n${formatRange(
+                            bar.stay.check_in,
+                            bar.stay.check_out,
+                          )} · ${bar.stay.nights} night${
+                            bar.stay.nights === 1 ? "" : "s"
+                          }`}
+                          onClick={() => onSelect(trip.id)}
+                        >
+                          <span>{stayLabel(bar.stay)}</span>
+                        </button>
+                      );
+                    })}
+                  </Fragment>
                 );
               })}
             </div>
@@ -225,13 +271,50 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
   );
 }
 
-/** A distinct, stable colour per trip, so overlapping stays are easy to tell
- *  apart at a glance. Golden-angle hue rotation keeps neighbours far apart, and
- *  a fixed saturation/lightness keeps every fill legible under white text in
- *  both themes. */
+/** Where a span sits across the week, as CSS percentages.
+ *
+ *  Starts at the right half of the arrival day and ends at the left half of the
+ *  departure day: you check in in the afternoon and out in the morning. A span
+ *  continuing from an adjacent week keeps its cut edge flush so it still reads
+ *  as one run. */
+function place(s: Span): { left: string; width: string } {
+  const startFrac = s.continuesLeft ? s.start : s.start + 0.5;
+  const endFrac = s.continuesRight ? s.start + s.span : s.start + s.span - 0.5;
+  return {
+    left: `${(startFrac / 7) * 100}%`,
+    // Never let a same-day span collapse to nothing to click.
+    width: `${Math.max(((endFrac - startFrac) / 7) * 100, 3.5)}%`,
+  };
+}
+
+/** "Hanoi · Sofitel Legend", or just the city while the name is still unknown
+ *  (a stay created by a calendar drag has neither yet). */
+function stayLabel(stay: StaySummary): string {
+  const hotel = stay.hotel_name.trim();
+  const city = stay.city.trim();
+  if (city && hotel) return `${city} · ${hotel}`;
+  return city || hotel || "Hotel";
+}
+
+/** A distinct, stable hue per id. Golden-angle rotation keeps neighbours far
+ *  apart, so two hotels booked back to back never come out the same colour. */
+function hue(id: number): string {
+  return (((id * 137.508) % 360) + 360).toFixed(1);
+}
+
+/** One hotel booking's fill. Fixed saturation/lightness keeps every one of them
+ *  legible under white text in both themes. */
 function barColor(id: number): string {
-  const hue = (id * 137.508) % 360;
-  return `hsl(${hue.toFixed(1)}, 58%, 42%)`;
+  return `hsl(${hue(id)}, 58%, 42%)`;
+}
+
+/** The country wrapper: its own hue, but drawn as an outline over a wash so the
+ *  hotel bars inside stay the thing you actually read. */
+function countryEdge(id: number): string {
+  return `hsl(${hue(id)}, 48%, 46%)`;
+}
+function countryFill(id: number): string {
+  return `hsla(${hue(id)}, 48%, 46%, 0.13)`;
 }
 
 /** Six weeks starting on the Sunday on or before the 1st. */
@@ -255,12 +338,15 @@ function buildWeeks(cursor: Date): Date[][] {
   return weeks;
 }
 
-/** Clip each trip to this week and stack overlapping ones into lanes. */
-function layoutWeek(week: Date[], trips: TripSummary[]): Bar[] {
+/** Clip each country stay to this week, lay its hotels out inside it, and stack
+ *  overlapping trips so no two blocks ever share a row. */
+function layoutWeek(week: Date[], trips: TripSummary[]): Group[] {
   const weekStart = week[0];
   const weekEnd = week[6];
-  const bars: Bar[] = [];
-  const laneEnds: number[] = [];
+  const groups: Group[] = [];
+  // Rightmost column each row is occupied through, so a later trip can tell
+  // whether it fits above or has to drop below.
+  const rowEnds: number[] = [];
 
   const candidates = trips
     .map((trip) => ({
@@ -269,7 +355,7 @@ function layoutWeek(week: Date[], trips: TripSummary[]): Bar[] {
       to: parseDate(trip.end_date!),
     }))
     .filter((c) => c.to >= weekStart && c.from <= weekEnd)
-    // Longest first so the big bars claim the top lanes and read as continuous.
+    // Longest first so the big blocks claim the top rows and read as continuous.
     .sort(
       (a, b) =>
         a.from.getTime() - b.from.getTime() ||
@@ -277,25 +363,66 @@ function layoutWeek(week: Date[], trips: TripSummary[]): Bar[] {
     );
 
   for (const { trip, from, to } of candidates) {
-    const startIdx = Math.max(0, dayIndex(weekStart, from));
-    const endIdx = Math.min(6, dayIndex(weekStart, to));
-    const span = endIdx - startIdx + 1;
-    if (span <= 0) continue;
+    const outer = clip(weekStart, weekEnd, from, to);
+    if (!outer) continue;
 
+    // Hotels inside this country stay, each on its own row. Two bookings that
+    // do not overlap share a row, so a five-hotel trip is not five rows tall.
+    const bars: StayBar[] = [];
+    const innerEnds: number[] = [];
+    for (const stay of trip.stays ?? []) {
+      const inner = clip(
+        weekStart,
+        weekEnd,
+        parseDate(stay.check_in),
+        parseDate(stay.check_out),
+      );
+      if (!inner) continue;
+      let lane = 0;
+      while (innerEnds[lane] !== undefined && innerEnds[lane] >= inner.start) lane++;
+      innerEnds[lane] = inner.start + inner.span - 1;
+      bars.push({ ...inner, stay, lane });
+    }
+
+    // The wrapper's own label row, then one row per lane of hotels. The whole
+    // block is reserved at once -- reserving only the top row would let the
+    // next trip's bars land inside this one's box.
+    const lanes = 1 + innerEnds.length;
+    const end = outer.start + outer.span - 1;
     let lane = 0;
-    while (laneEnds[lane] !== undefined && laneEnds[lane] >= startIdx) lane++;
-    laneEnds[lane] = endIdx;
+    while (!rowsFree(rowEnds, lane, lanes, outer.start)) lane++;
+    for (let i = 0; i < lanes; i++) rowEnds[lane + i] = end;
 
-    bars.push({
-      trip,
-      start: startIdx,
-      span,
-      continuesLeft: from < weekStart,
-      continuesRight: to > weekEnd,
-      lane,
-    });
+    groups.push({ ...outer, trip, lane, lanes, bars });
   }
-  return bars;
+  return groups;
+}
+
+/** Where `from`–`to` falls inside this week, or null if it misses it entirely. */
+function clip(weekStart: Date, weekEnd: Date, from: Date, to: Date): Span | null {
+  if (to < weekStart || from > weekEnd) return null;
+  const start = Math.max(0, dayIndex(weekStart, from));
+  const end = Math.min(6, dayIndex(weekStart, to));
+  if (end < start) return null;
+  return {
+    start,
+    span: end - start + 1,
+    continuesLeft: from < weekStart,
+    continuesRight: to > weekEnd,
+  };
+}
+
+/** Are `count` consecutive rows from `top` clear at column `start`? */
+function rowsFree(
+  rowEnds: number[],
+  top: number,
+  count: number,
+  start: number,
+): boolean {
+  for (let i = top; i < top + count; i++) {
+    if (rowEnds[i] !== undefined && rowEnds[i] >= start) return false;
+  }
+  return true;
 }
 
 function dayIndex(weekStart: Date, date: Date): number {

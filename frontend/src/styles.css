@@ -692,12 +692,48 @@ textarea {
   top: 24px;
   pointer-events: none;
 }
-.cal-bars .cal-bar {
+.cal-bars .cal-bar,
+.cal-bars .cal-country {
   pointer-events: auto;
+}
+/* The country stay: an outlined box wrapping the hotels booked inside it. Any
+   stretch of it left bare is a night in that country with nowhere booked --
+   that emptiness is the point, so the fill stays a wash and the hotel bars on
+   top stay the thing you read. */
+.cal-country {
+  position: absolute;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-align: left;
+  padding: 1px 6px;
+  align-items: flex-start;
+  display: flex;
+  border: 1.5px solid var(--past);
+  border-radius: 7px;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cal-country.status-past {
+  opacity: 0.72;
+}
+.cal-country.cont-l {
+  border-left: none;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.cal-country.cont-r {
+  border-right: none;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
 }
 .cal-bar {
   position: absolute;
-  height: 20px;
+  height: 19px;
   font: inherit;
   font-size: 11px;
   text-align: left;
