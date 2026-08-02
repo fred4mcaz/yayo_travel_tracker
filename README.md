@@ -83,6 +83,19 @@ only gaps *between* bookings show. It also extends the trip's date span.
 Deliberately silent about: overlapping bookings (double-booked is a different
 problem) and anything after the last hotel when no leaving date is set.
 
+### Merging two trips into one
+
+The flip side of strict matching: when a later hotel lands outside a trip's
+dates it becomes its own trip, but sometimes it was really the same stay all
+along. **Merge** folds one trip's hotels, journeys, notes, requirements and
+country entry into another and deletes it — then the gap between them shows as
+unbooked nights, which is the whole point. It is always a deliberate act: the
+detail panel *offers* a merge for any same-country trip whose dates are
+overlapping or within `MERGE_ADJACENCY_DAYS` (30), and you confirm it. Refused
+across countries — a trip is one country — with a 409, exactly like adding a
+second country. `merge_trips` and `mergeable_trips` live in `services/trips.py`;
+the route is `POST /api/trips/{id}/merge`.
+
 ---
 
 ## 2. Architecture and layout
@@ -134,6 +147,7 @@ data/geo/              GENERATED — run scripts/build_geo.py
 | Trip entry | Country picker, city autocomplete, date steppers — works end to end |
 | Trip detail | Country-first panel, capped to 70% width and left-justified (`.pane-detail`) |
 | Missing hotels | See §1. "Leaving Country On" sits at the bottom of the country block, and the uncovered part of a calendar wrapper says the same thing visually |
+| Merge trips | See §1. Detail panel offers a merge for a same-country, near-dated trip; folds it in and deletes it. Refused across countries |
 | Calendar | Sunday-to-Saturday month grid; one distinctly-coloured bar per hotel, offset to start mid-check-in-day and end mid-checkout-day, inside an outlined wrapper for the country stay; notes as dots. Drag across days to start a new trip with those dates pre-filled |
 | Map | Canvas world map, country fill, city pins, route arcs. No tile server |
 | Passports | Two passports (MX, US), last-4 only |
@@ -343,10 +357,22 @@ the Gmail app password and OpenRouter key in place.
    `validate_booking` re-checks every field regardless of whether the provider
    enforced strict, so a malformed response persists nothing. The model is
    injected behind a Protocol, so the whole pipeline tests offline.
+   **The year anchor:** the extractor is handed the email's *received date* as a
+   system message — a booking is for a stay on or after it — because the model
+   has no other way to know the year and otherwise defaults to a past one (it
+   once read Aug 2026 as Aug 2025). A second, deterministic guard (`correct_year`)
+   rolls a deep-past, cross-year check-in forward, shifting checkout to keep the
+   stay's length; near and same-year dates are left untouched. We never backfill
+   old mail, so a check-in a year before the email is always a misread year.
 4. **Match** — `services/review.py`. `find_matching_trip` attaches a booking to
    an existing trip by same-country **and** ±2-day date overlap, otherwise
    proposes a new trip. A different-country booking becomes its own trip **by
    construction** — the one-country rule holds without ever failing the guard.
+   **Matching stays deliberately strict:** a hotel whose dates fall outside a
+   trip's span (common when no leaving date is set, so the span ends at the last
+   checkout) becomes *its own* trip rather than being force-fit. Recombining two
+   trips that are really one stay is a manual **merge** (see §1), not a guess the
+   matcher makes.
 5. **Review** — `api/review.py`, `views/Review.tsx`. Proposals appear in the
    **Review tab** with a badge count. Accept or dismiss; correct a field the
    model missed first (overrides are allow-listed to booking fields). Accepting
