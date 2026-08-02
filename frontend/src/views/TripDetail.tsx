@@ -215,6 +215,44 @@ export function TripDetailPanel({
         />
       )}
 
+      {trip.mergeable.length > 0 && (
+        <section className="merge-suggest">
+          <h3>Same trip as another?</h3>
+          <p className="muted">
+            {trip.mergeable.length === 1 ? "This trip is" : "These trips are"} in{" "}
+            {country?.country_name ?? "the same country"} around the same dates.
+            Merge to keep one stay with every hotel — any nights with nowhere to
+            sleep will then show up.
+          </p>
+          {trip.mergeable.map((cand) => (
+            <div className="merge-row" key={cand.id}>
+              <div className="entry-main">
+                <strong>{cand.label}</strong>
+                <span className="muted">
+                  {formatRange(cand.start_date, cand.end_date)}
+                </span>
+              </div>
+              <button
+                className="btn btn-sm"
+                disabled={busy}
+                onClick={() => {
+                  if (
+                    confirm(
+                      `Merge "${cand.label}" into "${trip.label}"? ` +
+                        `"${cand.label}" will be absorbed and removed.`,
+                    )
+                  ) {
+                    void run(() => api.trips.merge(trip.id, cand.id));
+                  }
+                }}
+              >
+                Merge in
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
+
       {trip.requirements.length > 0 && (
         <section>
           <h3>Paperwork</h3>

@@ -23,6 +23,7 @@ const TRIP: TripDetail = {
   country: null,
   requirements: [],
   notes_list: [],
+  mergeable: [],
 };
 
 function renderPanel(props: Partial<Parameters<typeof TripDetailPanel>[0]> = {}) {

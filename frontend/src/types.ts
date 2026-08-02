@@ -166,12 +166,23 @@ export interface TripCountry {
   legs: Leg[];
 }
 
+/** Another trip that is plausibly the same stay as this one: same country,
+ *  dates touching or a few weeks apart. Offered for merging, never automatic. */
+export interface MergeCandidate {
+  id: number;
+  label: string;
+  start_date: string;
+  end_date: string;
+}
+
 export interface TripDetail extends TripSummary {
   /** The country this trip is a stay in. Null until something is recorded. */
   country: TripCountry | null;
   requirements: Requirement[];
   /** Note records. The trip's own memo text is `notes`, inherited above. */
   notes_list: Note[];
+  /** Same-country, near-dated trips this one could be merged with. */
+  mergeable: MergeCandidate[];
 }
 
 export interface Passport {

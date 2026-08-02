@@ -1107,6 +1107,37 @@ textarea {
   margin-top: 2px;
 }
 
+/* Merge suggestion: a same-country trip a few days off that may be one stay.
+   A quiet accent card, not a warning — nothing is wrong, it is just an offer. */
+.merge-suggest {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.merge-suggest h3 {
+  margin: 0 0 4px;
+  color: var(--accent);
+}
+.merge-suggest > p {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+.merge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.merge-row .btn {
+  flex-shrink: 0;
+  border-color: var(--accent);
+  color: var(--accent);
+  background: transparent;
+}
+
 /* A trip is one international stay in one country, so its country reads as the
    trip's own header rather than a card nested inside it. The bordered form is
    kept for the rare trip that already spans two. */

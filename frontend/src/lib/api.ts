@@ -106,6 +106,9 @@ export const api = {
     update: (id: number, body: Record<string, unknown>) =>
       patch<TripDetail>(`/api/trips/${id}`, body),
     remove: (id: number) => del<void>(`/api/trips/${id}`),
+    /** Fold `otherId` into `id`; `id` survives, `otherId` is deleted. */
+    merge: (id: number, otherId: number) =>
+      post<TripDetail>(`/api/trips/${id}/merge`, { other_trip_id: otherId }),
 
     addStay: (tripId: number, body: Record<string, unknown>) =>
       post<TripDetail>(`/api/trips/${tripId}/stays`, body),
