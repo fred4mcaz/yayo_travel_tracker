@@ -30,6 +30,7 @@ from app.schemas import (
 )
 from app.services.geocode import fill_coordinates
 from app.services.trips import (
+    keep_trips_separate,
     merge_trips,
     refresh_trip_dates,
     sync_country_entries,
@@ -179,6 +180,33 @@ def merge_trip(
 
     merge_trips(session, target, source)
     return trip_detail(session, target)
+
+
+class KeepSeparatePayload(BaseModel):
+    # The other half of a merge suggestion this trip should stop offering.
+    other_trip_id: int
+
+
+@router.post("/{trip_id}/keep-separate")
+def keep_separate(
+    trip_id: int,
+    payload: KeepSeparatePayload,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Permanently dismiss the merge suggestion between these two trips.
+
+    The deliberate opposite of a merge: it records that they are not the same
+    stay, so mergeable_trips stops re-proposing them on every load. Symmetric --
+    the suggestion clears from both trips' panels -- and idempotent.
+    """
+    trip = get_or_404(session, Trip, trip_id, "trip")
+    if payload.other_trip_id == trip_id:
+        raise HTTPException(
+            status_code=400, detail="A trip cannot be kept separate from itself."
+        )
+    get_or_404(session, Trip, payload.other_trip_id, "trip")
+    keep_trips_separate(session, trip_id, payload.other_trip_id)
+    return trip_detail(session, trip)
 
 
 def _after_change(session: Session, trip: Trip) -> dict:

@@ -19,6 +19,7 @@ from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Optional
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -219,6 +220,33 @@ class Requirement(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
 
     trip: Optional[Trip] = Relationship(back_populates="requirements")
+
+
+class MergeDismissal(SQLModel, table=True):
+    """Two trips the user has deliberately chosen to keep separate.
+
+    mergeable_trips pairs up same-country, near-dated trips as merge
+    suggestions, recomputing them on every load. Without this table, dismissing
+    a suggestion only hid it until the next reload. A dismissal is the
+    deliberate opposite of a merge, so it is stored -- as an unordered pair
+    (low id, high id) so a "keep separate" from either trip's panel silences the
+    suggestion on both. Either trip being deleted, including when one is
+    absorbed by a merge, cascades the row away.
+    """
+
+    __tablename__ = "merge_dismissal"
+    __table_args__ = (
+        UniqueConstraint(
+            "trip_low_id", "trip_high_id", name="uq_merge_dismissal_pair"
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    # Stored low-then-high so the pair is order-independent and the unique
+    # constraint catches a repeat dismissal from either side.
+    trip_low_id: int = Field(foreign_key="trip.id", index=True, ondelete="CASCADE")
+    trip_high_id: int = Field(foreign_key="trip.id", index=True, ondelete="CASCADE")
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 # --------------------------------------------------------------------------

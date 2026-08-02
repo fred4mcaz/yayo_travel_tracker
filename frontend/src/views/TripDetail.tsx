@@ -232,22 +232,36 @@ export function TripDetailPanel({
                   {formatRange(cand.start_date, cand.end_date)}
                 </span>
               </div>
-              <button
-                className="btn btn-sm"
-                disabled={busy}
-                onClick={() => {
-                  if (
-                    confirm(
-                      `Merge "${cand.label}" into "${trip.label}"? ` +
-                        `"${cand.label}" will be absorbed and removed.`,
-                    )
-                  ) {
-                    void run(() => api.trips.merge(trip.id, cand.id));
+              <div className="item-actions">
+                <button
+                  className="btn btn-sm"
+                  disabled={busy}
+                  onClick={() => {
+                    if (
+                      confirm(
+                        `Merge "${cand.label}" into "${trip.label}"? ` +
+                          `"${cand.label}" will be absorbed and removed.`,
+                      )
+                    ) {
+                      void run(() => api.trips.merge(trip.id, cand.id));
+                    }
+                  }}
+                >
+                  Merge in
+                </button>
+                {/* Kept separate is the persistent opposite of a merge: the
+                    backend records the pair so the suggestion does not return
+                    on the next load. */}
+                <button
+                  className="btn btn-sm"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(() => api.trips.keepSeparate(trip.id, cand.id))
                   }
-                }}
-              >
-                Merge in
-              </button>
+                >
+                  Keep separate
+                </button>
+              </div>
             </div>
           ))}
         </section>

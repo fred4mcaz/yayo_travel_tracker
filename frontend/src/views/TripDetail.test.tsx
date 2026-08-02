@@ -1,9 +1,29 @@
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 import { TripDetailPanel } from "./TripDetail";
-import type { TripDetail } from "../types";
+import { api } from "../lib/api";
+import type { MergeCandidate, TripDetail } from "../types";
+
+// Keep the real module (ApiError, every other call) and stub only the one
+// network call the keep-separate tests drive.
+vi.mock("../lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/api")>();
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      trips: { ...actual.api.trips, keepSeparate: vi.fn() },
+    },
+  };
+});
 
 afterEach(cleanup);
 
@@ -86,6 +106,78 @@ describe("TripDetailPanel stay-form-on-mount", () => {
     const { sheetOpen, onStayOpened } = renderPanel();
     expect(sheetOpen()).toBe(false);
     expect(onStayOpened).not.toHaveBeenCalled();
+  });
+});
+
+function mergeCandidate(over: Partial<MergeCandidate> = {}): MergeCandidate {
+  return {
+    id: 99,
+    label: "Hanoi · Sofitel Legend",
+    start_date: "2026-09-10",
+    end_date: "2026-09-14",
+    ...over,
+  };
+}
+
+/** Mirrors App: the panel is fed a trip and re-fed whatever the API returns
+ *  through onChange, so a persisted keep-separate flows back as new mergeable. */
+function MergeHarness({ initial }: { initial: TripDetail }) {
+  const [trip, setTrip] = useState(initial);
+  return (
+    <TripDetailPanel
+      trip={trip}
+      passports={[]}
+      recentCountries={[]}
+      onStayOpened={vi.fn()}
+      onChange={setTrip}
+      onDeleted={vi.fn()}
+    />
+  );
+}
+
+describe("TripDetailPanel keep-separate", () => {
+  const keepSeparate = vi.mocked(api.trips.keepSeparate);
+  afterEach(() => keepSeparate.mockReset());
+
+  const mergeHeading = (c: HTMLElement) =>
+    Array.from(c.querySelectorAll("h3")).some(
+      (h) => h.textContent === "Same trip as another?",
+    );
+
+  it("calls the API and drops the whole card once the pair is kept separate", async () => {
+    const initial = { ...TRIP, mergeable: [mergeCandidate({ id: 42 })] };
+    // The backend now returns no candidates: the pair is persisted as separate.
+    keepSeparate.mockResolvedValue({ ...initial, mergeable: [] });
+
+    const { container, getByText } = render(<MergeHarness initial={initial} />);
+    expect(mergeHeading(container)).toBe(true);
+
+    fireEvent.click(getByText("Keep separate"));
+
+    expect(keepSeparate).toHaveBeenCalledWith(TRIP.id, 42);
+    await waitFor(() => expect(mergeHeading(container)).toBe(false));
+  });
+
+  it("keeps the other suggestions when only one pair is dismissed", async () => {
+    const first = mergeCandidate({ id: 1, label: "Hanoi · Sofitel" });
+    const second = mergeCandidate({ id: 2, label: "Hue · Pilgrimage Village" });
+    const initial = { ...TRIP, mergeable: [first, second] };
+    // Dismissing the first leaves the backend still proposing the second.
+    keepSeparate.mockResolvedValue({ ...initial, mergeable: [second] });
+
+    const { container, getByText, queryByText } = render(
+      <MergeHarness initial={initial} />,
+    );
+
+    const firstRow = getByText("Hanoi · Sofitel").closest(
+      ".merge-row",
+    ) as HTMLElement;
+    fireEvent.click(within(firstRow).getByText("Keep separate"));
+
+    expect(keepSeparate).toHaveBeenCalledWith(TRIP.id, 1);
+    await waitFor(() => expect(queryByText("Hanoi · Sofitel")).toBeNull());
+    expect(queryByText("Hue · Pilgrimage Village")).not.toBeNull();
+    expect(mergeHeading(container)).toBe(true);
   });
 });
 

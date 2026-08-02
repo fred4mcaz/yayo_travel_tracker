@@ -96,6 +96,17 @@ across countries — a trip is one country — with a 409, exactly like adding a
 second country. `merge_trips` and `mergeable_trips` live in `services/trips.py`;
 the route is `POST /api/trips/{id}/merge`.
 
+**Keep separate** is the persistent opposite of a merge. The suggestion is
+recomputed on every load, so a suggestion you reject would otherwise come back;
+"Keep separate" records the pair in the `merge_dismissal` table and
+`mergeable_trips` skips it from then on. It is stored as an unordered pair, so
+dismissing from either trip's panel silences both, and either trip being
+deleted — including when one is absorbed by a merge — cascades the row away.
+`keep_trips_separate` lives in `services/trips.py`; the route is
+`POST /api/trips/{id}/keep-separate`. There is deliberately no "un-dismiss" in
+the UI — keeping trips apart is the default, and if a pair really is one stay
+you merge them.
+
 ---
 
 ## 2. Architecture and layout
@@ -115,7 +126,7 @@ Inside the two apps:
 
 ```
 backend/app/
-  models.py            14 tables. Times are naive local wall-clock, by design
+  models.py            15 tables. Times are naive local wall-clock, by design
   schemas.py           Create/Update payloads, separate from tables
   countries.py         GENERATED — run scripts/build_countries.py
   api/trips.py         Trips, hotels, travel, paperwork, passport-used.
@@ -143,7 +154,7 @@ data/geo/              GENERATED — run scripts/build_geo.py
 | Area | State |
 |---|---|
 | Auth | Passkeys only, bound to the hostname. Recovery codes hashed |
-| Data model | 14 tables, 4 Alembic migrations, run on container start |
+| Data model | 15 tables, 5 Alembic migrations, run on container start |
 | Trip entry | Country picker, city autocomplete, date steppers — works end to end |
 | Trip detail | Country-first panel, capped to 70% width and left-justified (`.pane-detail`) |
 | Missing hotels | See §1. "Leaving Country On" sits at the bottom of the country block, and the uncovered part of a calendar wrapper says the same thing visually |
@@ -485,10 +496,12 @@ when on: Haiku per triaged candidate, Sonnet only when triage says yes.
   phone — where the calendar is most used. Needs `touchmove` +
   `document.elementFromPoint`, since touch events stay targeted at the element
   the gesture started on and never fire `mouseover` on the ones it crosses.
-- **The frontend suite covers only the calendar (drag, week layout, hotel bars)
-  and the stay-form-on-mount lifecycle** (24 tests). Everything else in the SPA
-  is still untested; there is no `App`-level test, because that needs the `api`
-  module mocked.
+- **The frontend suite covers the calendar (drag, week layout, hotel bars), the
+  stay-form-on-mount lifecycle, the Trips-list ordering, and the merge card's
+  keep-separate flow** (28 tests). Everything else in the SPA is still untested;
+  there is no `App`-level test, because that needs the `api` module mocked
+  (though `TripDetail.test.tsx` now mocks a single `api.trips` call to exercise
+  keep-separate, which is the pattern an `App`-level test would extend).
 - **Backup is still thin.** Only the pre-deploy snapshot in `deploy.sh` exists:
   same disk, no schedule, no off-box copy, and `YAYO_BACKUP_KEEP_DAYS` is
   defined but unwired (nothing prunes). He was offered scheduled/off-box backups

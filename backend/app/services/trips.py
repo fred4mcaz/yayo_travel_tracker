@@ -14,7 +14,16 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from app.countries import country_name
-from app.models import CountryEntry, Leg, Note, Requirement, Stay, Trip, utcnow
+from app.models import (
+    CountryEntry,
+    Leg,
+    MergeDismissal,
+    Note,
+    Requirement,
+    Stay,
+    Trip,
+    utcnow,
+)
 
 
 def refresh_trip_dates(session: Session, trip: Trip) -> Trip:
@@ -259,11 +268,50 @@ def _last_passport_used_for(session: Session, country_code: str) -> Optional[int
 MERGE_ADJACENCY_DAYS = 30
 
 
+def _dismissed_partner_ids(session: Session, trip_id: int) -> set[int]:
+    """Trip ids this trip has been deliberately kept separate from.
+
+    Symmetric: a dismissal is stored once as an unordered pair, so this looks at
+    both columns and returns whichever id is not this trip.
+    """
+    rows = session.exec(
+        select(MergeDismissal).where(
+            (MergeDismissal.trip_low_id == trip_id)
+            | (MergeDismissal.trip_high_id == trip_id)
+        )
+    ).all()
+    return {
+        row.trip_high_id if row.trip_low_id == trip_id else row.trip_low_id
+        for row in rows
+    }
+
+
+def keep_trips_separate(session: Session, trip_id_a: int, trip_id_b: int) -> None:
+    """Record that these two trips are deliberately not the same stay.
+
+    The persistent opposite of a merge, so mergeable_trips stops re-proposing
+    them on every load. Idempotent and order-independent: stored as a sorted
+    pair, so a repeat -- or the same dismissal from the other trip's panel -- is
+    a no-op.
+    """
+    low, high = sorted((trip_id_a, trip_id_b))
+    existing = session.exec(
+        select(MergeDismissal)
+        .where(MergeDismissal.trip_low_id == low)
+        .where(MergeDismissal.trip_high_id == high)
+    ).first()
+    if existing:
+        return
+    session.add(MergeDismissal(trip_low_id=low, trip_high_id=high))
+    session.commit()
+
+
 def mergeable_trips(session: Session, trip: Trip) -> list[dict]:
     """Other trips that are plausibly the same trip as this one.
 
-    Same country, both dated, with spans overlapping or within a few weeks. A
-    hint for the UI, nothing more: merging is always a deliberate act.
+    Same country, both dated, with spans overlapping or within a few weeks, and
+    not already dismissed as deliberately separate. A hint for the UI, nothing
+    more: merging is always a deliberate act.
     """
     if trip.start_date is None or trip.end_date is None:
         return []
@@ -271,6 +319,7 @@ def mergeable_trips(session: Session, trip: Trip) -> list[dict]:
     if code is None:
         return []
 
+    dismissed = _dismissed_partner_ids(session, trip.id)
     others = session.exec(
         select(Trip)
         .where(Trip.id != trip.id)
@@ -280,6 +329,8 @@ def mergeable_trips(session: Session, trip: Trip) -> list[dict]:
 
     out: list[dict] = []
     for other in others:
+        if other.id in dismissed:
+            continue
         if trip_country_code(session, other.id) != code:
             continue
         # Positive gap when the spans are disjoint; <= 0 when they touch or

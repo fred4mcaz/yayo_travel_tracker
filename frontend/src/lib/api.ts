@@ -109,6 +109,11 @@ export const api = {
     /** Fold `otherId` into `id`; `id` survives, `otherId` is deleted. */
     merge: (id: number, otherId: number) =>
       post<TripDetail>(`/api/trips/${id}/merge`, { other_trip_id: otherId }),
+    /** Permanently dismiss the merge suggestion between the two trips. */
+    keepSeparate: (id: number, otherId: number) =>
+      post<TripDetail>(`/api/trips/${id}/keep-separate`, {
+        other_trip_id: otherId,
+      }),
 
     addStay: (tripId: number, body: Record<string, unknown>) =>
       post<TripDetail>(`/api/trips/${tripId}/stays`, body),

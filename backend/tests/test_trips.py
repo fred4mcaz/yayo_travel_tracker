@@ -6,6 +6,8 @@ there, the passport you entered on, and every hotel you sleep in while there.
 
 from datetime import date, timedelta
 
+from sqlmodel import select
+
 TODAY = date.today()
 
 
@@ -449,6 +451,95 @@ def test_mergeable_excludes_a_distant_trip(client):
     _stay_in(client, b, "VN", "Hue", 100, nights=3)  # months later
 
     assert client.get(f"/api/trips/{a}").json()["mergeable"] == []
+
+
+# --------------------------------------------------------------------------
+# Keep separate: the persistent opposite of a merge
+# --------------------------------------------------------------------------
+
+
+def _adjacent_pair(client):
+    """Two same-country, near-dated trips that suggest each other for merge."""
+    a = _mk_trip(client)
+    _stay_in(client, a, "VN", "Hanoi", 10, nights=4)
+    b = _mk_trip(client)
+    _stay_in(client, b, "VN", "Hue", 20, nights=3)
+    return a, b
+
+
+def test_keep_separate_hides_the_suggestion_from_both_trips(client):
+    a, b = _adjacent_pair(client)
+
+    r = client.post(f"/api/trips/{a}/keep-separate", json={"other_trip_id": b})
+    assert r.status_code == 200
+    # The response is a's fresh detail, already without the candidate.
+    assert r.json()["mergeable"] == []
+    # And it is symmetric: b no longer offers a either.
+    assert client.get(f"/api/trips/{b}").json()["mergeable"] == []
+
+
+def test_keep_separate_persists_across_reloads(client):
+    a, b = _adjacent_pair(client)
+    client.post(f"/api/trips/{a}/keep-separate", json={"other_trip_id": b})
+
+    # A plain reload -- the recompute -- must not bring the suggestion back.
+    assert client.get(f"/api/trips/{a}").json()["mergeable"] == []
+
+
+def test_keep_separate_is_idempotent(client, session):
+    from app.models import MergeDismissal
+
+    a, b = _adjacent_pair(client)
+    # Dismiss twice, once from each side: still one stored pair, still hidden.
+    client.post(f"/api/trips/{a}/keep-separate", json={"other_trip_id": b})
+    client.post(f"/api/trips/{b}/keep-separate", json={"other_trip_id": a})
+
+    rows = session.exec(select(MergeDismissal)).all()
+    assert len(rows) == 1
+    assert client.get(f"/api/trips/{a}").json()["mergeable"] == []
+
+
+def test_keep_separate_only_affects_the_dismissed_pair(client):
+    a, b = _adjacent_pair(client)
+    c = _mk_trip(client)
+    _stay_in(client, c, "VN", "Hoi An", 22, nights=2)
+
+    client.post(f"/api/trips/{a}/keep-separate", json={"other_trip_id": b})
+
+    # a and b are kept apart, but c is still a live suggestion for both.
+    a_ids = [m["id"] for m in client.get(f"/api/trips/{a}").json()["mergeable"]]
+    b_ids = [m["id"] for m in client.get(f"/api/trips/{b}").json()["mergeable"]]
+    assert a_ids == [c]
+    assert set(b_ids) == {c}
+
+
+def test_keep_separate_rejects_itself(client):
+    trip_id = _mk_trip(client)
+    r = client.post(
+        f"/api/trips/{trip_id}/keep-separate", json={"other_trip_id": trip_id}
+    )
+    assert r.status_code == 400
+
+
+def test_keep_separate_404s_on_an_unknown_trip(client):
+    trip_id = _mk_trip(client)
+    r = client.post(
+        f"/api/trips/{trip_id}/keep-separate", json={"other_trip_id": 999999}
+    )
+    assert r.status_code == 404
+
+
+def test_deleting_a_trip_clears_its_dismissals(client, session):
+    from app.models import MergeDismissal
+
+    a, b = _adjacent_pair(client)
+    client.post(f"/api/trips/{a}/keep-separate", json={"other_trip_id": b})
+    assert len(session.exec(select(MergeDismissal)).all()) == 1
+
+    # Deleting either trip must cascade the now-meaningless pair away.
+    assert client.delete(f"/api/trips/{b}").status_code == 204
+    session.expire_all()
+    assert session.exec(select(MergeDismissal)).all() == []
 
 
 def test_trip_memo_survives_alongside_note_records(client):
