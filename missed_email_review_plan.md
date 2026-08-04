@@ -341,6 +341,38 @@ Hash: ____
 
 ---
 
+## Post-deploy fixes (from live use of the redBus ferry)
+
+Three problems surfaced the first time a real round-trip ferry went through the
+queue. All three are fixed on `main`; the existing ferry email needs a re-run
+to benefit (see below).
+
+- **Round trips now yield both journeys.** `EXTRACT_TOOL` returns a `bookings`
+  array and `process_email`/`extract_selected` record one pending proposal per
+  entry (`extraction._record_bookings`). A round-trip ticket is modelled as two
+  arrivals into two countries, so it becomes two proposals. `validate_bookings`
+  tolerates the older single-booking / bare-list shapes. Commit `f679e15`.
+- **A journey lands in the destination country's trip, not the origin's.** The
+  booking `country_code`/`city` are now documented as the DESTINATION the leg
+  arrives into, never the departure point. A Batam→Malaysia ferry is country MY
+  (joins the Aug-7 Malaysia trip); the Malaysia→Batam return is country ID
+  (joins the next Batam trip). The `find_matching_trip` country filter then does
+  the rest -- no matcher change was needed, only correct extraction. Commit
+  `f679e15`.
+- **Review buttons moved to the top of each card; recent-emails list capped.**
+  Accept/Dismiss now live in the card header (reachable without scrolling past
+  the fields), and the "Find recent emails" panel scrolls internally at 360px
+  so a full inbox no longer buries the queue below it. Commit `b533df9`.
+
+**To recover the already-extracted ferry with both journeys:** the existing
+proposal is a single outbound leg in the wrong trip. Reject it in the review
+queue, then use "Find recent emails" → Extract on the redBus email. Manual
+extract re-fetches the full body (not the 400-char snippet) and, with the new
+schema, returns both journeys, each matched to its own trip. The automatic path
+is still bounded by the stored 400-char snippet -- deliberately, for the privacy
+reasons in `email_filter` -- so a round trip whose return leg falls past 400
+chars is a case the manual full-body re-extract is the intended answer for.
+
 ## Notes for a future engineer
 
 - Classification is one-shot at store time; re-flagging an old message means
@@ -350,3 +382,7 @@ Hash: ____
   learned at runtime must go through the DB (`LearnedRule`), never that file.
 - Only `var/` is bind-mounted; any `data/` change requires an image rebuild via
   `deploy.sh`.
+- Extraction returns a **list** of bookings per email (`validate_bookings`,
+  `process_email` → `list[Extraction]`). One email can be several proposals.
+  `POST /api/review/emails/{id}/extract` returns a JSON array for the same
+  reason.
