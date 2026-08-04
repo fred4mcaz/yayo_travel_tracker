@@ -61,7 +61,9 @@
     "amtrak.com",
     "raileurope.com",
     "eurail.com",
-    "thetrainline.com"
+    "thetrainline.com",
+
+    "redbus.sg"
   ],
 
   "allow_sender_addresses": [],
