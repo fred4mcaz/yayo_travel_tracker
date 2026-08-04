@@ -286,18 +286,46 @@ function ReviewCard({
 
   return (
     <div className="review-card">
+      {/* Actions live at the top of the card so a long list of proposals never
+          forces a scroll to reach Accept/Dismiss. */}
       <div className="review-card-head">
         <span className="review-kind">
           {country && <span className="flag">{countryFlag(country)}</span>}
           {KIND_LABEL[b.kind] ?? "Booking"}
           {b.country_name && <span className="muted"> · {b.country_name}</span>}
+          {item.confidence !== null && (
+            <span className="pill" title="Model confidence">
+              {Math.round(item.confidence * 100)}%
+            </span>
+          )}
         </span>
-        {item.confidence !== null && (
-          <span className="pill" title="Model confidence">
-            {Math.round(item.confidence * 100)}%
-          </span>
-        )}
+        <div className="review-card-actions">
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={accept}
+            disabled={busy !== null}
+          >
+            {busy === "accept" ? "…" : "Accept"}
+          </button>
+          <button className="btn btn-link" onClick={reject} disabled={busy !== null}>
+            {busy === "reject" ? "…" : "Dismiss"}
+          </button>
+        </div>
       </div>
+
+      <div className="review-destination">
+        {item.suggestion ? (
+          <>Joins <strong>{item.suggestion.label}</strong></>
+        ) : (
+          <>Creates a <strong>new trip</strong></>
+        )}
+        {" · "}
+        <span className="review-when muted">
+          {formatRange(val("start_date") || null, val("end_date") || null)}
+        </span>
+      </div>
+
+      {error && <p className="alert alert-danger">{error}</p>}
 
       <div className="review-email">
         <div className="review-subject">{item.email.subject || "(no subject)"}</div>
@@ -307,14 +335,6 @@ function ReviewCard({
         </div>
         {item.email.snippet && (
           <div className="review-snippet">{item.email.snippet}</div>
-        )}
-      </div>
-
-      <div className="review-destination">
-        {item.suggestion ? (
-          <>Joins <strong>{item.suggestion.label}</strong></>
-        ) : (
-          <>Creates a <strong>new trip</strong></>
         )}
       </div>
 
@@ -360,22 +380,6 @@ function ReviewCard({
           <Field label="Carrier" wide>
             <Text value={val("carrier")} onChange={(v) => set("carrier", v)} />
           </Field>
-        )}
-      </div>
-
-      {error && <p className="alert alert-danger">{error}</p>}
-
-      <div className="review-actions">
-        <button className="btn btn-primary" onClick={accept} disabled={busy !== null}>
-          {busy === "accept" ? "…" : "Accept"}
-        </button>
-        <button className="btn btn-link" onClick={reject} disabled={busy !== null}>
-          {busy === "reject" ? "…" : "Dismiss"}
-        </button>
-        {item.suggestion && (
-          <span className="review-when muted">
-            {formatRange(val("start_date") || null, val("end_date") || null)}
-          </span>
         )}
       </div>
     </div>

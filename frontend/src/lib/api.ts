@@ -196,7 +196,7 @@ export const api = {
     recentEmails: (days = 3) =>
       get<RecentEmail[]>(`/api/review/recent-emails?days=${days}`),
     extractEmail: (id: number) =>
-      post<ReviewItem>(`/api/review/emails/${id}/extract`),
+      post<ReviewItem[]>(`/api/review/emails/${id}/extract`),
   },
 };
 

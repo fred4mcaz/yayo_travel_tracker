@@ -1270,6 +1270,7 @@ textarea {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 10px;
+  flex-wrap: wrap;
 }
 
 .review-kind {
@@ -1277,6 +1278,17 @@ textarea {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Accept/Dismiss sit in the card header, so the buttons are reachable at the
+   top of every proposal rather than below the fields. */
+.review-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .review-email {
@@ -1309,15 +1321,7 @@ textarea {
   margin-bottom: 4px;
 }
 
-.review-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 4px;
-}
-
 .review-when {
-  margin-left: auto;
   font-size: 13px;
 }
 
@@ -1349,6 +1353,10 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  /* Cap the list so a long inbox scrolls inside the panel instead of pushing
+     the review queue far down the page. */
+  max-height: 360px;
+  overflow-y: auto;
 }
 
 .recent-email-row {
