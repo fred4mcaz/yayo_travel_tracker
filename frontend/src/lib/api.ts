@@ -183,6 +183,7 @@ export const api = {
         created_new_trip: boolean;
         stay_id: number | null;
         leg_id: number | null;
+        requirement_id?: number | null;
         learned_domain: string | null;
       }>(`/api/review/${id}/accept`, overrides),
     reject: (id: number) =>
@@ -192,6 +193,7 @@ export const api = {
         polled: boolean;
         ingest: { ingested: number; baselined?: boolean };
         extraction: { processed: number; proposed: number };
+        immigration: { checked: number; proposed: number };
       }>("/api/review/poll"),
     recentEmails: (days = 3) =>
       get<RecentEmail[]>(`/api/review/recent-emails?days=${days}`),

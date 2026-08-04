@@ -19,7 +19,8 @@ from app.api.common import get_or_404
 from app.config import Settings, get_settings
 from app.countries import country_name
 from app.db import engine, get_session
-from app.models import EmailMessage, Extraction, ExtractionStatus, Stay, utcnow
+from app.models import EmailMessage, Extraction, ExtractionKind, ExtractionStatus, Stay, utcnow
+from app.services import immigration
 from app.services.email_ingest import ImapMailbox
 from app.services.extraction import OpenRouterModel, extract_selected
 from app.services.review import (
@@ -51,6 +52,9 @@ class AcceptPayload(BaseModel):
     hotel_name: Optional[str] = None
     carrier: Optional[str] = None
     confirmation_code: Optional[str] = None
+    # Immigration proposals only: the arrival-card number, typed in at accept
+    # time -- Phase 4's local matcher never reads the email body for one.
+    reference: Optional[str] = None
 
 
 def _trip_label(session: Session, trip_id: int) -> str:
@@ -59,10 +63,14 @@ def _trip_label(session: Session, trip_id: int) -> str:
 
 
 def _serialise(session: Session, extraction: Extraction) -> dict:
-    """A proposal, laid out for review: what was read, and where it would go."""
+    """A proposal, laid out for review: what was read, and where it would go.
+
+    `kind` tells the reviewer (and the frontend) which of `booking` /
+    `immigration` to read -- the other is always null, never omitted, so a
+    client can destructure either shape without an extra existence check.
+    """
     email = session.get(EmailMessage, extraction.email_message_id)
-    booking = json.loads(extraction.payload_json)
-    code = booking.get("country_code")
+    payload = json.loads(extraction.payload_json)
 
     suggestion = None
     if extraction.suggested_trip_id is not None:
@@ -71,8 +79,19 @@ def _serialise(session: Session, extraction: Extraction) -> dict:
             "label": _trip_label(session, extraction.suggested_trip_id),
         }
 
+    booking = None
+    immigration_proposal = None
+    if extraction.kind == ExtractionKind.immigration:
+        immigration_proposal = {
+            "requirement_kind": payload.get("requirement_kind", "entry_card"),
+        }
+    else:
+        code = payload.get("country_code")
+        booking = {**payload, "country_name": country_name(code) if code else None}
+
     return {
         "id": extraction.id,
+        "kind": extraction.kind.value,
         "status": extraction.status,
         "model": extraction.model,
         "confidence": extraction.confidence,
@@ -86,10 +105,8 @@ def _serialise(session: Session, extraction: Extraction) -> dict:
                 email.received_at.isoformat() if email and email.received_at else None
             ),
         },
-        "booking": {
-            **booking,
-            "country_name": country_name(code) if code else None,
-        },
+        "booking": booking,
+        "immigration": immigration_proposal,
         "suggestion": suggestion,
     }
 
@@ -106,10 +123,12 @@ def list_review(
     rows = session.exec(stmt.order_by(Extraction.created_at.desc())).all()
 
     # Freshen the match suggestion at read time: a trip added since extraction
-    # may now be the right home, and matching is cheap and read-only.
+    # may now be the right home, and matching is cheap and read-only. Only
+    # bookings refresh this way -- an immigration proposal's match was fixed
+    # at classification time (no refresh path, like the entry-policy cache).
     out = []
     for row in rows:
-        if row.status == ExtractionStatus.pending:
+        if row.status == ExtractionStatus.pending and row.kind == ExtractionKind.booking:
             suggest(session, row)
     session.commit()
     for row in rows:
@@ -242,7 +261,25 @@ def accept(
     session: Session = Depends(get_session),
 ) -> dict:
     extraction = get_or_404(session, Extraction, extraction_id, "extraction")
-    overrides = payload.model_dump(exclude_none=True)
+
+    if extraction.kind == ExtractionKind.immigration:
+        try:
+            requirement = immigration.accept_confirmation(
+                session, extraction, payload.reference or ""
+            )
+        except NotAcceptable as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {
+            "accepted": True,
+            "trip_id": extraction.suggested_trip_id,
+            "created_new_trip": False,
+            "requirement_id": requirement.id,
+            "stay_id": None,
+            "leg_id": None,
+            "learned_domain": None,
+        }
+
+    overrides = payload.model_dump(exclude_none=True, exclude={"reference"})
     try:
         result = accept_extraction(session, extraction, overrides or None)
     except NotAcceptable as exc:

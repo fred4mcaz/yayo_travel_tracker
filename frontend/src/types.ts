@@ -280,10 +280,21 @@ export interface ReviewBooking {
   confirmation_code: string | null;
 }
 
+export type ExtractionKind = "booking" | "immigration";
+
+/** A local, LLM-free match: a flagged immigration email proposes confirming
+ *  one requirement kind on the suggested trip (Phase 4 only ever proposes
+ *  `entry_card` -- the arrival card the worked example is about). */
+export interface ImmigrationProposal {
+  requirement_kind: RequirementKind;
+}
+
 /** One proposal awaiting review: what the email said, what was read out of it,
- *  and which trip it would join. */
+ *  and which trip it would join. `kind` says which of `booking` /
+ *  `immigration` is populated -- the other is always null, never omitted. */
 export interface ReviewItem {
   id: number;
+  kind: ExtractionKind;
   status: ExtractionStatus;
   model: string;
   confidence: number | null;
@@ -295,7 +306,8 @@ export interface ReviewItem {
     snippet: string;
     received_at: string | null;
   };
-  booking: ReviewBooking;
+  booking: ReviewBooking | null;
+  immigration: ImmigrationProposal | null;
   suggestion: { trip_id: number; label: string } | null;
 }
 

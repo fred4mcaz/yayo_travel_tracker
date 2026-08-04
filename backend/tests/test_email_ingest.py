@@ -334,6 +334,31 @@ def test_redbus_shaped_html_only_email_classifies_as_a_candidate(session: Sessio
 # --------------------------------------------------------------------------
 
 
+def test_indonesian_arrival_card_email_flags_immigration_not_travel(session: Session):
+    """The Phase 4 headline scenario at the ingest boundary: a government
+    confirmation must set looks_like_immigration and *never*
+    looks_like_travel -- the two allow-lists are disjoint by construction."""
+    load_rules.cache_clear()
+
+    mailbox = FakeMailbox([_email(10)])
+    ingest_once(session, mailbox)
+    mailbox.messages.append(
+        IncomingEmail(
+            uid=11,
+            message_id="<ecd-1@imigrasi.go.id>",
+            from_addr="no-reply@imigrasi.go.id",
+            subject="Your Indonesia Arrival Card is confirmed",
+            received_at=datetime(2026, 9, 11, 9, 0),
+            body="Your e-CD reference is ECD-123456.",
+        )
+    )
+    ingest_once(session, mailbox)
+
+    stored = _stored(session)[-1]
+    assert stored.looks_like_immigration is True
+    assert stored.looks_like_travel is False
+
+
 def test_a_learned_domain_is_honoured_at_store_time(session: Session):
     """`_store` must classify against `effective_rules`, not the committed
     file alone -- otherwise a domain learned via the review page (phase 4)

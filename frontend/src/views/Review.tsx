@@ -5,6 +5,16 @@ import { countryFlag, formatDateTime, formatRange } from "../lib/format";
 import type { RecentEmail, ReviewBooking, ReviewItem } from "../types";
 import { Field, Row, Text } from "../components/Fields";
 
+const REQUIREMENT_KIND_LABEL: Record<string, string> = {
+  entry_card: "Arrival card",
+  visa: "Visa",
+  eta: "Electronic travel authorization",
+  insurance: "Travel insurance",
+  vaccination: "Vaccination",
+  onward_ticket: "Onward ticket",
+  custom: "Requirement",
+};
+
 interface Props {
   onReviewed: () => void;
 }
@@ -38,12 +48,19 @@ export function ReviewQueue({ onReviewed }: Props) {
     try {
       const r = await api.review.poll();
       const found = r.extraction.proposed;
+      const confirmed = r.immigration.proposed;
+      const parts = [
+        found > 0 ? `${found} new booking${found === 1 ? "" : "s"}` : null,
+        confirmed > 0
+          ? `${confirmed} arrival-card confirmation${confirmed === 1 ? "" : "s"}`
+          : null,
+      ].filter((p): p is string => p !== null);
       setPollNote(
         r.ingest.baselined
           ? "First check done — future bookings will show up here."
-          : found > 0
-            ? `Found ${found} new booking${found === 1 ? "" : "s"}.`
-            : "No new bookings.",
+          : parts.length > 0
+            ? `Found ${parts.join(" and ")}.`
+            : "Nothing new.",
       );
       await load();
     } catch (e) {
@@ -124,9 +141,13 @@ export function ReviewQueue({ onReviewed }: Props) {
         </div>
       ) : (
         <div className="review-list">
-          {items.map((item) => (
-            <ReviewCard key={item.id} item={item} onDone={afterDecision} />
-          ))}
+          {items.map((item) =>
+            item.kind === "immigration" ? (
+              <ImmigrationReviewCard key={item.id} item={item} onDone={afterDecision} />
+            ) : (
+              <ReviewCard key={item.id} item={item} onDone={afterDecision} />
+            ),
+          )}
         </div>
       )}
     </div>
@@ -246,6 +267,9 @@ function ReviewCard({
   const [busy, setBusy] = useState<"accept" | "reject" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Only ever rendered for a booking-kind item -- the caller branches on
+  // item.kind before choosing this component over ImmigrationReviewCard.
+  if (!item.booking) return null;
   const b = item.booking;
   const isHotel = b.kind === "hotel";
   // Field value: the reviewer's edit if they've touched it, else the model's.
@@ -381,6 +405,106 @@ function ReviewCard({
             <Text value={val("carrier")} onChange={(v) => set("carrier", v)} />
           </Field>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** A locally-matched immigration confirmation -- no model read this one, so
+ *  there's nothing to correct, only a trip to confirm and an optional
+ *  reference to type in before accepting (Phase 4's local matcher never
+ *  reads the email body for one). */
+function ImmigrationReviewCard({
+  item,
+  onDone,
+}: {
+  item: ReviewItem;
+  onDone: (learnedDomain?: string | null) => void;
+}) {
+  const [reference, setReference] = useState("");
+  const [busy, setBusy] = useState<"accept" | "reject" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!item.immigration) return null;
+  const kindLabel =
+    REQUIREMENT_KIND_LABEL[item.immigration.requirement_kind] ?? "Requirement";
+
+  async function accept() {
+    setBusy("accept");
+    setError(null);
+    try {
+      await api.review.accept(item.id, reference ? { reference } : {});
+      onDone();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+      setBusy(null);
+    }
+  }
+
+  async function reject() {
+    setBusy("reject");
+    setError(null);
+    try {
+      await api.review.reject(item.id);
+      onDone();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="review-card">
+      <div className="review-card-head">
+        <span className="review-kind">
+          <span className="pill" title="Matched locally, no model involved">
+            Immigration
+          </span>{" "}
+          {kindLabel} confirmation
+        </span>
+        <div className="review-card-actions">
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={accept}
+            disabled={busy !== null || !item.suggestion}
+          >
+            {busy === "accept" ? "…" : "Accept"}
+          </button>
+          <button className="btn btn-link" onClick={reject} disabled={busy !== null}>
+            {busy === "reject" ? "…" : "Dismiss"}
+          </button>
+        </div>
+      </div>
+
+      <div className="review-destination">
+        {item.suggestion ? (
+          <>
+            Confirms {kindLabel.toLowerCase()} on <strong>{item.suggestion.label}</strong>
+          </>
+        ) : (
+          <span className="warn">No matching trip found</span>
+        )}
+      </div>
+
+      {error && <p className="alert alert-danger">{error}</p>}
+
+      <div className="review-email">
+        <div className="review-subject">{item.email.subject || "(no subject)"}</div>
+        <div className="muted">
+          {item.email.from_addr}
+          {item.email.received_at && ` · ${formatDateTime(item.email.received_at)}`}
+        </div>
+        {item.email.snippet && <div className="review-snippet">{item.email.snippet}</div>}
+      </div>
+
+      <div className="review-fields">
+        <Field label="Reference (optional)" wide>
+          <Text
+            value={reference}
+            onChange={setReference}
+            placeholder="e.g. ECD-123456"
+          />
+        </Field>
       </div>
     </div>
   );

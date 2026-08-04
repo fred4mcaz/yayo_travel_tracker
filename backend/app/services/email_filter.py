@@ -19,7 +19,7 @@ what runs, and the tests exercise the real file rather than a fixture.
 
 import json
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from email.utils import parseaddr
 from functools import lru_cache
 from pathlib import Path
@@ -37,6 +37,12 @@ class FilterRules:
     allow_sender_addresses: frozenset[str]
     confirmation_keywords: tuple[str, ...]
     subject_deny_keywords: tuple[str, ...]
+    # A second, separate allow-list -- never unioned with allow_sender_domains
+    # above (see the module docstring and data/rules/email-filter.json). Maps
+    # a government/immigration sender domain to the country it belongs to;
+    # "" means a recognised sender whose country isn't modelled yet.
+    immigration_sender_domains: dict[str, str] = field(default_factory=dict)
+    immigration_keywords: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -71,6 +77,13 @@ def load_rules(path: Optional[Path] = None) -> FilterRules:
         ),
         subject_deny_keywords=tuple(
             k.lower() for k in raw.get("subject_deny_keywords", [])
+        ),
+        immigration_sender_domains={
+            d.strip().lower().lstrip("@"): c.strip().upper()
+            for d, c in raw.get("immigration_sender_domains", {}).items()
+        },
+        immigration_keywords=tuple(
+            k.lower() for k in raw.get("immigration_keywords", [])
         ),
     )
 
@@ -177,3 +190,64 @@ def classify(
 
 def _normalise(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "")).strip().lower()
+
+
+# --------------------------------------------------------------------------
+# The immigration classifier -- a sibling of classify(), not a relaxation
+# --------------------------------------------------------------------------
+
+
+def _immigration_sender_match(from_addr: str, rules: FilterRules) -> Optional[str]:
+    """The country the matched government domain belongs to, "" if the
+    domain is recognised but not yet mapped to one, or None if the sender is
+    not a recognised immigration domain at all. A domain match here says
+    nothing about `allow_sender_domains` -- the two lists are deliberately
+    disjoint, see the module docstring.
+    """
+    domain = sender_domain(from_addr)
+    if not domain:
+        return None
+    for known_domain, country in rules.immigration_sender_domains.items():
+        if domain == known_domain or domain.endswith("." + known_domain):
+            return country
+    return None
+
+
+def immigration_country_for(from_addr: str, rules: FilterRules) -> Optional[str]:
+    """The country a recognised government sender belongs to, or None when
+    the sender is not recognised *or* is recognised but not yet mapped to a
+    country. Used by services.immigration to prefer a same-country trip when
+    matching a confirmation -- never to decide whether the message may leave
+    the box, which is classify_immigration's job.
+    """
+    return _immigration_sender_match(from_addr, rules) or None
+
+
+def classify_immigration(
+    from_addr: str,
+    subject: str,
+    body: str,
+    rules: Optional[FilterRules] = None,
+) -> Verdict:
+    """Whether this message looks like a government/immigration confirmation.
+
+    Structurally a sibling of classify(), not a call into it: the sender must
+    be on the *immigration* allow-list (never `allow_sender_domains`), and
+    the subject or body must carry an immigration-specific keyword (never
+    `confirmation_keywords`). Setting this flag never sends anything
+    anywhere -- see EmailMessage.looks_like_immigration and
+    services.immigration.
+    """
+    rules = rules or load_rules()
+
+    domain = sender_domain(from_addr)
+    if _immigration_sender_match(from_addr, rules) is None:
+        return Verdict(False, f"sender_not_allowed:{domain or 'unparseable'}")
+
+    hit = _contains(_normalise(subject), rules.immigration_keywords) or _contains(
+        _normalise(body), rules.immigration_keywords
+    )
+    if not hit:
+        return Verdict(False, "no_immigration_keyword")
+
+    return Verdict(True, f"allowed:{domain}:{hit}")

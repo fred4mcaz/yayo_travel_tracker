@@ -86,6 +86,16 @@ class ExtractionStatus(str, Enum):
     rejected = "rejected"
 
 
+class ExtractionKind(str, Enum):
+    """What kind of proposal this is -- decides how accept reads payload_json
+    and applies it. `booking` is the original shape (services.extraction);
+    `immigration` is services.immigration's local, LLM-free arrival-card
+    confirmation match."""
+
+    booking = "booking"
+    immigration = "immigration"
+
+
 class Actor(str, Enum):
     """Whether a change was typed by hand or accepted from an email."""
 
@@ -473,6 +483,9 @@ class Extraction(SQLModel, table=True):
         foreign_key="email_message.id", index=True, ondelete="CASCADE"
     )
 
+    # Every row before this column existed was a booking read by the model --
+    # the only kind that existed then.
+    kind: ExtractionKind = Field(default=ExtractionKind.booking, index=True)
     model: str = ""
     payload_json: str = "{}"
     confidence: Optional[float] = None

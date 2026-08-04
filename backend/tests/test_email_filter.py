@@ -16,7 +16,9 @@ from app.models import LearnedRule
 from app.services.email_filter import (
     FilterRules,
     classify,
+    classify_immigration,
     effective_rules,
+    immigration_country_for,
     load_rules,
     sender_domain,
 )
@@ -28,6 +30,8 @@ RULES = FilterRules(
     allow_sender_addresses=frozenset({"trips@friend.example"}),
     confirmation_keywords=("confirmation", "your booking", "itinerary"),
     subject_deny_keywords=("newsletter", "% off", "survey"),
+    immigration_sender_domains={"imigrasi.go.id": "ID", "unmapped-gov.example": ""},
+    immigration_keywords=("arrival card", "e-cd", "visa on arrival"),
 )
 
 
@@ -257,6 +261,16 @@ def test_effective_rules_does_not_mutate_the_cached_committed_rules(session: Ses
     assert load_rules() == committed_before
 
 
+def test_shipped_rules_carry_a_disjoint_immigration_allow_list():
+    load_rules.cache_clear()
+    rules = load_rules()
+    assert "imigrasi.go.id" in rules.immigration_sender_domains
+    assert rules.immigration_keywords
+    # The whole point: a government sender must never ride in on the travel
+    # allow-list, or vice versa.
+    assert not (rules.immigration_sender_domains.keys() & rules.allow_sender_domains)
+
+
 def test_ticket_only_subject_from_an_allowed_sender_passes_the_shipped_rules():
     """redBus and similar operators confirm with "ticket", not "booking" or
     "reservation" -- broadened here so that wording alone doesn't sink them."""
@@ -267,3 +281,106 @@ def test_ticket_only_subject_from_an_allowed_sender_passes_the_shipped_rules():
         "PNR RB998877",
     )
     assert v
+
+
+# --------------------------------------------------------------------------
+# classify_immigration -- a sibling allow-list, not a relaxation of the above
+# --------------------------------------------------------------------------
+
+
+def test_a_government_sender_with_an_immigration_keyword_is_flagged():
+    v = classify_immigration(
+        "no-reply@imigrasi.go.id",
+        "Your Indonesia e-CD is confirmed",
+        "Your electronic customs declaration has been approved.",
+        RULES,
+    )
+    assert v
+    assert v.reason.startswith("allowed:imigrasi.go.id")
+
+
+def test_a_government_subdomain_is_allowed():
+    v = classify_immigration(
+        "no-reply@evisa.imigrasi.go.id",
+        "e-CD approved",
+        "arrival card confirmed",
+        RULES,
+    )
+    assert v
+
+
+def test_a_hotel_confirmation_never_satisfies_the_immigration_allow_list():
+    """The travel sender is never in immigration_sender_domains -- the whole
+    point of keeping the two lists disjoint."""
+    v = classify_immigration(
+        "no-reply@booking.com",
+        "arrival card required",  # even with the right words
+        "e-cd",
+        RULES,
+    )
+    assert not v
+    assert v.reason.startswith("sender_not_allowed")
+
+
+def test_a_government_sender_without_an_immigration_keyword_is_refused():
+    v = classify_immigration(
+        "no-reply@imigrasi.go.id",
+        "Welcome to Indonesia",
+        "General information for travellers",
+        RULES,
+    )
+    assert not v
+    assert v.reason == "no_immigration_keyword"
+
+
+def test_a_personal_email_is_refused():
+    v = classify_immigration(
+        "mum@gmail.com",
+        "have you got your arrival card sorted",
+        "e-cd, don't forget",
+        RULES,
+    )
+    assert not v
+    assert v.reason.startswith("sender_not_allowed")
+
+
+def test_matching_is_case_and_whitespace_insensitive_for_immigration_too():
+    v = classify_immigration(
+        "NO-REPLY@IMIGRASI.GO.ID",
+        "YOUR   E-CD\nIS READY",
+        "",
+        RULES,
+    )
+    assert v
+
+
+def test_immigration_country_for_reads_the_mapped_country():
+    assert immigration_country_for("no-reply@imigrasi.go.id", RULES) == "ID"
+
+
+def test_immigration_country_for_is_none_for_an_unrecognised_or_unmapped_sender():
+    assert immigration_country_for("no-reply@booking.com", RULES) is None
+    # Recognised government sender, but mapped to "" (country not modelled
+    # yet) -- still None, not the empty string, so callers can `if country
+    # is not None` without a second check.
+    assert immigration_country_for("no-reply@unmapped-gov.example", RULES) is None
+
+
+def test_shipped_immigration_rules_flag_a_real_looking_indonesian_arrival_card():
+    load_rules.cache_clear()
+    v = classify_immigration(
+        "no-reply@imigrasi.go.id",
+        "Your Indonesia Arrival Card is confirmed",
+        "Your e-CD reference is ECD-123456.",
+    )
+    assert v
+
+
+def test_shipped_immigration_rules_leave_a_hotel_confirmation_alone():
+    load_rules.cache_clear()
+    v = classify_immigration(
+        "no-reply@booking.com",
+        "Your booking is confirmed - Hanoi",
+        "Booking reference 4471.",
+    )
+    assert not v

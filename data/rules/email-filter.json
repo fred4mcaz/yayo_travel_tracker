@@ -114,5 +114,61 @@
     "recommended for you",
     "earn points",
     "last chance"
+  ],
+
+  "_immigration_comment": [
+    "A second, separate allow-list (services.email_filter.classify_immigration),",
+    "never unioned with allow_sender_domains above -- a government/immigration",
+    "sender must never ride in on 'looks like a hotel confirmation' logic, and",
+    "a hotel confirmation must never ride in on this list either. Every message",
+    "flagged here still stays on the box: services.immigration only matches it",
+    "to a trip and proposes a confirmation locally, it is never sent to the",
+    "extractor automatically (decision 4). Mapped to the country the sender",
+    "belongs to, so matching can prefer a same-country trip; an empty string",
+    "means 'recognised government sender, country not modelled yet'. Meant to",
+    "be extended as new senders show up, same as the travel allow-list."
+  ],
+  "immigration_sender_domains": {
+    "imigrasi.go.id": "ID",
+    "evisa.imigrasi.go.id": "ID",
+    "molina.imigrasi.go.id": "ID",
+    "tdac.immigration.go.th": "TH",
+    "immigration.go.th": "TH",
+    "ica.gov.sg": "SG",
+    "customs.gov.sg": "SG",
+    "cbp.dhs.gov": "US",
+    "esta.cbp.dhs.gov": "US",
+    "ceac.state.gov": "US",
+    "immigration.gov.ph": "PH",
+    "e-travel.gov.ph": "PH",
+    "indianvisaonline.gov.in": "IN"
+  },
+
+  "_immigration_keyword_comment": [
+    "Checked against subject and body, same as confirmation_keywords -- but a",
+    "disjoint list. 'Confirmed' alone should not flag a government email, and",
+    "'arrival card' alone should not flag a hotel one."
+  ],
+  "immigration_keywords": [
+    "arrival card",
+    "entry card",
+    "disembarkation card",
+    "e-cd",
+    "electronic customs declaration",
+    "customs declaration",
+    "e-voa",
+    "visa on arrival",
+    "tdac",
+    "thailand digital arrival card",
+    "sg arrival card",
+    "arrival card sg",
+    "esta approved",
+    "esta application",
+    "visa granted",
+    "visa approved",
+    "visa approval",
+    "entry permit",
+    "immigration card",
+    "e-visa"
   ]
 }

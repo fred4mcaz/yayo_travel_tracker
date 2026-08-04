@@ -407,20 +407,89 @@ arrival card has been confirmed via email" — the privacy‑preserving local pa
   (robust version is Phase 5).
 
 **Tasks**
-- [ ] Extend `data/rules/email-filter.json`: `immigration_sender_domains`,
-      `immigration_keywords` (arrival/entry/disembarkation card, e‑VOA, TDAC, SG
-      arrival card, ESTA approved, visa granted…).
-- [ ] `email_filter.py`: set `looks_like_immigration` locally (never leaves box).
-- [ ] `services/immigration.py`: match a flagged email → trip, build an
-      immigration **confirmation proposal**; accept path flips the requirement.
-- [ ] Surface these proposals in the Review queue distinctly from bookings.
+- [x] Extend `data/rules/email-filter.json`: `immigration_sender_domains`
+      (a domain → country_code map, e.g. `imigrasi.go.id` → `ID`, `ica.gov.sg`
+      → `SG`, `cbp.dhs.gov`/`esta.cbp.dhs.gov` → `US`, plus TH/PH/IN entries —
+      deliberately **disjoint** from `allow_sender_domains`), `immigration_keywords`
+      (arrival/entry/disembarkation card, e‑VOA, TDAC, SG arrival card, ESTA
+      approved, visa granted…).
+- [x] `email_filter.py`: `FilterRules` gained the two new fields (defaulted, so
+      the existing `RULES = FilterRules(...)` test fixture didn't need updating);
+      `classify_immigration()` (a structural sibling of `classify()`, not a call
+      into it) + `immigration_country_for()` set `looks_like_immigration` locally
+      — never leaves the box, never unions with the travel allow-list.
+- [x] `services/immigration.py`: `find_matching_trip` (date‑overlap +
+      `_todo_entry_card`, preferring a same-country trip when the sender's
+      domain maps to one — literally imports `_overlaps`/`MATCH_SLACK_DAYS`
+      from `review.py`, per the plan), `propose_confirmation` (idempotent per
+      email, refuses an unflagged email even if called directly — defence in
+      depth), `run_immigration_matching` (the batch entrypoint, no model
+      needed), `accept_confirmation` (the only writer — flips `entry_card` to
+      `approved`, stamps `source=email`, reuses `review.NotAcceptable`).
+- [x] Surface these proposals in the Review queue distinctly from bookings:
+      added `Extraction.kind` (`booking`|`immigration`, migration `f086d52834fb`
+      with the usual `server_default` trap fixed by hand) so `api/review.py`'s
+      `_serialise`/`accept`/`list_review` branch on it; `reject_extraction` is
+      reused unchanged (a status flip, kind‑agnostic). Wired
+      `run_immigration_matching` into `scheduler.run_poll_cycle` so it runs on
+      every ordinary poll, no OpenRouter key needed for this half.
+      **Beyond the plan's stated scope:** also gave the frontend a distinct
+      `ImmigrationReviewCard` (Review.tsx) instead of leaving `booking` a
+      required, always-populated field — a real immigration proposal reaching
+      the existing `ReviewCard` (which does `const b = item.booking; b.kind`)
+      would otherwise crash the whole Review page the moment production mail
+      first matched. `booking`/`immigration` are now both always present on
+      the wire, one always null, so a client can destructure either without
+      an extra existence check.
 
 **Tests that must pass to proceed**
-- [ ] A stubbed Indonesian arrival‑card email flags `looks_like_immigration`,
-      never `looks_like_travel`, and proposes a confirmation on the ID trip.
-- [ ] Accept flips `entry_card` → `approved` with the reference; reject writes
+- [x] A stubbed Indonesian arrival‑card email flags `looks_like_immigration`,
+      never `looks_like_travel`, and proposes a confirmation on the ID trip
+      (`test_immigration_matching.py`, `test_email_ingest.py`).
+- [x] Accept flips `entry_card` → `approved` with the reference; reject writes
       nothing (row‑count assertion, like the booking accept test).
-- [ ] A non‑immigration email is untouched.
+- [x] A non‑immigration email is untouched.
+- [x] Bonus, not in the original list but load‑bearing: ambiguous matches
+      (two qualifying trips) refuse rather than guess; a trip with no
+      outstanding `entry_card` never matches; accept refuses when the
+      checklist "moved on" since the proposal was built (card already
+      confirmed another way) instead of silently no‑op‑ing; accepting twice
+      refuses the second time; `propose_confirmation` is idempotent per email.
+- [x] `pytest backend/tests` green (312 passed, was 284); `ruff check` clean.
+      Migration rehearsed against a copy of the real local dev DB (upgrade /
+      downgrade / re‑upgrade / `alembic check`, all clean) and then applied to
+      it for real (it was already on `b119ab960928` from Phase 3's session).
+- [x] `npm test` green (45 passed, was 42 — added `Review.test.tsx` covering
+      both card kinds rendering, accepting with a typed‑in reference, and
+      rejecting) and `tsc --noEmit` clean.
+- [x] Browser (local, no passkey, backend on port 8010 with the frontend proxy
+      temporarily retargeted and reverted, same as Phase 3): seeded a real
+      `todo` `entry_card` requirement + a flagged immigration `EmailMessage`
+      on the real local dev DB's Indonesia trip via the actual service
+      functions (not raw SQL), confirmed the Review queue rendered the
+      "Immigration" pill + "Arrival card confirmation" card with no console
+      error, typed a reference, clicked Accept, watched the requirement flip
+      to `approved`/`source=email`/the typed reference over the API, and
+      confirmed the same row then shows correctly selected ("Approved") in
+      the trip's generic Paperwork section (proving decision 5's "reuses the
+      existing Requirement table, CRUD, and Paperwork UI" end to end). All
+      seeded rows were deleted afterward; the local dev DB carries no lasting
+      change beyond the schema migration.
+
+**Notes for the next engineer**
+- `Extraction.kind` is the discriminator; `payload_json` for an immigration
+  row is intentionally tiny (`{"requirement_kind": "entry_card"}`) — Phase 4
+  never reads the email body for a reference or a nationality, that's Phase 5
+  once picking the email *is* the consent to send it to the extractor. The
+  reference on accept comes from a reviewer‑typed override
+  (`AcceptPayload.reference`), not from parsing.
+- `propose_confirmation`/`find_matching_trip` only ever target
+  `RequirementKind.entry_card` — deliberately narrow, matching the worked
+  example. A trip with a `todo` `visa` but an already-`approved` `entry_card`
+  will never get an immigration proposal, by design.
+- The stray unrelated `python.exe` on port 8000 noted in Phase 3 was still
+  there this session; same workaround (backend on 8010, proxy retargeted and
+  reverted) was used again.
 
 Commit: `_____`
 

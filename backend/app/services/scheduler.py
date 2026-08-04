@@ -20,6 +20,7 @@ from sqlmodel import Session
 from app.config import Settings
 from app.services.email_ingest import run_ingest
 from app.services.extraction import OpenRouterModel, run_extractions
+from app.services.immigration import run_immigration_matching
 
 log = logging.getLogger("yayo.scheduler")
 
@@ -55,12 +56,20 @@ def scheduler_decision(settings: Settings) -> tuple[bool, list[str]]:
 
 
 def run_poll_cycle(engine) -> dict:
-    """One pass: fetch and filter new mail, then extract the candidates."""
+    """One pass: fetch and filter new mail, extract booking candidates, and
+    match immigration-flagged mail to a trip's arrival-card requirement.
+
+    The immigration pass needs no model and so no OpenRouter key -- but it
+    only ever runs as part of this same cycle, which is itself gated on
+    every credential being present (scheduler_decision), so that never
+    matters in practice.
+    """
     with Session(engine) as session:
         ingest = run_ingest(session)
         model = OpenRouterModel.from_settings()
         extraction = run_extractions(session, model)
-    return {"ingest": ingest, "extraction": extraction}
+        immigration = run_immigration_matching(session)
+    return {"ingest": ingest, "extraction": extraction, "immigration": immigration}
 
 
 def _safe_cycle(engine) -> None:

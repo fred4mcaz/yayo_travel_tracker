@@ -23,7 +23,7 @@ from sqlmodel import Session, select
 
 from app.config import get_settings
 from app.models import EmailMessage
-from app.services.email_filter import classify, effective_rules
+from app.services.email_filter import classify, classify_immigration, effective_rules
 from app.services.settings import get_setting, set_setting
 
 log = logging.getLogger("yayo.email")
@@ -193,9 +193,20 @@ def _store(session: Session, email: IncomingEmail) -> bool:
     # only sets a flag; nothing leaves the machine until an operator with the
     # flag set is picked up for extraction (phase 3). effective_rules unions
     # in anything learned at runtime (phase 4's accept-to-learn flow).
-    verdict = classify(email.from_addr, email.subject, email.body, effective_rules(session))
+    rules = effective_rules(session)
+    verdict = classify(email.from_addr, email.subject, email.body, rules)
     if not verdict:
         log.debug("uid %d not a travel candidate: %s", email.uid, verdict.reason)
+
+    # A second, independent local classifier -- see email_filter's module
+    # docstring. Never unions with the travel verdict above and never sends
+    # anything anywhere; it only sets a sibling flag that services.immigration
+    # reads to propose a (still human-reviewed) confirmation.
+    immigration_verdict = classify_immigration(email.from_addr, email.subject, email.body, rules)
+    if not immigration_verdict:
+        log.debug(
+            "uid %d not an immigration candidate: %s", email.uid, immigration_verdict.reason
+        )
 
     session.add(
         EmailMessage(
@@ -206,6 +217,7 @@ def _store(session: Session, email: IncomingEmail) -> bool:
             received_at=email.received_at,
             snippet=_snippet(email.body),
             looks_like_travel=verdict.is_candidate,
+            looks_like_immigration=immigration_verdict.is_candidate,
         )
     )
     return True
