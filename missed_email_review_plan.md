@@ -304,11 +304,36 @@ without sending anything anywhere. Commit. Hash: `f62d9ee`
 **Objective.** Ship all phases to the server and confirm end to end.
 
 **Tasks.**
-- [ ] Push `main`; run `./deploy/deploy.sh` on the server (pulls, backs up DB,
-      rebuilds image, health-checks).
-- [ ] Run the Phase 2 reflag command for the ferry; confirm it's in the queue.
+- [x] Push `main`; run `./deploy/deploy.sh` on the server (pulls, backs up DB,
+      rebuilds image, health-checks). Clean run: backed up to
+      `var/backups/pre-deploy-20260804-161123.sqlite.gz`, image rebuilt,
+      container healthy after 4s. `alembic upgrade head` runs on every
+      container start (`deploy/entrypoint.sh`), so the phase 3 `learned_rule`
+      migration applied automatically -- confirmed indirectly: the container
+      would have failed to become healthy within 45s and `deploy.sh` would
+      have exited non-zero on a migration failure, and it didn't.
+- [x] Run the Phase 2 reflag command for the ferry; confirm it's in the queue.
+      Located it first with a read-only query
+      (`sqlite3 var/travel.db "SELECT ... FROM email_message WHERE from_addr
+      LIKE '%redbus%'"`): row id 94, `ticketmaster@redbus.sg`, subject
+      "redBus Ticket Information – SGV8Z76236737", received
+      2026-08-04 14:41:54, `looks_like_travel=0`, empty snippet -- matching
+      the plan's background section exactly. The operator ran
+      `docker compose exec app python -m app.tasks.reflag_message '<...>'`
+      directly (the harness's auto-mode classifier blocks `docker compose
+      exec` into the live production container regardless of in-conversation
+      authorization, so this couldn't be run from here). Output: "reflagged
+      email 94 from 'ticketmaster@redbus.sg': snippet is now 400 chars,
+      looks_like_travel=True." Still needs a poll cycle (automatic, every 10
+      minutes, or "Check email now" on the Review page) to actually produce
+      an Extraction proposal -- reflagging only clears the gate, it does not
+      itself call the extractor.
 - [ ] Verify the recent-emails button on the live site; extract a test email,
-      accept it, confirm the sender is learned.
+      accept it, confirm the sender is learned. **Operator-verified**, not
+      run from here -- sending a real email to OpenRouter needs the
+      operator's own per-message consent (D2), and the harness's classifier
+      would in any case block driving the live production container from
+      this session.
 - [ ] Stamp commit hashes into this plan.
 
 **Exit test.** Live site healthy; ferry reviewable; manual-catch flow works.
