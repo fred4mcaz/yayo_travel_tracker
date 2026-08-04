@@ -176,7 +176,7 @@ write rows.
 - [x] Tests: a learned domain flips a previously-rejected sender to candidate;
       no DB rows → committed behavior unchanged.
 
-**Exit test.** New filter tests + full suite pass (231 passed). Commit. Hash: `<pending>`
+**Exit test.** New filter tests + full suite pass (231 passed). Commit. Hash: `77c687b`
 
 ---
 
