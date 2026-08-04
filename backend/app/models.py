@@ -216,6 +216,16 @@ class Requirement(SQLModel, table=True):
     reference: str = ""
     note: str = ""
 
+    # Who put this row here. `system` rows are materialised by
+    # services.trips.sync_requirements from an EntryPolicy and may be
+    # reconciled (re-created, retired) automatically as the trip's passport or
+    # country changes. `manual` and `email` rows are never touched by that
+    # reconciliation -- a hand-added item or an accepted immigration-email
+    # confirmation is the traveller's own record, not something a policy
+    # refresh gets to overwrite. Defaults to `manual` since every row created
+    # before this column existed was typed by hand.
+    source: Actor = Field(default=Actor.manual, index=True)
+
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -312,6 +322,52 @@ class CountryEntry(SQLModel, table=True):
     passport: Optional[Passport] = Relationship(back_populates="entries")
 
 
+class EntryPolicy(SQLModel, table=True):
+    """What a passport holder needs to enter a country -- cached, never re-asked.
+
+    Answers "what does an MX/US passport holder need for country X", asked of
+    an LLM once per (country_code, nationality) and kept forever: there is
+    deliberately no refresh path (see services.entry_policy). Advisory only --
+    border policy changes without notice, and `fetched_at` is shown next to
+    every reading so staleness is visible even though nothing here re-fetches
+    it. services.trips.sync_requirements turns a row here into the trip's
+    actual Requirement checklist.
+    """
+
+    __tablename__ = "entry_policy"
+    __table_args__ = (
+        UniqueConstraint(
+            "country_code", "nationality", name="uq_entry_policy_country_nationality"
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    country_code: str = Field(index=True, min_length=2, max_length=2)
+    nationality: Nationality = Field(index=True)
+
+    permit_type: Optional[PermitType] = None
+    permitted_days: Optional[int] = None
+
+    # Asked about every RequirementKind that has a border-crossing meaning, so
+    # a later "oh also insurance" doesn't need a second model call -- but only
+    # the ones actually required get surfaced (services.trips.sync_requirements
+    # creates no row, not a "not_required" row, for the rest).
+    visa_required: bool = False
+    entry_card_required: bool = False
+    entry_card_name: str = ""
+    eta_required: bool = False
+    insurance_required: bool = False
+    vaccination_required: bool = False
+    onward_ticket_required: bool = False
+
+    summary: str = ""
+    advisory: str = ""
+    source_model: str = ""
+
+    created_at: datetime = Field(default_factory=utcnow)
+    fetched_at: datetime = Field(default_factory=utcnow)
+
+
 # --------------------------------------------------------------------------
 # Personal notes
 # --------------------------------------------------------------------------
@@ -371,6 +427,12 @@ class EmailMessage(SQLModel, table=True):
 
     # Result of the cheap local pre-filter, before anything leaves the box.
     looks_like_travel: bool = Field(default=False, index=True)
+    # A sibling flag, not an alternative: government/immigration mail (arrival
+    # cards, e-visa grants, ESTA approvals) is never sent to the extractor
+    # automatically -- it only shows up as a candidate in the manual
+    # recent-emails list, where picking it *is* the consent to extract it. See
+    # services.email_filter and services.immigration.
+    looks_like_immigration: bool = Field(default=False, index=True)
     processed_at: Optional[datetime] = None
 
     extractions: list["Extraction"] = Relationship(
