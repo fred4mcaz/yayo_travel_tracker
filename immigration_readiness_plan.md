@@ -383,7 +383,7 @@ trips" and the per‑trip detail.
   temporarily pointed there and reverted afterward (`git diff` was clean
   before committing).
 
-Commit: `_____`
+Commit: `d451581`
 
 ---
 
