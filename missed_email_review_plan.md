@@ -150,26 +150,33 @@ committed, full suite green) is met. Hash: `c0453d9`
 write rows.
 
 **Assumptions to validate.**
-- [ ] Alembic is the migration path (confirmed: `backend/alembic/versions/`).
-- [ ] `classify` can accept a merged `FilterRules` without disturbing its current
-      pure/testable shape.
+- [x] Alembic is the migration path (confirmed: `backend/alembic/versions/`,
+      head was `d3e8b1a94c27`; autogenerate + hand-cleanup produced
+      `3f166b5b4e6d_learned_rule.py`).
+- [x] `classify` can accept a merged `FilterRules` without disturbing its current
+      pure/testable shape. Unchanged — `effective_rules()` just builds a new
+      `FilterRules` via `dataclasses.replace` and passes it through the existing
+      `rules` parameter.
 
 **Gotchas / risks.**
 - `load_rules` is `@lru_cache`d on the committed file; learned rules are dynamic,
   so they must be fetched per-classification (cheap DB read) and unioned — do not
-  cache the union.
+  cache the union. `effective_rules()` is deliberately *not* decorated with
+  `@lru_cache`; confirmed by a test that a learned domain never leaks into
+  `load_rules()`'s own cached value.
 - Domain normalization must match the committed path (lowercase, strip `@`,
-  subdomain rule via `_domain_allowed`).
+  subdomain rule via `_domain_allowed`). Reused the same
+  `.strip().lower().lstrip("@")` normalisation `load_rules` applies.
 
 **Tasks.**
-- [ ] Model `LearnedRule` (domain: str, source: str, created_at) + Alembic
+- [x] Model `LearnedRule` (domain: str, source: str, created_at) + Alembic
       migration. Domain only — no keyword column (see D3).
-- [ ] `email_filter.effective_rules(session)` → committed ∪ learned domains.
-- [ ] `email_ingest._store` uses `effective_rules(session)`.
-- [ ] Tests: a learned domain flips a previously-rejected sender to candidate;
+- [x] `email_filter.effective_rules(session)` → committed ∪ learned domains.
+- [x] `email_ingest._store` uses `effective_rules(session)`.
+- [x] Tests: a learned domain flips a previously-rejected sender to candidate;
       no DB rows → committed behavior unchanged.
 
-**Exit test.** New filter tests + full suite pass. Commit. Hash: ____
+**Exit test.** New filter tests + full suite pass (231 passed). Commit. Hash: `<pending>`
 
 ---
 

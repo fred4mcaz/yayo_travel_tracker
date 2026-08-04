@@ -9,7 +9,7 @@ from datetime import datetime
 
 from sqlmodel import Session, select
 
-from app.models import EmailMessage
+from app.models import EmailMessage, LearnedRule
 from app.services.email_filter import load_rules
 from app.services.email_ingest import (
     UIDVALIDITY_KEY,
@@ -327,3 +327,33 @@ def test_redbus_shaped_html_only_email_classifies_as_a_candidate(session: Sessio
 
     stored = _stored(session)[-1]
     assert stored.looks_like_travel is True
+
+
+# --------------------------------------------------------------------------
+# Runtime-learned rules (phase 3) flow through to store-time classification
+# --------------------------------------------------------------------------
+
+
+def test_a_learned_domain_is_honoured_at_store_time(session: Session):
+    """`_store` must classify against `effective_rules`, not the committed
+    file alone -- otherwise a domain learned via the review page (phase 4)
+    would never actually flip future mail from that sender."""
+    load_rules.cache_clear()
+    session.add(LearnedRule(domain="newferryco.example", source="manual_extract"))
+    session.commit()
+
+    mailbox = FakeMailbox([_email(10)])
+    ingest_once(session, mailbox)
+    mailbox.messages.append(
+        IncomingEmail(
+            uid=11,
+            message_id="<nf-1@newferryco.example>",
+            from_addr="no-reply@newferryco.example",
+            subject="Your ticket is confirmed",
+            received_at=datetime(2026, 8, 1, 9, 30),
+            body="PNR 1234",
+        )
+    )
+    ingest_once(session, mailbox)
+
+    assert _stored(session)[-1].looks_like_travel is True

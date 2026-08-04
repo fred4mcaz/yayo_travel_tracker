@@ -378,6 +378,25 @@ class EmailMessage(SQLModel, table=True):
     )
 
 
+class LearnedRule(SQLModel, table=True):
+    """A sender domain the operator has taught the filter, at runtime.
+
+    `data/rules/email-filter.json` is committed, read-only, and baked into the
+    image -- this table is where a domain learned through the review page's
+    manual-extract-then-accept flow actually lives.
+    `email_filter.effective_rules` unions the two at classification time. No
+    keyword column: D3 in the design doc deliberately learns the domain only,
+    trusting the shared confirmation-keyword gate to do the rest.
+    """
+
+    __tablename__ = "learned_rule"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    domain: str = Field(index=True, unique=True)
+    source: str = ""
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class Extraction(SQLModel, table=True):
     """A proposal, never a fact.
 

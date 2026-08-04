@@ -19,13 +19,16 @@ what runs, and the tests exercise the real file rather than a fixture.
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from email.utils import parseaddr
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from sqlmodel import Session, select
+
 from app.config import get_settings
+from app.models import LearnedRule
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,22 @@ def load_rules(path: Optional[Path] = None) -> FilterRules:
             k.lower() for k in raw.get("subject_deny_keywords", [])
         ),
     )
+
+
+def effective_rules(session: Session) -> FilterRules:
+    """Committed rules unioned with runtime-learned domains.
+
+    Deliberately *not* cached, unlike `load_rules`: a domain learned mid-poll
+    (a review-page accept, see phase 4) must take effect on the very next
+    classification, not after some cache invalidation. The read is one small
+    table scan, cheap enough to do on every message.
+    """
+    learned = session.exec(select(LearnedRule.domain)).all()
+    if not learned:
+        return load_rules()
+    extra = {d.strip().lower().lstrip("@") for d in learned}
+    base = load_rules()
+    return replace(base, allow_sender_domains=base.allow_sender_domains | extra)
 
 
 def sender_domain(from_addr: str) -> str:

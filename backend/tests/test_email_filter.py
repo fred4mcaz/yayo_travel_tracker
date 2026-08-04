@@ -10,10 +10,13 @@ careless edit to `data/rules/email-filter.json` shows up here.
 """
 
 import pytest
+from sqlmodel import Session
 
+from app.models import LearnedRule
 from app.services.email_filter import (
     FilterRules,
     classify,
+    effective_rules,
     load_rules,
     sender_domain,
 )
@@ -202,6 +205,56 @@ def test_a_personal_email_fails_the_shipped_rules():
         "call me when you land",
         "have a safe trip sweetheart",
     )
+
+
+# --------------------------------------------------------------------------
+# effective_rules -- the committed rules unioned with runtime-learned domains
+# --------------------------------------------------------------------------
+
+
+def test_effective_rules_matches_committed_rules_when_nothing_is_learned(
+    session: Session,
+):
+    load_rules.cache_clear()
+    assert effective_rules(session) == load_rules()
+
+
+def test_a_learned_domain_flips_a_previously_rejected_sender_to_a_candidate(
+    session: Session,
+):
+    load_rules.cache_clear()
+    v_before = classify(
+        "no-reply@newferryco.example",
+        "Your ticket is confirmed",
+        "PNR 1234",
+        effective_rules(session),
+    )
+    assert not v_before
+
+    session.add(LearnedRule(domain="newferryco.example", source="manual_extract"))
+    session.commit()
+
+    v_after = classify(
+        "no-reply@newferryco.example",
+        "Your ticket is confirmed",
+        "PNR 1234",
+        effective_rules(session),
+    )
+    assert v_after
+
+
+def test_effective_rules_does_not_mutate_the_cached_committed_rules(session: Session):
+    """A learned domain must not leak into `load_rules()`'s cached result --
+    that would make every future call see it, DB row or not."""
+    load_rules.cache_clear()
+    committed_before = load_rules()
+
+    session.add(LearnedRule(domain="onlyfor.example", source="manual_extract"))
+    session.commit()
+    effective_rules(session)
+
+    assert "onlyfor.example" not in load_rules().allow_sender_domains
+    assert load_rules() == committed_before
 
 
 def test_ticket_only_subject_from_an_allowed_sender_passes_the_shipped_rules():

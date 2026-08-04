@@ -23,7 +23,7 @@ from sqlmodel import Session, select
 
 from app.config import get_settings
 from app.models import EmailMessage
-from app.services.email_filter import classify
+from app.services.email_filter import classify, effective_rules
 from app.services.settings import get_setting, set_setting
 
 log = logging.getLogger("yayo.email")
@@ -191,8 +191,9 @@ def _store(session: Session, email: IncomingEmail) -> bool:
 
     # The local pre-filter runs here, at store time, entirely on the box. It
     # only sets a flag; nothing leaves the machine until an operator with the
-    # flag set is picked up for extraction (phase 3).
-    verdict = classify(email.from_addr, email.subject, email.body)
+    # flag set is picked up for extraction (phase 3). effective_rules unions
+    # in anything learned at runtime (phase 4's accept-to-learn flow).
+    verdict = classify(email.from_addr, email.subject, email.body, effective_rules(session))
     if not verdict:
         log.debug("uid %d not a travel candidate: %s", email.uid, verdict.reason)
 
