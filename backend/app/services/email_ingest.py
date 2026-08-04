@@ -16,6 +16,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from html import unescape
 from typing import Iterable, Iterator, Optional, Protocol
 
 from sqlmodel import Session, select
@@ -68,6 +69,27 @@ class Mailbox(Protocol):
 
 def _snippet(body: str) -> str:
     return re.sub(r"\s+", " ", body).strip()[:SNIPPET_CHARS]
+
+
+# redBus, and every other HTML-only confirmation, sends no text/plain part at
+# all -- just text/html plus a PDF. Without this fallback the classifier and
+# the stored snippet both see an empty body, so a real booking passes silently
+# unclassified. `<style>`/`<script>` bodies are dropped whole first: the
+# redBus template carries a large `<style>` block, and stripping only the tags
+# would leave the raw CSS as the "content".
+_STYLE_SCRIPT_RE = re.compile(r"<(style|script)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _html_to_text(html: str) -> str:
+    """Best-effort plain text from an HTML email body. Never sent anywhere --
+    feeds only the local keyword check and the stored snippet."""
+    if not html:
+        return ""
+    text = _STYLE_SCRIPT_RE.sub(" ", html)
+    text = _TAG_RE.sub(" ", text)
+    text = unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _baseline(session: Session, mailbox: Mailbox, validity: str, reason: str) -> dict:
@@ -266,7 +288,7 @@ class ImapMailbox:
                 from_addr=msg.from_ or "",
                 subject=msg.subject or "",
                 received_at=msg.date,
-                body=msg.text or "",
+                body=msg.text or _html_to_text(msg.html),
             )
 
 

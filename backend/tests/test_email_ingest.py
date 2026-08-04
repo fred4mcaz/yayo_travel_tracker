@@ -10,10 +10,12 @@ from datetime import datetime
 from sqlmodel import Session, select
 
 from app.models import EmailMessage
+from app.services.email_filter import load_rules
 from app.services.email_ingest import (
     UIDVALIDITY_KEY,
     WATERMARK_KEY,
     IncomingEmail,
+    _html_to_text,
     ingest_once,
 )
 from app.services.settings import get_setting
@@ -240,3 +242,88 @@ def test_an_unlisted_sender_is_never_a_candidate(session: Session):
     ingest_once(session, mailbox)
 
     assert [m.looks_like_travel for m in _stored(session)] == [False]
+
+
+# --------------------------------------------------------------------------
+# HTML-only bodies (redBus and friends send no text/plain part at all)
+# --------------------------------------------------------------------------
+
+
+def test_html_to_text_drops_style_and_script_but_keeps_content():
+    html = (
+        "<html><head><style>.a{color:red}\nbody{font-size:2px}</style>"
+        "<script>track('open')</script></head>"
+        "<body><p>Your PNR is <b>AB12CD</b>.</p>"
+        "<p>Fare&nbsp;&amp;&nbsp;taxes: SGD&nbsp;20</p></body></html>"
+    )
+    text = _html_to_text(html)
+    assert "color:red" not in text
+    assert "track(" not in text
+    assert "Your PNR is AB12CD" in text
+    assert "Fare & taxes: SGD 20" in text
+
+
+def test_html_to_text_collapses_whitespace():
+    assert _html_to_text("<p>Hanoi</p>\n\n<p>\tSofitel   Legend</p>") == "Hanoi Sofitel Legend"
+
+
+def test_html_to_text_of_empty_input_is_empty():
+    assert _html_to_text("") == ""
+
+
+_REDBUS_HTML = """
+<html>
+<head><style>.wrap { padding: 4px; } .foot::before { content: "unsubscribe"; }</style></head>
+<body>
+  <p>Your ferry ticket is confirmed.</p>
+  <p>PNR: RB998877</p>
+  <p>Batam &rarr; Malaysia, 04 Aug 2026</p>
+</body>
+</html>
+"""
+
+
+def test_html_only_message_yields_a_non_empty_body_and_snippet(session: Session):
+    """The fallback the ingester applies before storing: no text/plain part, so
+    the body -- and the snippet derived from it -- come from the HTML."""
+    body = _html_to_text(_REDBUS_HTML)
+    assert body  # non-empty: this is the whole point of the fallback
+
+    mailbox = FakeMailbox([_email(10)])
+    ingest_once(session, mailbox)
+    mailbox.messages.append(
+        _email(
+            11,
+            body=body,
+        )
+    )
+    ingest_once(session, mailbox)
+
+    stored = _stored(session)[-1]
+    assert stored.snippet
+    assert "PNR: RB998877" in stored.snippet
+
+
+def test_redbus_shaped_html_only_email_classifies_as_a_candidate(session: Session):
+    """The regression this whole phase exists for: an HTML-only redBus
+    confirmation, with no text/plain part, must be flagged for review once its
+    body is run through the HTML fallback -- not silently dropped."""
+    load_rules.cache_clear()
+    body = _html_to_text(_REDBUS_HTML)
+
+    mailbox = FakeMailbox([_email(10)])
+    ingest_once(session, mailbox)
+    mailbox.messages.append(
+        IncomingEmail(
+            uid=11,
+            message_id="<redbus-1@redbus.sg>",
+            from_addr="ticketmaster@redbus.sg",
+            subject="Your ferry booking confirmation",
+            received_at=datetime(2026, 8, 4, 14, 41),
+            body=body,
+        )
+    )
+    ingest_once(session, mailbox)
+
+    stored = _stored(session)[-1]
+    assert stored.looks_like_travel is True

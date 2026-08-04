@@ -202,3 +202,15 @@ def test_a_personal_email_fails_the_shipped_rules():
         "call me when you land",
         "have a safe trip sweetheart",
     )
+
+
+def test_ticket_only_subject_from_an_allowed_sender_passes_the_shipped_rules():
+    """redBus and similar operators confirm with "ticket", not "booking" or
+    "reservation" -- broadened here so that wording alone doesn't sink them."""
+    load_rules.cache_clear()
+    v = classify(
+        "ticketmaster@redbus.sg",
+        "Your ferry ticket - Batam to Malaysia",
+        "PNR RB998877",
+    )
+    assert v
