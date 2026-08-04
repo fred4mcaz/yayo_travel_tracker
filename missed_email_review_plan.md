@@ -98,7 +98,7 @@ inserted before trailing punctuation. Not a bug — just means snippet-level
 assertions in tests should not expect punctuation to hug the preceding word.
 
 **Exit test.** `pytest backend/tests/test_email_ingest.py backend/tests/test_email_filter.py`
-plus the whole suite pass (224 passed). Commit. Hash: `<pending>`
+plus the whole suite pass (224 passed). Commit. Hash: `8676747`
 
 ---
 
