@@ -137,7 +137,7 @@ an empty snippet and a frozen `False` flag, so it needs a targeted one-off.
 
 **Exit test.** The ferry shows in `GET /api/review` as a pending proposal on the
 server -- verified in Phase 6. This phase's own exit bar (command + test,
-committed, full suite green) is met. Hash: `<pending>`
+committed, full suite green) is met. Hash: `c0453d9`
 
 ---
 
