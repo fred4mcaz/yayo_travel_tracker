@@ -169,13 +169,15 @@ def extract_email(
     email_id: int,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-) -> dict:
+) -> list[dict]:
     """Manually extract one email, bypassing the sender/keyword gate (D2).
 
     Picking an email here *is* the operator's per-message consent to send
     that one message to the extractor -- a deliberate, logged relaxation of
-    the privacy control, never automatic. If a pending proposal already
-    exists for this email, that is returned rather than extracting twice.
+    the privacy control, never automatic. Returns a list because one email can
+    yield several proposals -- a round-trip ticket is two journeys. If pending
+    proposals already exist for this email, those are returned rather than
+    extracting again.
     """
     email = get_or_404(session, EmailMessage, email_id, "email")
 
@@ -183,11 +185,13 @@ def extract_email(
         select(Extraction)
         .where(Extraction.email_message_id == email.id)
         .where(Extraction.status == ExtractionStatus.pending)
-    ).first()
-    if existing is not None:
-        suggest(session, existing)
+        .order_by(Extraction.created_at)
+    ).all()
+    if existing:
+        for row in existing:
+            suggest(session, row)
         session.commit()
-        return _serialise(session, existing)
+        return [_serialise(session, row) for row in existing]
 
     if not settings.openrouter_api_key:
         raise HTTPException(
@@ -218,16 +222,17 @@ def extract_email(
         )
 
     model = OpenRouterModel.from_settings()
-    extraction = extract_selected(session, model, email, body)
-    if extraction is None:
+    extractions = extract_selected(session, model, email, body)
+    if not extractions:
         raise HTTPException(
             status_code=422,
             detail="the model found nothing to extract from this email",
         )
 
-    suggest(session, extraction)
+    for extraction in extractions:
+        suggest(session, extraction)
     session.commit()
-    return _serialise(session, extraction)
+    return [_serialise(session, extraction) for extraction in extractions]
 
 
 @router.post("/{extraction_id}/accept")

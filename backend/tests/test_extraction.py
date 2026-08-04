@@ -28,6 +28,7 @@ from app.services.extraction import (
     process_email,
     run_extractions,
     validate_booking,
+    validate_bookings,
 )
 
 
@@ -231,14 +232,59 @@ def test_a_leg_with_a_date_but_no_country_is_kept():
     assert booking.start_date == "2026-09-03"
 
 
-def test_process_email_returns_the_extraction_or_none(session: Session):
+# --------------------------------------------------------------------------
+# validate_bookings -- one email can carry more than one booking
+# --------------------------------------------------------------------------
+
+
+def test_validate_bookings_reads_the_bookings_array():
+    outbound = {**VALID_BOOKING, "country_code": "MY"}
+    inbound = {**VALID_BOOKING, "country_code": "ID"}
+    bookings = validate_bookings({"bookings": [outbound, inbound]})
+    assert [b.country_code for b in bookings] == ["MY", "ID"]
+
+
+def test_validate_bookings_drops_only_the_unusable_entries():
+    bookings = validate_bookings(
+        {"bookings": [VALID_BOOKING, {"kind": "banana"}, {"not": "a booking"}]}
+    )
+    assert len(bookings) == 1
+    assert bookings[0].country_code == "VN"
+
+
+def test_validate_bookings_tolerates_a_bare_single_booking():
+    """Defensive: a provider that ignores strict and returns one flat booking,
+    or the older single-booking shape, still validates."""
+    bookings = validate_bookings(VALID_BOOKING)
+    assert len(bookings) == 1
+
+
+def test_validate_bookings_of_nothing_is_empty():
+    assert validate_bookings(None) == []
+    assert validate_bookings({"bookings": []}) == []
+    assert validate_bookings({"bookings": "not a list"}) == []
+
+
+def test_run_extractions_counts_each_journey_of_a_round_trip(session: Session):
+    _candidate(session)
+    outbound = {**VALID_BOOKING, "kind": "ferry", "country_code": "MY"}
+    inbound = {**outbound, "country_code": "ID"}
+    model = FakeModel(TriageResult(True, 0.9, "y"), {"bookings": [outbound, inbound]})
+
+    result = run_extractions(session, model)
+
+    assert result == {"processed": 1, "proposed": 2}
+    assert len(_extractions(session)) == 2
+
+
+def test_process_email_returns_the_extractions_created(session: Session):
     email = _candidate(session)
     yes = FakeModel(TriageResult(True, 0.9, "y"), VALID_BOOKING)
-    assert process_email(session, yes, email) is not None
+    assert len(process_email(session, yes, email)) == 1
 
     email2 = _candidate(session, uid=11)
     no = FakeModel(TriageResult(False, 0.1, "n"))
-    assert process_email(session, no, email2) is None
+    assert process_email(session, no, email2) == []
 
 
 # --------------------------------------------------------------------------
@@ -254,9 +300,9 @@ def test_extract_selected_ignores_the_looks_like_travel_gate(session: Session):
 
     result = extract_selected(session, model, email, "a live-refetched body")
 
-    assert result is not None
-    assert result.status == ExtractionStatus.pending
-    assert result.email_message_id == email.id
+    assert len(result) == 1
+    assert result[0].status == ExtractionStatus.pending
+    assert result[0].email_message_id == email.id
 
 
 def test_extract_selected_never_calls_triage(session: Session):
@@ -267,7 +313,7 @@ def test_extract_selected_never_calls_triage(session: Session):
 
     result = extract_selected(session, model, email, "body")
 
-    assert result is not None  # triage's False was never consulted
+    assert len(result) == 1  # triage's False was never consulted
     assert model.triaged == []
 
 
@@ -290,9 +336,27 @@ def test_extract_selected_marks_processed_even_when_nothing_is_extracted(
 
     result = extract_selected(session, model, email, "body")
 
-    assert result is None
+    assert result == []
     session.refresh(email)
     assert email.processed_at is not None
+
+
+def test_extract_selected_records_both_journeys_of_a_round_trip(session: Session):
+    """A round-trip ticket is two arrivals into two countries, so it yields two
+    proposals -- each matched and accepted into its own trip later."""
+    email = _candidate(session, looks_like_travel=False)
+    outbound = {**VALID_BOOKING, "kind": "ferry", "country_code": "MY",
+                "city": "Johor Bahru", "start_date": "2026-08-07", "end_date": None,
+                "hotel_name": None, "carrier": "redBus"}
+    inbound = {**outbound, "country_code": "ID", "city": "Batam",
+               "start_date": "2026-08-11"}
+    model = FakeModel(TriageResult(True, 0.9, "y"), {"bookings": [outbound, inbound]})
+
+    result = extract_selected(session, model, email, "full round-trip body")
+
+    assert len(result) == 2
+    countries = {json.loads(e.payload_json)["country_code"] for e in result}
+    assert countries == {"MY", "ID"}
 
 
 # --------------------------------------------------------------------------
@@ -438,7 +502,7 @@ def test_real_client_sends_strict_tools_and_reads_the_tool_call(session: Session
             return _openrouter_tool_response(
                 name, {"is_booking": True, "confidence": 0.9, "reason": "ok"}
             )
-        return _openrouter_tool_response(name, VALID_BOOKING)
+        return _openrouter_tool_response(name, {"bookings": [VALID_BOOKING]})
 
     model = _model_with_transport(handler)
 
@@ -450,9 +514,9 @@ def test_real_client_sends_strict_tools_and_reads_the_tool_call(session: Session
     assert sent["tools"][0]["function"]["name"] == TRIAGE_TOOL["name"]
     assert sent["model"] == "anthropic/claude-haiku-4.5"
 
-    booking = validate_booking(model.extract("Your booking", "Sofitel, Hanoi"))
-    assert booking is not None
-    assert booking.country_code == "VN"
+    bookings = validate_bookings(model.extract("Your booking", "Sofitel, Hanoi"))
+    assert len(bookings) == 1
+    assert bookings[0].country_code == "VN"
     assert sent["tools"][0]["function"]["name"] == EXTRACT_TOOL["name"]
     assert sent["model"] == "anthropic/claude-sonnet-5"
 
@@ -464,7 +528,9 @@ def test_real_client_puts_the_received_date_in_the_prompt(session: Session):
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         sent.update(payload)
-        return _openrouter_tool_response(EXTRACT_TOOL["name"], VALID_BOOKING)
+        return _openrouter_tool_response(
+            EXTRACT_TOOL["name"], {"bookings": [VALID_BOOKING]}
+        )
 
     model = _model_with_transport(handler)
     model.extract("Your booking", "Sofitel, Hanoi", date(2026, 7, 15))
@@ -479,7 +545,9 @@ def test_real_client_omits_the_system_message_without_a_date(session: Session):
 
     def handler(request: httpx.Request) -> httpx.Response:
         sent.update(json.loads(request.content))
-        return _openrouter_tool_response(EXTRACT_TOOL["name"], VALID_BOOKING)
+        return _openrouter_tool_response(
+            EXTRACT_TOOL["name"], {"bookings": [VALID_BOOKING]}
+        )
 
     model = _model_with_transport(handler)
     model.extract("Your booking", "Sofitel, Hanoi")
@@ -496,7 +564,7 @@ def test_real_client_end_to_end_creates_a_pending_extraction(session: Session):
             return _openrouter_tool_response(
                 name, {"is_booking": True, "confidence": 0.95, "reason": "booking"}
             )
-        return _openrouter_tool_response(name, VALID_BOOKING)
+        return _openrouter_tool_response(name, {"bookings": [VALID_BOOKING]})
 
     model = _model_with_transport(handler)
 

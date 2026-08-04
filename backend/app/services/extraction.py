@@ -7,15 +7,18 @@ funnel:
      worth reading closely? The local filter already gated on sender and
      keywords; this is the first time an LLM sees the text.
   2. **Extract** with the capable model (Claude Sonnet): pull the structured
-     booking out, against a *strict* tool schema so the shape is guaranteed.
+     bookings out, against a *strict* tool schema so the shape is guaranteed.
+     One email can carry more than one booking -- a round-trip ticket is two
+     arrivals into two countries -- so extraction returns a list.
 
 Both calls go through **OpenRouter's OpenAI-compatible API** rather than
 Anthropic directly -- same models, one key, routed through OpenRouter. The tool
 schemas are declared once here in a neutral form and translated to OpenAI
 function-calling at the call site.
 
-The output is an `Extraction` row with `status=pending`. **Nothing here touches
-trip data.** A proposal is not a fact until it is accepted (phase 4).
+The output is one `Extraction` row per booking, each `status=pending`.
+**Nothing here touches trip data.** A proposal is not a fact until it is
+accepted (phase 4).
 
 The model is injected behind a Protocol, so every test in this suite runs
 against a fake and never opens a socket. The real implementation lives at the
@@ -72,56 +75,96 @@ TRIAGE_TOOL = {
     },
 }
 
+# One booking within a confirmation. A journey is modelled as an *arrival*:
+# what matters is the country it delivers you into, because a trip is one stay
+# in one country (see models.Leg / services.review). So the two halves of a
+# round trip are two separate arrivals into two different countries, and each
+# is one of these.
+BOOKING_ITEM_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "kind",
+        "country_code",
+        "city",
+        "start_date",
+        "end_date",
+        "hotel_name",
+        "carrier",
+        "confirmation_code",
+        "confidence",
+    ],
+    "properties": {
+        "kind": {
+            "type": "string",
+            "enum": list(BOOKING_KINDS),
+            "description": "hotel for a stay; the mode for an arrival journey.",
+        },
+        "country_code": {
+            "type": ["string", "null"],
+            "description": (
+                "ISO 3166-1 alpha-2 of the DESTINATION -- the country this "
+                "booking takes you to. For a journey that is the arrival "
+                "country (where the leg lands), never the departure country: a "
+                "ferry from Batam to Malaysia is country MY, and its return leg "
+                "from Malaysia to Batam is country ID. For a hotel it is the "
+                "country you stay in. e.g. VN, TH, JP, MY. Null if unclear."
+            ),
+        },
+        "city": {
+            "type": ["string", "null"],
+            "description": (
+                "Destination city -- the arrival city for a journey, the city "
+                "you stay in for a hotel. Never the origin."
+            ),
+        },
+        "start_date": {
+            "type": ["string", "null"],
+            "description": "YYYY-MM-DD. Check-in for a hotel, departure for a leg.",
+        },
+        "end_date": {
+            "type": ["string", "null"],
+            "description": "YYYY-MM-DD. Check-out for a hotel; null for a leg.",
+        },
+        "hotel_name": {"type": ["string", "null"]},
+        "carrier": {
+            "type": ["string", "null"],
+            "description": "Airline or operator, for a leg.",
+        },
+        "confirmation_code": {"type": ["string", "null"]},
+        "confidence": {
+            "type": "number",
+            "description": "0 to 1, how sure you are of this reading.",
+        },
+    },
+}
+
 EXTRACT_TOOL = {
     "name": "record_booking",
     "description": (
-        "Record one travel booking from a confirmation email. One email is one "
-        "booking: a single hotel stay, or a single arrival journey. Do not "
-        "invent fields you cannot see -- use null."
+        "Record every travel booking in one confirmation email. Most emails "
+        "hold a single booking, but a round-trip ticket holds two journeys and "
+        "a multi-city itinerary holds several -- record each as its own entry "
+        "in `bookings`. Each journey is an arrival into its destination: the "
+        "outbound leg arrives into the place you are travelling to, the return "
+        "leg arrives back into the place you came from, so the two halves of a "
+        "round trip carry different destination countries. Split a round trip "
+        "into two entries; never collapse it into one. Do not invent fields "
+        "you cannot see -- use null."
     ),
     "strict": True,
     "input_schema": {
         "type": "object",
         "additionalProperties": False,
-        "required": [
-            "kind",
-            "country_code",
-            "city",
-            "start_date",
-            "end_date",
-            "hotel_name",
-            "carrier",
-            "confirmation_code",
-            "confidence",
-        ],
+        "required": ["bookings"],
         "properties": {
-            "kind": {
-                "type": "string",
-                "enum": list(BOOKING_KINDS),
-                "description": "hotel for a stay; the mode for an arrival journey.",
-            },
-            "country_code": {
-                "type": ["string", "null"],
-                "description": "ISO 3166-1 alpha-2, e.g. VN, TH, JP. Null if unclear.",
-            },
-            "city": {"type": ["string", "null"]},
-            "start_date": {
-                "type": ["string", "null"],
-                "description": "YYYY-MM-DD. Check-in for a hotel, departure for a leg.",
-            },
-            "end_date": {
-                "type": ["string", "null"],
-                "description": "YYYY-MM-DD. Check-out for a hotel; null for a leg.",
-            },
-            "hotel_name": {"type": ["string", "null"]},
-            "carrier": {
-                "type": ["string", "null"],
-                "description": "Airline or operator, for a leg.",
-            },
-            "confirmation_code": {"type": ["string", "null"]},
-            "confidence": {
-                "type": "number",
-                "description": "0 to 1, how sure you are of this reading.",
+            "bookings": {
+                "type": "array",
+                "description": (
+                    "One entry per booking. A real confirmation always has at "
+                    "least one; a round trip has two."
+                ),
+                "items": BOOKING_ITEM_SCHEMA,
             },
         },
     },
@@ -153,7 +196,8 @@ class ExtractionModel(Protocol):
     def extract(
         self, subject: str, body: str, received_on: Optional[date] = None
     ) -> Optional[dict]:
-        """The raw tool input, or None if the model would not produce one.
+        """The raw tool input (``{"bookings": [...]}``), or None if the model
+        would not produce one.
 
         `received_on` is the date the confirmation arrived: the one hard anchor
         for the year, since a booking is always for a stay on or after it.
@@ -249,6 +293,38 @@ def validate_booking(payload) -> Optional[Booking]:
     return booking
 
 
+def _booking_dicts(payload) -> list:
+    """The raw booking dicts inside a tool result, however it is shaped.
+
+    The strict schema returns ``{"bookings": [...]}``, but validation trusts
+    nothing (a fake, a refusal, or provider drift might not honour strict), so
+    a bare single booking dict and a bare list are both tolerated -- the older
+    single-booking shape keeps working, and a malformed wrapper degrades to
+    "no bookings" rather than raising.
+    """
+    if payload is None:
+        return []
+    if isinstance(payload, dict):
+        if "bookings" in payload:
+            inner = payload["bookings"]
+            return inner if isinstance(inner, list) else []
+        return [payload]  # tolerate a single flat booking
+    if isinstance(payload, list):
+        return payload
+    return []
+
+
+def validate_bookings(payload) -> list["Booking"]:
+    """Every usable booking in a tool result, in order, unusable ones dropped.
+
+    One confirmation email can describe several bookings -- a round trip is two
+    arrivals, a multi-city itinerary is more -- so extraction yields a list.
+    Each entry goes through the same `validate_booking` gate, so a single junk
+    entry among good ones is discarded without sinking the rest.
+    """
+    return [b for b in (validate_booking(item) for item in _booking_dicts(payload)) if b is not None]
+
+
 # --------------------------------------------------------------------------
 # Year sanity -- the second layer under the prompt anchor
 # --------------------------------------------------------------------------
@@ -313,82 +389,31 @@ def _pending(session: Session, limit: int) -> list[EmailMessage]:
     )
 
 
-def process_email(
-    session: Session, model: ExtractionModel, email: EmailMessage
-) -> Optional[Extraction]:
-    """Triage, extract, and record a pending proposal for one email.
+def _record_bookings(
+    session: Session,
+    model: ExtractionModel,
+    email: EmailMessage,
+    bookings: list["Booking"],
+    received_on: Optional[date],
+    *,
+    how: str,
+) -> list[Extraction]:
+    """Turn each validated booking into its own pending Extraction.
 
-    Marks the email processed either way, so a message that triages out or
-    yields nothing is not retried on every poll. Returns the Extraction, or
-    None if none was created.
+    One per booking, so a round trip's two journeys become two proposals that
+    are matched and accepted independently -- each into whichever trip its own
+    destination and dates belong to.
     """
-    subject, body = email.subject, email.snippet
-    received_on = email.received_at.date() if email.received_at else None
-    extraction: Optional[Extraction] = None
-
-    triage = model.triage(subject, body)
-    if triage.is_booking:
-        raw = model.extract(subject, body, received_on)
-        booking = validate_booking(raw)
-        if booking is not None:
-            corrected = correct_year(booking, received_on)
-            if corrected.start_date != booking.start_date:
-                log.info(
-                    "email %s: corrected check-in year %s -> %s "
-                    "(confirmation received %s)",
-                    email.id,
-                    booking.start_date,
-                    corrected.start_date,
-                    received_on,
-                )
-                booking = corrected
-            extraction = Extraction(
-                email_message_id=email.id,
-                model=model.extract_model,
-                payload_json=json.dumps(booking.payload(), sort_keys=True),
-                confidence=booking.confidence,
-                status=ExtractionStatus.pending,
-            )
-            session.add(extraction)
-        elif raw is not None:
-            log.info("email %s extracted but the result was unusable", email.id)
-    else:
-        log.debug("email %s triaged out: %s", email.id, triage.reason)
-
-    email.processed_at = utcnow()
-    session.add(email)
-    return extraction
-
-
-def extract_selected(
-    session: Session, model: ExtractionModel, email: EmailMessage, body: str
-) -> Optional[Extraction]:
-    """Extract one email on operator-initiated demand (phase 4's manual-catch
-    flow), skipping triage and the `looks_like_travel` gate entirely.
-
-    D2: choosing a message here *is* the informed, per-message consent that
-    would otherwise come from triage and the sender filter passing. `body` is
-    supplied by the caller -- a live IMAP re-fetch when one succeeds, the
-    stored snippet otherwise -- rather than reread from `email.snippet`
-    directly, so the caller controls fidelity.
-
-    Marks the email processed either way, same as `process_email`: a manual
-    attempt that finds nothing is not retried by the next automatic poll.
-    """
-    received_on = email.received_at.date() if email.received_at else None
-    extraction: Optional[Extraction] = None
-
-    raw = model.extract(email.subject, body, received_on)
-    booking = validate_booking(raw)
-    if booking is not None:
+    created: list[Extraction] = []
+    for booking in bookings:
         corrected = correct_year(booking, received_on)
         if corrected.start_date != booking.start_date:
             log.info(
-                "email %s: corrected check-in year %s -> %s (manual extract, "
-                "received %s)",
+                "email %s: corrected check-in year %s -> %s (%s, received %s)",
                 email.id,
                 booking.start_date,
                 corrected.start_date,
+                how,
                 received_on,
             )
             booking = corrected
@@ -400,15 +425,68 @@ def extract_selected(
             status=ExtractionStatus.pending,
         )
         session.add(extraction)
-    elif raw is not None:
+        created.append(extraction)
+    return created
+
+
+def process_email(
+    session: Session, model: ExtractionModel, email: EmailMessage
+) -> list[Extraction]:
+    """Triage, extract, and record the pending proposals for one email.
+
+    Marks the email processed either way, so a message that triages out or
+    yields nothing is not retried on every poll. Returns every Extraction
+    created -- none, one, or several (a round trip yields two).
+    """
+    subject, body = email.subject, email.snippet
+    received_on = email.received_at.date() if email.received_at else None
+    created: list[Extraction] = []
+
+    triage = model.triage(subject, body)
+    if triage.is_booking:
+        raw = model.extract(subject, body, received_on)
+        bookings = validate_bookings(raw)
+        created = _record_bookings(session, model, email, bookings, received_on, how="automatic")
+        if not bookings and raw is not None:
+            log.info("email %s extracted but the result was unusable", email.id)
+    else:
+        log.debug("email %s triaged out: %s", email.id, triage.reason)
+
+    email.processed_at = utcnow()
+    session.add(email)
+    return created
+
+
+def extract_selected(
+    session: Session, model: ExtractionModel, email: EmailMessage, body: str
+) -> list[Extraction]:
+    """Extract one email on operator-initiated demand (phase 4's manual-catch
+    flow), skipping triage and the `looks_like_travel` gate entirely.
+
+    D2: choosing a message here *is* the informed, per-message consent that
+    would otherwise come from triage and the sender filter passing. `body` is
+    supplied by the caller -- a live IMAP re-fetch when one succeeds, the
+    stored snippet otherwise -- rather than reread from `email.snippet`
+    directly, so the caller controls fidelity. A round-trip ticket yields two
+    proposals here just as it would automatically.
+
+    Marks the email processed either way, same as `process_email`: a manual
+    attempt that finds nothing is not retried by the next automatic poll.
+    """
+    received_on = email.received_at.date() if email.received_at else None
+
+    raw = model.extract(email.subject, body, received_on)
+    bookings = validate_bookings(raw)
+    created = _record_bookings(session, model, email, bookings, received_on, how="manual extract")
+    if not bookings and raw is not None:
         log.info("email %s manually extracted but the result was unusable", email.id)
 
     email.processed_at = utcnow()
     session.add(email)
     session.commit()
-    if extraction is not None:
+    for extraction in created:
         session.refresh(extraction)
-    return extraction
+    return created
 
 
 def run_extractions(
@@ -417,8 +495,7 @@ def run_extractions(
     """Process the backlog of travel candidates. Returns a summary."""
     proposed = processed = 0
     for email in _pending(session, limit):
-        if process_email(session, model, email) is not None:
-            proposed += 1
+        proposed += len(process_email(session, model, email))
         processed += 1
     session.commit()
     if processed:

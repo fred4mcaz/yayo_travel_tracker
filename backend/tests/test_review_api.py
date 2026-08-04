@@ -499,8 +499,9 @@ def test_extract_email_bypasses_the_filter_and_creates_a_pending_proposal(
 
     assert res.status_code == 200
     body = res.json()
-    assert body["status"] == "pending"
-    assert body["booking"]["confirmation_code"] == "RB998877"
+    assert len(body) == 1
+    assert body[0]["status"] == "pending"
+    assert body[0]["booking"]["confirmation_code"] == "RB998877"
     session.refresh(email)
     assert email.processed_at is not None
 
@@ -565,8 +566,46 @@ def test_extract_email_returns_the_existing_pending_proposal_instead_of_duplicat
     )
 
     assert res.status_code == 200
-    assert res.json()["id"] == existing.id
+    body = res.json()
+    assert [row["id"] for row in body] == [existing.id]
     assert model.calls == []  # the existing proposal was reused, not re-extracted
+
+
+def test_extract_email_round_trip_creates_two_proposals_matched_to_two_trips(
+    client, session: Session, monkeypatch
+):
+    """The user's bug: a round-trip ferry must yield both journeys, each landing
+    in the trip for the country it arrives into -- not one journey in the wrong
+    trip."""
+    from app import api
+
+    # Two trips already exist: the arrival country for each ferry leg.
+    my_trip = _make_trip(session, "MY", "Johor Bahru", "2026-08-07", "2026-08-11")
+    id_trip = _make_trip(session, "ID", "Batam", "2026-08-11", "2026-08-24")
+
+    email = _email(session, uid=20, from_addr="ticketmaster@redbus.sg",
+                   subject="redBus round trip", looks_like_travel=True)
+    outbound = {"kind": "ferry", "country_code": "MY", "city": "Johor Bahru",
+                "start_date": "2026-08-07", "end_date": None, "hotel_name": None,
+                "carrier": "redBus", "confirmation_code": "RB-OUT", "confidence": 0.9}
+    inbound = {**outbound, "country_code": "ID", "city": "Batam",
+               "start_date": "2026-08-11", "confirmation_code": "RB-IN"}
+    monkeypatch.setattr(api.review, "ImapMailbox", _FakeMailboxFactory(body=None))
+    monkeypatch.setattr(
+        api.review,
+        "OpenRouterModel",
+        _FakeModelFactory(_FakeExtractionModel({"bookings": [outbound, inbound]})),
+    )
+
+    body = _with_openrouter_key(
+        lambda: client.post(f"/api/review/emails/{email.id}/extract")
+    ).json()
+
+    assert len(body) == 2
+    by_country = {row["booking"]["country_code"]: row for row in body}
+    # Each journey's suggestion points at the trip for the country it arrives in.
+    assert by_country["MY"]["suggestion"]["trip_id"] == my_trip.id
+    assert by_country["ID"]["suggestion"]["trip_id"] == id_trip.id
 
 
 def test_extract_email_when_the_model_finds_nothing_is_422(
@@ -634,7 +673,7 @@ def test_manual_extract_then_accept_learns_the_sender_domain(
     # Extracting alone teaches nothing -- only an accepted proposal does (D3).
     assert session.exec(select(LearnedRule)).all() == []
 
-    accept_res = client.post(f"/api/review/{extracted['id']}/accept", json={})
+    accept_res = client.post(f"/api/review/{extracted[0]['id']}/accept", json={})
 
     assert accept_res.status_code == 200
     assert accept_res.json()["learned_domain"] == "redbus2.example"
