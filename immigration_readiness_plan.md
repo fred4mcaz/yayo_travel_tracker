@@ -161,18 +161,48 @@ offline and the cost controlled.
   model marks required are cached as "required" (decision 8).
 
 **Tasks**
-- [ ] `services/entry_policy.py`: `ENTRY_POLICY_TOOL` (strict), a
-      `PolicyModel` Protocol + method on `OpenRouterModel`, `validate_policy`,
-      and `get_policy(session, country_code, nationality)` — read‑through cache,
-      queries the model only on a genuine cache miss, no refresh parameter.
-- [ ] Config: `YAYO_POLICY_MODEL` default `anthropic/claude-sonnet-5`.
+- [x] `services/entry_policy.py`: `ENTRY_POLICY_TOOL` (strict), an
+      `EntryPolicyModel` Protocol + `OpenRouterPolicyModel` implementation
+      (its own client class, deliberately separate from `extraction.py`'s —
+      it asks a generic factual question, not email content, so the two
+      concerns stayed decoupled rather than overloading one class for both),
+      `validate_policy`, and `get_policy(session, country_code, nationality,
+      model=None)` — read‑through cache, queries the model only on a genuine
+      cache miss, no refresh parameter at all.
+- [x] Config: `YAYO_POLICY_MODEL` default `anthropic/claude-sonnet-5`
+      (`backend/app/config.py`), gated only by `openrouter_api_key` being set
+      — not by `email_ingest_enabled`, since this never touches mail.
 
 **Tests that must pass to proceed**
-- [ ] Fake `PolicyModel` → `get_policy` caches (second call makes no model call).
-- [ ] Unconfigured ⇒ `get_policy` returns None, no exception.
-- [ ] `validate_policy` drops a bad permit_type / out‑of‑range days.
-- [ ] Tool schema round‑trips all six `RequirementKind`s; only ones marked
-      required surface in the cached row's requirement list.
+- [x] Fake `EntryPolicyModel` → `get_policy` caches (second call makes zero
+      model calls — asserted directly on the fake's call log).
+- [x] Unconfigured (`model=None`) ⇒ `get_policy` returns `None`, no exception,
+      no row persisted.
+- [x] `validate_policy` drops a bad `permit_type`, an out‑of‑range
+      `permitted_days`, and a non‑dict payload; accepts a `visa_free` reading
+      with every "required" flag false.
+- [x] Cache is scoped per `(country_code, nationality)` — US and MX for the
+      same country each trigger their own model call and persist their own row;
+      lowercase/uppercase country codes hit the same cached row.
+- [x] Real `OpenRouterPolicyModel` against a mocked HTTP transport: the strict
+      tool goes out on the wire, the nationality and country name land in the
+      prompt, and the round trip through `get_policy` persists a row with
+      `source_model` recorded.
+- [x] `pytest backend/tests` green (276 passed, was 262); `ruff check` clean.
+
+**Notes for the next engineer**
+- `RequirementKind` has 7 members (`entry_card, visa, eta, insurance,
+  vaccination, onward_ticket, custom`); the policy tool asks about the 6
+  border‑crossing ones (`custom` is always user‑authored, never policy‑driven)
+  in a single strict call. `visa_required`/`entry_card_required`/etc. are
+  independent booleans, not a `permit_type`‑derived guess — Phase 2's
+  `sync_requirements` reads them directly rather than re‑deriving "does this
+  permit type imply a visa row".
+- `get_policy` takes the model as an explicit parameter rather than building
+  one internally, so Phase 2's call sites decide whether an unconfigured box
+  means "skip readiness" (pass `model=None`) or "fetch now"
+  (`OpenRouterPolicyModel.from_settings()`), matching how `extraction.py`
+  separates the pure pipeline from its `from_settings()` constructor.
 
 Commit: `_____`
 

@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     extract_model: str = "anthropic/claude-sonnet-5"
     email_ingest_enabled: bool = False
 
+    # A third, separate call over the same OpenRouter connection: "what does an
+    # MX/US passport holder need to enter country X" (services/entry_policy.py).
+    # Not gated by email_ingest_enabled -- it never touches mail, just a factual
+    # question -- only by openrouter_api_key being set.
+    policy_model: str = "anthropic/claude-sonnet-5"
+
     # --- behaviour ----------------------------------------------------------
     session_days: int = 90
     backup_keep_days: int = 30
