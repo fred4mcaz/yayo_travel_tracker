@@ -28,7 +28,7 @@ from typing import Optional, Protocol
 from sqlmodel import Session, select
 
 from app.countries import country_name
-from app.models import EntryPolicy, Nationality, PermitType
+from app.models import CountryEntry, EntryPolicy, Nationality, PermitType
 
 log = logging.getLogger("yayo.entry_policy")
 
@@ -37,6 +37,19 @@ log = logging.getLogger("yayo.entry_policy")
 DEFAULT_NATIONALITY = Nationality.US
 
 PERMIT_TYPES = tuple(p.value for p in PermitType)
+
+
+def readiness_passport(entry: Optional[CountryEntry]) -> Nationality:
+    """The nationality readiness is computed for (decision 2).
+
+    A trip's own CountryEntry.passport wins when one has been chosen; every
+    other case -- no entry yet, or an entry with no passport picked -- reads as
+    the US default. Never MX by default: MX only applies once a trip
+    explicitly says so.
+    """
+    if entry is not None and entry.passport is not None:
+        return entry.passport.nationality
+    return DEFAULT_NATIONALITY
 
 
 # --------------------------------------------------------------------------
@@ -230,10 +243,14 @@ def validate_policy(payload) -> Optional[PolicyReading]:
 # --------------------------------------------------------------------------
 
 
-def _cached(session: Session, country_code: str, nationality: Nationality) -> Optional[EntryPolicy]:
+def cached_policy(session: Session, country_code: str, nationality: Nationality) -> Optional[EntryPolicy]:
+    """A read-only cache lookup -- never fetches. Public so callers that must
+    not trigger a model call (e.g. trip_readiness's alternate-passport hint)
+    can still see what happens to already be cached.
+    """
     return session.exec(
         select(EntryPolicy)
-        .where(EntryPolicy.country_code == country_code)
+        .where(EntryPolicy.country_code == country_code.upper())
         .where(EntryPolicy.nationality == nationality)
     ).first()
 
@@ -253,7 +270,7 @@ def get_policy(
     (see the module docstring).
     """
     code = country_code.upper()
-    cached = _cached(session, code, nationality)
+    cached = cached_policy(session, code, nationality)
     if cached is not None:
         return cached
     if model is None:
@@ -346,3 +363,19 @@ class OpenRouterPolicyModel:
         if message.tool_calls:
             return json.loads(message.tool_calls[0].function.arguments)
         return None
+
+
+def policy_model_or_none() -> Optional["OpenRouterPolicyModel"]:
+    """A ready-to-use model, or None on an unconfigured box.
+
+    Call sites (sync_requirements at trip/passport-mutation time) use this
+    instead of deciding for themselves whether an OpenRouter key is set --
+    mirroring how scheduler.py gates email extraction on the same setting,
+    but degrading to None here rather than raising, since a missing key must
+    never break a trip save.
+    """
+    from app.config import get_settings
+
+    if not get_settings().openrouter_api_key:
+        return None
+    return OpenRouterPolicyModel.from_settings()

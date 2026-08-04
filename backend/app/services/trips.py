@@ -15,14 +15,24 @@ from sqlmodel import Session, select
 
 from app.countries import country_name
 from app.models import (
+    Actor,
     CountryEntry,
     Leg,
     MergeDismissal,
+    Nationality,
     Note,
     Requirement,
+    RequirementKind,
+    RequirementStatus,
     Stay,
     Trip,
     utcnow,
+)
+from app.services.entry_policy import (
+    EntryPolicyModel,
+    cached_policy,
+    get_policy,
+    readiness_passport,
 )
 
 
@@ -279,6 +289,225 @@ def _last_passport_used_for(session: Session, country_code: str) -> Optional[int
     return prior.passport_id if prior else None
 
 
+# --------------------------------------------------------------------------
+# Immigration readiness (Phase 2)
+# --------------------------------------------------------------------------
+
+# The RequirementKinds a policy reading can produce a row for. `custom` is
+# always user-authored -- the policy never creates or retires one.
+POLICY_REQUIREMENT_KINDS = (
+    RequirementKind.visa,
+    RequirementKind.entry_card,
+    RequirementKind.eta,
+    RequirementKind.insurance,
+    RequirementKind.vaccination,
+    RequirementKind.onward_ticket,
+)
+
+_KIND_LABELS = {
+    RequirementKind.visa: "Visa",
+    RequirementKind.entry_card: "Arrival card",
+    RequirementKind.eta: "Electronic travel authorization",
+    RequirementKind.insurance: "Travel insurance",
+    RequirementKind.vaccination: "Vaccination",
+    RequirementKind.onward_ticket: "Onward ticket",
+}
+
+_SETTLED_STATUSES = {RequirementStatus.approved, RequirementStatus.not_required}
+
+
+def _trip_entry(session: Session, trip_id: int) -> Optional[CountryEntry]:
+    return session.exec(
+        select(CountryEntry).where(CountryEntry.trip_id == trip_id)
+    ).first()
+
+
+def sync_requirements(
+    session: Session,
+    trip: Trip,
+    model: Optional[EntryPolicyModel] = None,
+) -> list[Requirement]:
+    """Materialize/reconcile the trip's `system`-sourced Requirement rows.
+
+    Reads the cached (or, if `model` is given, freshly fetched) EntryPolicy
+    for this trip's country and passport, then creates a row for every kind
+    the policy marks required and retires any it no longer does -- but only
+    ever touches rows with source == system whose status is still todo. A
+    system row the user advanced, or an email confirmed, is left exactly as
+    is even if the policy would no longer create it: that is the traveller's
+    own record, not something a reconciliation gets to overwrite. Idempotent
+    -- calling it twice in a row changes nothing.
+
+    Undated trips and trips with no recorded country get no rows at all
+    (mirrors sync_country_entries, and keeps readiness quiet on a trip that
+    is not real yet): any of this trip's own todo system rows are retired.
+    """
+    system_rows = {
+        r.kind: r
+        for r in session.exec(
+            select(Requirement)
+            .where(Requirement.trip_id == trip.id)
+            .where(Requirement.source == Actor.system)
+        ).all()
+    }
+
+    code = trip_country_code(session, trip.id)
+    if code is None or trip.start_date is None:
+        for row in system_rows.values():
+            if row.status == RequirementStatus.todo:
+                session.delete(row)
+        session.commit()
+        return []
+
+    entry = _trip_entry(session, trip.id)
+    nationality = readiness_passport(entry)
+    policy = get_policy(session, code, nationality, model)
+
+    # An unknown policy (no cache row, no model to fetch one) means "we don't
+    # know yet" -- not "nothing is required". Leave every existing row alone
+    # rather than reading silence as a green light.
+    if policy is None:
+        session.commit()
+        return list(system_rows.values())
+
+    required_kinds = {
+        kind
+        for kind in POLICY_REQUIREMENT_KINDS
+        if getattr(policy, f"{kind.value}_required")
+    }
+
+    for kind in POLICY_REQUIREMENT_KINDS:
+        existing = system_rows.get(kind)
+        if kind in required_kinds:
+            if existing is None:
+                session.add(
+                    Requirement(
+                        trip_id=trip.id,
+                        kind=kind,
+                        label=_KIND_LABELS[kind],
+                        country_code=code,
+                        source=Actor.system,
+                    )
+                )
+        elif existing is not None and existing.status == RequirementStatus.todo:
+            session.delete(existing)
+
+    session.commit()
+    return session.exec(
+        select(Requirement)
+        .where(Requirement.trip_id == trip.id)
+        .where(Requirement.source == Actor.system)
+    ).all()
+
+
+def _other_nationality(nationality: Nationality) -> Nationality:
+    return Nationality.MX if nationality == Nationality.US else Nationality.US
+
+
+def _alternate_passport_hint(
+    session: Session, code: str, nationality: Nationality, policy
+) -> Optional[str]:
+    """"The other passport would clear more easily" -- cache-only.
+
+    Never triggers a model call: it only speaks up when the alternate
+    (country, nationality) pair happens to already be cached, e.g. because
+    another trip asked about it. Silent otherwise, including on the very
+    first look at a country -- that first look isn't worth a second policy
+    fetch just to maybe show a hint.
+    """
+    if not (policy.visa_required or policy.entry_card_required):
+        return None
+    other = _other_nationality(nationality)
+    alt = cached_policy(session, code, other)
+    if alt is None or alt.visa_required or alt.entry_card_required:
+        return None
+    return f"A {other.value} passport would be visa-free here."
+
+
+def _empty_readiness(state: str, passport: Optional[str] = None, is_default_us: bool = False) -> dict:
+    return {
+        "state": state,
+        "passport": passport,
+        "is_default_us": is_default_us,
+        "permit": None,
+        "permitted_days": None,
+        "checklist": [],
+        "arrival_card": None,
+        "advisory": "",
+        "checked_on": None,
+        "alternate_passport_hint": None,
+    }
+
+
+def trip_readiness(session: Session, trip: Trip) -> dict:
+    """Whether this trip is ready to cross the border, and what's left.
+
+    state is one of:
+    - na: no country recorded yet, or undated -- nothing to assess.
+    - unknown: dated with a country, but no cached policy and nothing
+      configured to fetch one -- an unconfigured box, not an error.
+    - action: the policy is known and at least one required checklist item
+      isn't approved / not_required yet.
+    - ready: the policy is known and everything required is settled (or
+      nothing is required at all, e.g. a visa-free trip with no arrival card).
+    """
+    code = trip_country_code(session, trip.id)
+    if code is None or trip.start_date is None:
+        return _empty_readiness("na")
+
+    entry = _trip_entry(session, trip.id)
+    nationality = readiness_passport(entry)
+    is_default_us = entry is None or entry.passport is None
+
+    policy = cached_policy(session, code, nationality)
+    if policy is None:
+        return _empty_readiness("unknown", nationality.value, is_default_us)
+
+    rows = {
+        r.kind: r
+        for r in session.exec(
+            select(Requirement)
+            .where(Requirement.trip_id == trip.id)
+            .where(Requirement.kind.in_(POLICY_REQUIREMENT_KINDS))
+        ).all()
+    }
+    checklist = [
+        {
+            "kind": kind.value,
+            "label": rows[kind].label or _KIND_LABELS[kind],
+            "status": rows[kind].status.value,
+        }
+        for kind in POLICY_REQUIREMENT_KINDS
+        if kind in rows
+    ]
+    ready = all(RequirementStatus(row["status"]) in _SETTLED_STATUSES for row in checklist)
+
+    entry_card_row = rows.get(RequirementKind.entry_card)
+    arrival_card = (
+        {
+            "name": policy.entry_card_name,
+            "status": entry_card_row.status.value,
+            "confirmed": entry_card_row.status == RequirementStatus.approved,
+            "reference": entry_card_row.reference,
+        }
+        if entry_card_row is not None
+        else None
+    )
+
+    return {
+        "state": "ready" if ready else "action",
+        "passport": nationality.value,
+        "is_default_us": is_default_us,
+        "permit": policy.permit_type.value if policy.permit_type else None,
+        "permitted_days": policy.permitted_days,
+        "checklist": checklist,
+        "arrival_card": arrival_card,
+        "advisory": policy.advisory,
+        "checked_on": str(policy.fetched_at.date()),
+        "alternate_passport_hint": _alternate_passport_hint(session, code, nationality, policy),
+    }
+
+
 # How far apart two same-country trips may sit and still be offered as one to
 # merge. Generous on purpose: automatic email matching stays strict (an
 # out-of-span hotel makes a new trip), and this is only a *suggestion* the human
@@ -438,4 +667,5 @@ def trip_detail(session: Session, trip: Trip) -> dict:
         "requirements": [r.model_dump() for r in trip.requirements],
         "notes_list": [n.model_dump() for n in notes],
         "mergeable": mergeable_trips(session, trip),
+        "readiness": trip_readiness(session, trip),
     }

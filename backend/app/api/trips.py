@@ -28,17 +28,20 @@ from app.schemas import (
     TripCreate,
     TripUpdate,
 )
+from app.services.entry_policy import policy_model_or_none
 from app.services.geocode import fill_coordinates
 from app.services.trips import (
     keep_trips_separate,
     merge_trips,
     refresh_trip_dates,
     sync_country_entries,
+    sync_requirements,
     trip_arrival_mode,
     trip_country,
     trip_country_code,
     trip_detail,
     trip_label,
+    trip_readiness,
     trip_status,
 )
 
@@ -108,6 +111,13 @@ def list_trips(session: Session = Depends(get_session)) -> list[dict]:
                 "unbooked_nights": sum(
                     g["nights"] for g in (country["unbooked"] if country else [])
                 ),
+                # Compact readiness for the card badge -- the checklist detail
+                # and advisory text only render on the trip's own detail panel.
+                "readiness": {
+                    k: v
+                    for k, v in trip_readiness(session, trip).items()
+                    if k in ("state", "permit", "permitted_days", "arrival_card", "checked_on")
+                },
             }
         )
     # Undated trips sort last; otherwise most recent start first.
@@ -219,6 +229,7 @@ def _after_change(session: Session, trip: Trip) -> dict:
     refresh_trip_dates(session, trip)
     session.commit()
     sync_country_entries(session, trip)
+    sync_requirements(session, trip, policy_model_or_none())
     session.refresh(trip)
     return trip_detail(session, trip)
 
@@ -404,5 +415,8 @@ def update_entry(
     # The leaving date extends the trip's span, so recompute it.
     refresh_trip_dates(session, trip)
     session.commit()
+    # A passport change (or country_code, in principle) changes which policy
+    # applies, so the checklist needs reconciling too.
+    sync_requirements(session, trip, policy_model_or_none())
     session.refresh(trip)
     return trip_detail(session, trip)

@@ -238,21 +238,60 @@ list and detail views show. This is the load‑bearing derived‑state layer.
   to actually fire most of the time.
 
 **Tasks**
-- [ ] `services/entry_policy.py`: `readiness_passport(entry) -> "US"|"MX"`.
-- [ ] `services/trips.py`: `sync_requirements(session, trip)` (materialize/
-      reconcile `system` rows from the policy) and `trip_readiness(session, trip)`
-      → `{ state: ready|action|unknown|na, passport, is_default_us, permit,
-      permitted_days, checklist:[{kind,label,status}], arrival_card, advisory,
-      checked_on, alternate_passport_hint }`.
-- [ ] Wire `sync_requirements` into the trip mutation + passport‑change paths.
-- [ ] Add `readiness` (compact) to `list_trips` payload and (full) to
-      `trip_detail` payload.
+- [x] `services/entry_policy.py`: `readiness_passport(entry) -> Nationality`
+      (US default, MX only when the trip's `CountryEntry.passport` says so).
+      Also added `cached_policy` (the read‑through cache's lookup half, made
+      public so `trip_readiness`'s alternate‑passport hint can peek without
+      ever fetching) and `policy_model_or_none()` (the from‑settings seam
+      Phase 2's call sites use, mirroring `scheduler.py`'s credential gate but
+      degrading to `None` instead of raising).
+- [x] `services/trips.py`: `sync_requirements(session, trip, model=None)`
+      (materialize/reconcile `system` rows from the policy) and
+      `trip_readiness(session, trip)` → `{ state: ready|action|unknown|na,
+      passport, is_default_us, permit, permitted_days,
+      checklist:[{kind,label,status}], arrival_card, advisory, checked_on,
+      alternate_passport_hint }`.
+- [x] Wire `sync_requirements` into the trip mutation (`_after_change`) +
+      passport‑change (`update_entry`) paths in `api/trips.py`, via
+      `policy_model_or_none()`.
+- [x] Add `readiness` (compact: state/permit/permitted_days/arrival_card/
+      checked_on) to `list_trips` payload and (full) to `trip_detail` payload.
 
 **Tests that must pass to proceed**
-- [ ] US → Japan: visa‑free, **no** `visa` row; readiness `ready` pre‑arrival‑card.
-- [ ] US → Indonesia: `visa` (VoA) + `entry_card` rows, state `action`.
-- [ ] Passport US→MX flip reconciles rows; a user‑advanced status survives.
-- [ ] Undated/no‑country trip → readiness `na`, no rows.
+- [x] US → Japan: visa‑free, **no** `visa` row; readiness `ready` pre‑arrival‑card.
+- [x] US → Indonesia: `visa` (VoA) + `entry_card` rows, state `action`.
+- [x] Passport US→MX flip reconciles rows; a user‑advanced status survives.
+- [x] Undated/no‑country trip → readiness `na`, no rows.
+- [x] Bonus, not in the original list but load‑bearing: an *unknown* policy
+      (no cache, no model) leaves existing rows untouched rather than reading
+      silence as "nothing required"; a row the user/email advanced past `todo`
+      survives reconciliation even when the policy would no longer create it;
+      the two API-level tests (`create stay` / `list trips`) prove
+      `sync_requirements` and the compact/full readiness split are actually
+      wired into the routes, not just reachable as bare functions.
+- [x] `pytest backend/tests` green (284 passed, was 276); `ruff check` clean.
+
+**Notes for the next engineer**
+- `policy` being `None` inside `sync_requirements`/`trip_readiness` means "we
+  don't know yet", never "nothing required" — an unconfigured box or a
+  not‑yet‑cached pair must not retract or suppress rows. This is the one
+  branch it would be easy to get backwards during a future refactor; the
+  `test_unknown_policy_leaves_existing_rows_untouched` test in
+  `test_immigration_readiness.py` guards it directly.
+- `readiness["state"]` is `"ready"` both when every required item is settled
+  *and* when nothing is required at all (empty checklist) — visa‑free Japan
+  with no arrival card reads `ready`, not `na`. `na` is reserved for "nothing
+  to assess" (no country / undated), `unknown` for "would assess, but no
+  policy reading exists yet".
+- `alternate_passport_hint` is cache‑only by design (see its docstring) — it
+  never triggers a second model call just to maybe show a hint, so it stays
+  silent until some other trip happens to have already cached the other
+  nationality's policy for the same country. No test pins its exact wording
+  since Phase 2's required test list didn't call for one; Phase 3 should
+  decide the copy when it renders it.
+- `list_trips`'s compact readiness reuses the same `trip_readiness()` call as
+  `trip_detail`'s full one and just filters keys client-side in the route —
+  there is no separate "compact" computation path to keep in sync.
 
 Commit: `_____`
 
