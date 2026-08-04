@@ -293,7 +293,7 @@ list and detail views show. This is the load‑bearing derived‑state layer.
   `trip_detail`'s full one and just filters keys client-side in the route —
   there is no separate "compact" computation path to keep in sync.
 
-Commit: `_____`
+Commit: `a7e30a9`
 
 ---
 
