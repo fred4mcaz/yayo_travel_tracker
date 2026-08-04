@@ -129,7 +129,7 @@ first keeps each subsequent phase a pure feature slice with no migration noise.
   there — see the shell history in this phase for the exact commands. The real
   `var/` is never touched by this rehearsal.
 
-Commit: `bf1a99a`
+Commit: `886d7c5`
 
 ---
 
