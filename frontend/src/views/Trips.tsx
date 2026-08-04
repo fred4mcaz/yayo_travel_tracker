@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { api, ApiError } from "../lib/api";
 import { countryFlag, formatRange, relativeDays } from "../lib/format";
+import { readinessBadge } from "../lib/immigration";
 import type { TripStatus, TripSummary } from "../types";
 
 const GROUPS: { status: TripStatus; label: string }[] = [
@@ -72,49 +73,60 @@ export function TripList({ trips, selectedId, onSelect, onCreated }: Props) {
         return (
           <div className="trip-group" key={status}>
             <h3 className="group-label">{label}</h3>
-            {group.map((trip) => (
-              <button
-                key={trip.id}
-                className={`trip-card status-${trip.status}${
-                  trip.id === selectedId ? " selected" : ""
-                }`}
-                onClick={() => onSelect(trip.id)}
-              >
-                <div className="trip-card-title">
-                  {trip.country_code && (
-                    <span className="flag">{countryFlag(trip.country_code)}</span>
+            {group.map((trip) => {
+              // Quiet on the past, like everything else on this card -- a
+              // stale reading for a trip that's already over is noise.
+              const badge =
+                trip.status !== "past" ? readinessBadge(trip.readiness) : null;
+              return (
+                <button
+                  key={trip.id}
+                  className={`trip-card status-${trip.status}${
+                    trip.id === selectedId ? " selected" : ""
+                  }`}
+                  onClick={() => onSelect(trip.id)}
+                >
+                  <div className="trip-card-title">
+                    {trip.country_code && (
+                      <span className="flag">{countryFlag(trip.country_code)}</span>
+                    )}
+                    <strong>{trip.label}</strong>
+                  </div>
+                  {trip.country_name && (
+                    <div className="trip-card-meta">{trip.country_name}</div>
                   )}
-                  <strong>{trip.label}</strong>
-                </div>
-                {trip.country_name && (
-                  <div className="trip-card-meta">{trip.country_name}</div>
-                )}
-                <div className="trip-card-meta">
-                  {trip.start_date
-                    ? formatRange(trip.start_date, trip.end_date)
-                    : "No dates"}
-                </div>
-                {trip.cities.length > 1 && (
                   <div className="trip-card-meta">
-                    {trip.cities.join(" · ")}
-                    {trip.nights > 0 && ` · ${trip.nights} nights`}
+                    {trip.start_date
+                      ? formatRange(trip.start_date, trip.end_date)
+                      : "No dates"}
                   </div>
-                )}
-                {trip.unbooked_nights > 0 && (
-                  <div className="trip-card-gap">
-                    {trip.unbooked_nights} night
-                    {trip.unbooked_nights === 1 ? "" : "s"} with no hotel
-                  </div>
-                )}
-                {trip.start_date && trip.status !== "past" && (
-                  <div className="trip-card-when">
-                    {trip.status === "ongoing"
-                      ? `ends ${relativeDays(trip.end_date)}`
-                      : relativeDays(trip.start_date)}
-                  </div>
-                )}
-              </button>
-            ))}
+                  {trip.cities.length > 1 && (
+                    <div className="trip-card-meta">
+                      {trip.cities.join(" · ")}
+                      {trip.nights > 0 && ` · ${trip.nights} nights`}
+                    </div>
+                  )}
+                  {trip.unbooked_nights > 0 && (
+                    <div className="trip-card-gap">
+                      {trip.unbooked_nights} night
+                      {trip.unbooked_nights === 1 ? "" : "s"} with no hotel
+                    </div>
+                  )}
+                  {badge && (
+                    <div className={`trip-card-readiness ${badge.className}`}>
+                      {badge.icon} {badge.text}
+                    </div>
+                  )}
+                  {trip.start_date && trip.status !== "past" && (
+                    <div className="trip-card-when">
+                      {trip.status === "ongoing"
+                        ? `ends ${relativeDays(trip.end_date)}`
+                        : relativeDays(trip.start_date)}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
           </div>
         );
       })}

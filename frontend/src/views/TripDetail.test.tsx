@@ -45,6 +45,18 @@ const TRIP: TripDetail = {
   requirements: [],
   notes_list: [],
   mergeable: [],
+  readiness: {
+    state: "na",
+    permit: null,
+    permitted_days: null,
+    arrival_card: null,
+    checked_on: null,
+    passport: null,
+    is_default_us: false,
+    checklist: [],
+    advisory: "",
+    alternate_passport_hint: null,
+  },
 };
 
 function renderPanel(props: Partial<Parameters<typeof TripDetailPanel>[0]> = {}) {

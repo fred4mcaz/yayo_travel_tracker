@@ -19,6 +19,13 @@ function trip(over: Partial<TripSummary> = {}): TripSummary {
     nights: 4,
     arrival_mode: null,
     unbooked_nights: 0,
+    readiness: {
+      state: "na",
+      permit: null,
+      permitted_days: null,
+      arrival_card: null,
+      checked_on: null,
+    },
     ...over,
   };
 }

@@ -1154,6 +1154,67 @@ textarea {
   margin-top: 2px;
 }
 
+/* --- immigration readiness ----------------------------------------------- */
+/* The compact badge on a trip card: three states reuse the app's existing
+   ongoing/warn/muted palette rather than inventing new colours. `unknown`
+   (no policy reading yet, e.g. an unconfigured box) reads as neutral, not a
+   warning -- it isn't a problem, just an open question. */
+.trip-card-readiness {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.trip-card-readiness.readiness-ready {
+  color: var(--ongoing);
+}
+.trip-card-readiness.readiness-action {
+  color: var(--warn);
+}
+.trip-card-readiness.readiness-unknown {
+  color: var(--text-muted);
+}
+
+.readiness-section h3 {
+  margin-bottom: 8px;
+}
+.readiness-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.readiness-summary strong {
+  display: block;
+  font-weight: 500;
+  font-size: 15px;
+}
+.readiness-summary .muted {
+  font-size: 13px;
+}
+.readiness-summary.readiness-ready {
+  border-color: var(--ongoing);
+}
+.readiness-summary.readiness-action {
+  border-color: var(--warn);
+}
+.readiness-icon {
+  font-size: 16px;
+  line-height: 1.3;
+  flex-shrink: 0;
+}
+.readiness-hint {
+  font-size: 13px;
+  color: var(--upcoming);
+  margin: 0 0 8px;
+}
+.readiness-advisory {
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+
 /* Merge suggestion: a same-country trip a few days off that may be one stay.
    A quiet accent card, not a warning — nothing is wrong, it is just an offer. */
 .merge-suggest {

@@ -317,21 +317,71 @@ trips" and the per‑trip detail.
   because no row was materialized for them; nothing to filter client‑side.
 
 **Tasks**
-- [ ] `types.ts`: `Readiness` + add to `TripSummary`/`TripDetail`; `source` on
-      `Requirement`.
-- [ ] Trip card (`Trips.tsx`): compact readiness badge (✅ ready / ⚠️ action /
-      ❔ unknown) with the permit one‑liner.
-- [ ] `TripDetail.tsx`: "Immigration readiness" section — permit summary, the
+- [x] `types.ts`: `Readiness`/`ReadinessSummary`/`ReadinessChecklistItem`/
+      `ArrivalCardReading`/`ReadinessState` + `readiness` on `TripSummary`
+      (compact) and `TripDetail` (full, overriding narrower→wider per TS
+      interface-extension rules); `source: Actor` on `Requirement`.
+- [x] Trip card (`Trips.tsx`): compact readiness badge (✅ ready / ⚠️ action /
+      ❔ unknown) with the permit one‑liner, via the new
+      `lib/immigration.ts#readinessBadge` shared with the detail panel so the
+      two never describe the same state differently. `na` renders nothing.
+- [x] `TripDetail.tsx`: "Immigration readiness" section — permit summary, the
       US‑default note / MX‑selected, **alternate‑passport hint** ("US would be
       visa‑free"), the checklist with the existing status `<select>`, arrival‑card
-      confirmed indicator, the **loud discrepancy** slot (wired in Phase 5), and
-      the advisory + "checked <date>" line (no Refresh button).
-- [ ] vitest for the badge state mapping.
+      confirmed indicator, an empty slot commented for Phase 5's loud
+      discrepancy banner, and the advisory + "checked <date>" line (no Refresh
+      button). The generic Paperwork section now filters out whatever the
+      readiness checklist already rendered, so `system`-sourced immigration
+      rows don't appear twice.
+- [x] vitest for the badge state mapping (`lib/immigration.test.ts`, 6 cases).
 
 **Tests that must pass to proceed**
-- [ ] `npm test` green incl. new badge test.
-- [ ] Browser (local, no passkey): open an Indonesia trip → VoA + arrival‑card
-      shown; flip passport → section recomputes; past trip → silent. Screenshot.
+- [x] `npm test` green incl. new badge test (42 passed, was 36).
+- [x] Browser (local, no passkey): verified end-to-end against a real trip in
+      the local dev DB (after applying the Phase 0 migration there, which had
+      not yet been run locally). With no policy cached: card badge reads "❔
+      Not checked yet" and the detail section reads "Not checked yet for a MX
+      passport." With a policy manually seeded to simulate a fetched
+      visa‑on‑arrival/entry‑card reading (removed again after): card badge
+      read "⚠️ Visa on arrival · 30 days · arrival card not yet confirmed",
+      the detail section showed the Visa + Arrival card ("Indonesia e-CD")
+      rows with working status `<select>`s; approving the arrival card row
+      dropped the "not yet confirmed" note from the badge; flipping the
+      passport to US (uncached) recomputed the section to "unknown" *without*
+      deleting the MX‑sourced rows, which then correctly reappeared under the
+      generic Paperwork section (the never‑clobber + graceful‑fallback rules
+      both proven live, not just in tests). Text-based verification
+      (`get_page_text`/`read_page`) rather than a pixel screenshot — the
+      Browser pane wasn't displayed for compositing in this session; the
+      transcript above is the evidence trail. All test mutations were reverted
+      (deleted the seeded `entry_policy` row and the two `Requirement` rows,
+      restored the passport selection) — the local dev DB carries no lasting
+      change beyond the additive schema migration.
+
+**Notes for the next engineer**
+- The local dev DB (`var/travel.db`, i.e. the file `backend/app/config.py`'s
+  `var_dir` default resolves to at the repo root) had **not** had the Phase 0
+  migration applied before this phase — `alembic upgrade head` was required
+  before `/api/trips` would even load locally. If you hit `no such table:
+  entry_policy` locally, that's why.
+- `trip_readiness`'s "ready" state actually means "checklist empty or fully
+  settled," and the checklist is read from whatever `Requirement` rows
+  already exist for the trip — it does **not** call `sync_requirements`
+  itself. A trip whose country's policy becomes cached later (fetched by a
+  different trip for the same country+nationality) will not pick up new
+  checklist rows until *this* trip is itself mutated again (a hotel/leg edit
+  or a passport change) and `sync_requirements` runs. This was directly
+  observed during manual verification and is consistent with how
+  `sync_country_entries`/`refresh_trip_dates` already behave (derived state
+  materialises on mutation, not retroactively) — worth knowing before
+  assuming a "ready" badge always means "policy confirms nothing is owed."
+- An unrelated stray `python.exe` (PID varies) was already bound to port 8000
+  on this machine, running a stale build of the backend (missing even the
+  pre‑existing `arrival_mode` field) — left alone since it wasn't started by
+  this session and its origin is unknown. Verification here ran the backend
+  on port 8010 instead, with `frontend/vite.config.ts`'s proxy target
+  temporarily pointed there and reverted afterward (`git diff` was clean
+  before committing).
 
 Commit: `_____`
 

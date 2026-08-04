@@ -25,10 +25,13 @@ import {
   toISODate,
   today,
 } from "../lib/format";
+import { permitSummary, readinessBadge } from "../lib/immigration";
 import type {
   TripCountry,
   Leg,
   Passport,
+  Readiness,
+  Requirement,
   Stay,
   TripDetail as Detail,
 } from "../types";
@@ -238,6 +241,19 @@ export function TripDetailPanel({
         />
       )}
 
+      {trip.status !== "past" && (
+        <ReadinessSection
+          readiness={trip.readiness}
+          requirements={trip.requirements}
+          busy={busy}
+          onUpdateStatus={(reqId, status) =>
+            void run(() =>
+              api.trips.updateRequirement(trip.id, reqId, { status }),
+            )
+          }
+        />
+      )}
+
       {trip.mergeable.length > 0 && (
         <section className="merge-suggest">
           <h3>Same trip as another?</h3>
@@ -290,36 +306,47 @@ export function TripDetailPanel({
         </section>
       )}
 
-      {trip.requirements.length > 0 && (
-        <section>
-          <h3>Paperwork</h3>
-          {trip.requirements.map((req) => (
-            <div className="req-row" key={req.id}>
-              <div className="entry-main">
-                <strong>{req.label || req.kind.replace(/_/g, " ")}</strong>
-                {req.due_date && (
-                  <span className="muted">due {formatDate(req.due_date)}</span>
-                )}
+      {/* The system-materialised checklist entries (visa, entry_card, ...)
+          already render inside the Immigration readiness section above --
+          only what's left, mainly hand-added or `custom` items, belongs here. */}
+      {(() => {
+        const immigrationKinds = new Set(
+          trip.readiness.checklist.map((c) => c.kind),
+        );
+        const paperwork = trip.requirements.filter(
+          (r) => !(r.source === "system" && immigrationKinds.has(r.kind)),
+        );
+        return paperwork.length > 0 ? (
+          <section>
+            <h3>Paperwork</h3>
+            {paperwork.map((req) => (
+              <div className="req-row" key={req.id}>
+                <div className="entry-main">
+                  <strong>{req.label || req.kind.replace(/_/g, " ")}</strong>
+                  {req.due_date && (
+                    <span className="muted">due {formatDate(req.due_date)}</span>
+                  )}
+                </div>
+                <select
+                  value={req.status}
+                  onChange={(e) =>
+                    run(() =>
+                      api.trips.updateRequirement(trip.id, req.id, {
+                        status: e.target.value,
+                      }),
+                    )
+                  }
+                >
+                  <option value="todo">To do</option>
+                  <option value="submitted">Submitted</option>
+                  <option value="approved">Approved</option>
+                  <option value="not_required">Not required</option>
+                </select>
               </div>
-              <select
-                value={req.status}
-                onChange={(e) =>
-                  run(() =>
-                    api.trips.updateRequirement(trip.id, req.id, {
-                      status: e.target.value,
-                    }),
-                  )
-                }
-              >
-                <option value="todo">To do</option>
-                <option value="submitted">Submitted</option>
-                <option value="approved">Approved</option>
-                <option value="not_required">Not required</option>
-              </select>
-            </div>
-          ))}
-        </section>
-      )}
+            ))}
+          </section>
+        ) : null;
+      })()}
 
       {trip.notes_list.length > 0 && (
         <section>
@@ -471,6 +498,93 @@ export function TripDetailPanel({
         </Sheet>
       )}
     </div>
+  );
+}
+
+/** Whether this trip is ready to cross the border, and what's still owed.
+ *  `na` renders nothing -- no country recorded yet, or undated, so there is
+ *  nothing to assess (mirrors the missing-travel banner's own quiet state). */
+function ReadinessSection({
+  readiness,
+  requirements,
+  busy,
+  onUpdateStatus,
+}: {
+  readiness: Readiness;
+  requirements: Requirement[];
+  busy: boolean;
+  onUpdateStatus: (reqId: number, status: string) => void;
+}) {
+  if (readiness.state === "na") return null;
+
+  if (readiness.state === "unknown") {
+    return (
+      <section className="readiness-section">
+        <h3>Immigration readiness</h3>
+        <p className="muted">
+          Not checked yet for a {readiness.passport ?? "US"} passport.
+        </p>
+      </section>
+    );
+  }
+
+  const badge = readinessBadge(readiness);
+  const reqByKind = new Map(requirements.map((r) => [r.kind, r]));
+
+  return (
+    <section className="readiness-section">
+      <h3>Immigration readiness</h3>
+
+      <div className={`readiness-summary ${badge?.className ?? ""}`}>
+        <span className="readiness-icon">{badge?.icon}</span>
+        <div>
+          <strong>{permitSummary(readiness) ?? "Nothing required to enter"}</strong>
+          <span className="muted">
+            {readiness.is_default_us
+              ? "Assuming a US passport (none selected yet)"
+              : `${readiness.passport} passport selected`}
+          </span>
+        </div>
+      </div>
+
+      {readiness.alternate_passport_hint && (
+        <p className="readiness-hint">{readiness.alternate_passport_hint}</p>
+      )}
+
+      {readiness.checklist.map((item) => {
+        const req = reqByKind.get(item.kind);
+        if (!req) return null;
+        return (
+          <div className="req-row" key={item.kind}>
+            <div className="entry-main">
+              <strong>{item.label}</strong>
+              {item.kind === "entry_card" && readiness.arrival_card?.name && (
+                <span className="muted">{readiness.arrival_card.name}</span>
+              )}
+            </div>
+            <select
+              value={req.status}
+              disabled={busy}
+              onChange={(e) => onUpdateStatus(req.id, e.target.value)}
+            >
+              <option value="todo">To do</option>
+              <option value="submitted">Submitted</option>
+              <option value="approved">Approved</option>
+              <option value="not_required">Not required</option>
+            </select>
+          </div>
+        );
+      })}
+
+      {/* Loud discrepancy flag lands here in Phase 5: an accepted
+          immigration email whose nationality differs from the passport
+          selected above renders a banner in this spot, not a quiet note. */}
+
+      <p className="readiness-advisory muted">
+        {readiness.checked_on ? `Checked ${formatDate(readiness.checked_on)}. ` : ""}
+        {readiness.advisory}
+      </p>
+    </section>
   );
 }
 

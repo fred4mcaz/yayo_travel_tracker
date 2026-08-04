@@ -13,6 +13,10 @@ export type RequirementKind =
 
 export type RequirementStatus = "todo" | "submitted" | "approved" | "not_required";
 
+/** Whether a Requirement row was typed by hand, materialized from an
+ *  EntryPolicy reading, or confirmed from an accepted immigration email. */
+export type Actor = "manual" | "email" | "system";
+
 export type NoteCategory =
   | "appointment"
   | "reminder"
@@ -80,6 +84,9 @@ export interface Requirement {
   due_date: string | null;
   reference: string;
   note: string;
+  /** `system` rows are materialised by the entry-policy checklist and get
+   *  reconciled automatically; `manual` and `email` rows never are. */
+  source: Actor;
 }
 
 export interface CountryEntry {
@@ -122,6 +129,52 @@ export interface StaySummary {
   nights: number;
 }
 
+/** ready: settled (or nothing required). action: something still owed.
+ *  unknown: dated + has a country, but no policy reading exists yet (an
+ *  unconfigured box, not an error). na: no country recorded, or undated --
+ *  nothing to assess. */
+export type ReadinessState = "ready" | "action" | "unknown" | "na";
+
+export interface ArrivalCardReading {
+  name: string;
+  status: RequirementStatus;
+  confirmed: boolean;
+  reference: string;
+}
+
+/** What the trip list's compact badge needs -- the full checklist and
+ *  advisory text only render on the trip's own detail panel. */
+export interface ReadinessSummary {
+  state: ReadinessState;
+  permit: PermitType | null;
+  permitted_days: number | null;
+  arrival_card: ArrivalCardReading | null;
+  checked_on: string | null;
+}
+
+export interface ReadinessChecklistItem {
+  kind: RequirementKind;
+  label: string;
+  status: RequirementStatus;
+}
+
+/** The full immigration-readiness reading for one trip: what a passport
+ *  holder needs to enter this country, and how much of it is done. Advisory
+ *  only -- border policy changes without notice, hence `checked_on` rather
+ *  than a refresh control. */
+export interface Readiness extends ReadinessSummary {
+  passport: Nationality | null;
+  /** True when no CountryEntry.passport has been chosen and this reading
+   *  fell back to the US default (decision 2). */
+  is_default_us: boolean;
+  checklist: ReadinessChecklistItem[];
+  advisory: string;
+  /** "A US passport would be visa-free here" -- cache-only, so it only ever
+   *  speaks up when the other nationality's policy already happens to be
+   *  cached from some other trip. */
+  alternate_passport_hint: string | null;
+}
+
 export interface TripSummary {
   id: number;
   /** Always derived from the hotels; trips are never named by hand. */
@@ -141,6 +194,7 @@ export interface TripSummary {
   arrival_mode: TravelMode | null;
   /** Nights inside this stay with no hotel booked. */
   unbooked_nights: number;
+  readiness: ReadinessSummary;
 }
 
 /** One country within a journey: how you got in, on which passport, and every
@@ -186,6 +240,7 @@ export interface TripDetail extends TripSummary {
   notes_list: Note[];
   /** Same-country, near-dated trips this one could be merged with. */
   mergeable: MergeCandidate[];
+  readiness: Readiness;
 }
 
 export interface Passport {
