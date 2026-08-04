@@ -9,6 +9,13 @@
       "port": 8000
     },
     {
+      "name": "backend-local",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--port", "8010"],
+      "cwd": "backend",
+      "port": 8010
+    },
+    {
       "name": "frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],

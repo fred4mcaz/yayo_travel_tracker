@@ -250,6 +250,9 @@ def accept(
         "created_new_trip": result.created_new_trip,
         "stay_id": result.stay_id,
         "leg_id": result.leg_id,
+        # Set only when this accept taught the filter a new sender domain
+        # (D3) -- the review page uses it for a one-time confirmation note.
+        "learned_domain": result.learned_domain,
     }
 
 

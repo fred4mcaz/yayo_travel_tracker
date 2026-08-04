@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, ApiError } from "../lib/api";
 import { countryFlag, formatDateTime, formatRange } from "../lib/format";
-import type { ReviewBooking, ReviewItem } from "../types";
+import type { RecentEmail, ReviewBooking, ReviewItem } from "../types";
 import { Field, Row, Text } from "../components/Fields";
 
 interface Props {
@@ -19,6 +19,8 @@ export function ReviewQueue({ onReviewed }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [polling, setPolling] = useState(false);
   const [pollNote, setPollNote] = useState<string | null>(null);
+  const [learnedNote, setLearnedNote] = useState<string | null>(null);
+  const [emailsOpen, setEmailsOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -56,10 +58,22 @@ export function ReviewQueue({ onReviewed }: Props) {
     void load();
   }, [load]);
 
-  const afterDecision = useCallback(() => {
+  const afterDecision = useCallback(
+    (learnedDomain?: string | null) => {
+      void load();
+      onReviewed();
+      if (learnedDomain) {
+        setLearnedNote(
+          `Learned sender: future email from ${learnedDomain} will be flagged automatically.`,
+        );
+      }
+    },
+    [load, onReviewed],
+  );
+
+  const afterExtract = useCallback(() => {
     void load();
-    onReviewed();
-  }, [load, onReviewed]);
+  }, [load]);
 
   if (items === null) {
     return (
@@ -79,6 +93,13 @@ export function ReviewQueue({ onReviewed }: Props) {
           )}
           <button
             className="btn btn-sm"
+            onClick={() => setEmailsOpen((open) => !open)}
+            aria-expanded={emailsOpen}
+          >
+            {emailsOpen ? "Hide recent emails" : "Find recent emails"}
+          </button>
+          <button
+            className="btn btn-sm"
             onClick={checkNow}
             disabled={polling}
           >
@@ -87,7 +108,10 @@ export function ReviewQueue({ onReviewed }: Props) {
         </div>
       </div>
 
+      {emailsOpen && <RecentEmailsPanel onExtracted={afterExtract} />}
+
       {pollNote && <p className="review-note muted">{pollNote}</p>}
+      {learnedNote && <p className="review-note muted">{learnedNote}</p>}
       {error && <p className="alert alert-danger">{error}</p>}
 
       {items.length === 0 ? (
@@ -102,6 +126,98 @@ export function ReviewQueue({ onReviewed }: Props) {
         <div className="review-list">
           {items.map((item) => (
             <ReviewCard key={item.id} item={item} onDone={afterDecision} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The manual safety net (D2): every stored email from the last few days,
+ *  flagged or not, so one can be picked for extraction even though the
+ *  automatic filter never touched it. Read-only until "Extract" is pressed --
+ *  no bulk sends, and picking one is a deliberate, per-message choice. */
+function RecentEmailsPanel({ onExtracted }: { onExtracted: () => void }) {
+  const [emails, setEmails] = useState<RecentEmail[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [extractingId, setExtractingId] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setEmails(await api.review.recentEmails());
+      setError(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function extract(id: number) {
+    setExtractingId(id);
+    setError(null);
+    try {
+      await api.review.extractEmail(id);
+      onExtracted();
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setExtractingId(null);
+    }
+  }
+
+  return (
+    <div className="recent-emails-panel">
+      <p className="review-note muted">
+        Picking an email here sends that one message to the extractor, even
+        if it wasn't automatically flagged.
+      </p>
+      {error && <p className="alert alert-danger">{error}</p>}
+      {emails === null ? (
+        <p className="muted">Loading…</p>
+      ) : emails.length === 0 ? (
+        <p className="muted">No email in the last few days.</p>
+      ) : (
+        <div className="recent-email-list">
+          {emails.map((e) => (
+            <div className="recent-email-row" key={e.id}>
+              <div className="recent-email-main">
+                <div className="recent-email-subject">
+                  {e.subject || "(no subject)"}
+                </div>
+                <div className="muted">
+                  {e.from_addr}
+                  {e.received_at && ` · ${formatDateTime(e.received_at)}`}
+                </div>
+                {e.snippet && <div className="review-snippet">{e.snippet}</div>}
+              </div>
+              <div className="recent-email-side">
+                <div className="recent-email-badges">
+                  {e.looks_like_travel && (
+                    <span className="pill" title="Matched the automatic filter">
+                      Flagged
+                    </span>
+                  )}
+                  {e.has_pending && (
+                    <span className="pill" title="Already sent for extraction">
+                      Extracted
+                    </span>
+                  )}
+                </div>
+                {!e.has_pending && (
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => extract(e.id)}
+                    disabled={extractingId !== null}
+                  >
+                    {extractingId === e.id ? "Extracting…" : "Extract"}
+                  </button>
+                )}
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -124,7 +240,7 @@ function ReviewCard({
   onDone,
 }: {
   item: ReviewItem;
-  onDone: () => void;
+  onDone: (learnedDomain?: string | null) => void;
 }) {
   const [edit, setEdit] = useState<Partial<ReviewBooking>>({});
   const [busy, setBusy] = useState<"accept" | "reject" | null>(null);
@@ -146,8 +262,8 @@ function ReviewCard({
       const overrides = Object.fromEntries(
         Object.entries(edit).filter(([, v]) => v !== undefined && v !== ""),
       );
-      await api.review.accept(item.id, overrides);
-      onDone();
+      const res = await api.review.accept(item.id, overrides);
+      onDone(res.learned_domain);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
       setBusy(null);

@@ -1324,12 +1324,64 @@ textarea {
 .review-head-right {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
 .review-note {
   margin: -4px 0 12px;
   font-size: 14px;
+}
+
+.recent-emails-panel {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.recent-emails-panel .review-note {
+  margin: 0 0 10px;
+}
+
+.recent-email-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recent-email-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+
+.recent-email-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.recent-email-subject {
+  font-weight: 600;
+}
+
+.recent-email-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.recent-email-badges {
+  display: flex;
+  gap: 6px;
 }
 
 .export-buttons {

@@ -637,5 +637,20 @@ def test_manual_extract_then_accept_learns_the_sender_domain(
     accept_res = client.post(f"/api/review/{extracted['id']}/accept", json={})
 
     assert accept_res.status_code == 200
+    assert accept_res.json()["learned_domain"] == "redbus2.example"
     learned = session.exec(select(LearnedRule)).all()
     assert [r.domain for r in learned] == ["redbus2.example"]
+
+
+def test_accept_of_an_already_covered_sender_reports_no_learned_domain(
+    client, session: Session
+):
+    """The ordinary path: the sender was already allow-listed, so accepting
+    teaches the filter nothing new."""
+    ext = _seed_extraction(session, country_code="JP", city="Osaka",
+                           start_date="2026-10-01", end_date="2026-10-05")
+
+    body = client.post(f"/api/review/{ext.id}/accept", json={}).json()
+
+    assert body["learned_domain"] is None
+    assert session.exec(select(LearnedRule)).all() == []

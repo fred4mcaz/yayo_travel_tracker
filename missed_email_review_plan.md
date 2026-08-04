@@ -243,25 +243,59 @@ surfaces it in the queue; shows when a sender was learned.
 control in `Review.tsx`.
 
 **Assumptions to validate.**
-- [ ] `ReviewItem`/types extend cleanly for the recent-email list.
-- [ ] The dev preview can exercise it (fake data or the seeded dev DB).
+- [x] `ReviewItem`/types extend cleanly for the recent-email list. Added a
+      separate `RecentEmail` type rather than reusing `ReviewItem` -- the two
+      shapes only share a few fields and conflating them would have made
+      `has_pending`/`looks_like_travel` (recent-email-only) and
+      `booking`/`suggestion` (proposal-only) both look valid everywhere.
+- [x] The dev preview can exercise it. **Not the seeded dev DB** -- there's no
+      seed data for `email_message`, and `app/seed.py` predates several model
+      changes (references removed `Trip.title`/`Leg.direction`) so it doesn't
+      currently run at all. Verified instead against the existing local
+      `var/travel.db`, previously synced from production, which already had a
+      real, varied inbox.
 
 **Gotchas / risks.**
 - Keep the list read-only until "Extract" is pressed — no bulk sends.
+  Confirmed: the panel only ever calls `api.review.extractEmail` from an
+  explicit per-row click.
 - Make the privacy point visible: a one-line note that extracting sends that
-  message to the extractor.
+  message to the extractor. Added as the panel's first line, always visible
+  above the list.
 - Loading/disabled states per row so double-clicks don't double-extract.
+  `extractingId` disables every "Extract" button (not just the clicked row)
+  while a request is in flight, matching the existing accept/reject pattern
+  in `ReviewCard`.
+- **Not planned for, found during verification:** `deploy/.env` isn't present
+  locally, so `YAYO_OPENROUTER_API_KEY` is unset, which meant every real
+  "Extract" click hit the 409 path -- this actually made it *safer* to
+  verify against the synced production inbox, since the 409 in
+  `api.review.extract_email` fires before the IMAP refetch or model call, so
+  nothing real ever left the box during manual testing.
 
 **Tasks.**
-- [ ] `api.review.recentEmails(days)`, `api.review.extractEmail(id)` + types.
-- [ ] Review.tsx: "Find recent emails" button → panel listing last 3 days
+- [x] `api.review.recentEmails(days)`, `api.review.extractEmail(id)` + types.
+- [x] Review.tsx: "Find recent emails" button → panel listing last 3 days
       (from, subject, snippet, flagged/extracted badges); per-row "Extract".
-- [ ] On extract success: refresh the queue, reveal the new proposal.
-- [ ] Learned-sender confirmation note after accept.
-- [ ] Browser-preview verification (list renders, extract flows to queue).
+- [x] On extract success: refresh the queue, reveal the new proposal.
+- [x] Learned-sender confirmation note after accept. Required a small addition
+      to phase 4's `accept_extraction`/`AcceptResult` (adding a
+      `learned_domain` field) so the API response can carry it forward to the
+      review page -- the original phase 4 response had no way to signal this.
+- [x] Browser-preview verification (list renders, extract flows to queue).
 
-**Exit test.** `npm run build` + typecheck clean; manual preview shows the flow.
-Commit. Hash: ____
+**Lessons learned.** Port 8000 was already held by a stale, non-`--reload`
+uvicorn process from a different Python interpreter (unrelated leftover, not
+this session's work) -- rather than kill an unknown process, added a
+`backend-local` entry to `.claude/launch.json` on port 8010 that runs uvicorn
+directly against the existing local DB, skipping `dev_backend.py`'s
+production-sync step (which would otherwise overwrite local test state with a
+fresh prod pull on every start).
+
+**Exit test.** `npm run build` + typecheck clean; manual preview confirmed the
+panel renders real (production-synced) inbox data, badges reflect
+`looks_like_travel`/`has_pending` correctly, and the extract 409 path renders
+without sending anything anywhere. Commit. Hash: `<pending>`
 
 ---
 

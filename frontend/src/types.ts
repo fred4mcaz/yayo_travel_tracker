@@ -244,6 +244,20 @@ export interface ReviewItem {
   suggestion: { trip_id: number; label: string } | null;
 }
 
+/** One stored email from the last few days -- the manual safety net's raw
+ *  material. `has_pending` is true once it already has a proposal sitting in
+ *  the review queue, whether that came from the automatic filter or a
+ *  previous manual extract. */
+export interface RecentEmail {
+  id: number;
+  from_addr: string;
+  subject: string;
+  snippet: string;
+  received_at: string | null;
+  looks_like_travel: boolean;
+  has_pending: boolean;
+}
+
 export interface AuthStatus {
   authenticated: boolean;
   enrolled: boolean;

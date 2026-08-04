@@ -2,6 +2,7 @@ import type {
   AuthStatus,
   Note,
   Passport,
+  RecentEmail,
   ReviewItem,
   TripDetail,
   TripSummary,
@@ -182,6 +183,7 @@ export const api = {
         created_new_trip: boolean;
         stay_id: number | null;
         leg_id: number | null;
+        learned_domain: string | null;
       }>(`/api/review/${id}/accept`, overrides),
     reject: (id: number) =>
       post<{ rejected: boolean }>(`/api/review/${id}/reject`),
@@ -191,6 +193,10 @@ export const api = {
         ingest: { ingested: number; baselined?: boolean };
         extraction: { processed: number; proposed: number };
       }>("/api/review/poll"),
+    recentEmails: (days = 3) =>
+      get<RecentEmail[]>(`/api/review/recent-emails?days=${days}`),
+    extractEmail: (id: number) =>
+      post<ReviewItem>(`/api/review/emails/${id}/extract`),
   },
 };
 
