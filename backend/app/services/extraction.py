@@ -360,6 +360,57 @@ def process_email(
     return extraction
 
 
+def extract_selected(
+    session: Session, model: ExtractionModel, email: EmailMessage, body: str
+) -> Optional[Extraction]:
+    """Extract one email on operator-initiated demand (phase 4's manual-catch
+    flow), skipping triage and the `looks_like_travel` gate entirely.
+
+    D2: choosing a message here *is* the informed, per-message consent that
+    would otherwise come from triage and the sender filter passing. `body` is
+    supplied by the caller -- a live IMAP re-fetch when one succeeds, the
+    stored snippet otherwise -- rather than reread from `email.snippet`
+    directly, so the caller controls fidelity.
+
+    Marks the email processed either way, same as `process_email`: a manual
+    attempt that finds nothing is not retried by the next automatic poll.
+    """
+    received_on = email.received_at.date() if email.received_at else None
+    extraction: Optional[Extraction] = None
+
+    raw = model.extract(email.subject, body, received_on)
+    booking = validate_booking(raw)
+    if booking is not None:
+        corrected = correct_year(booking, received_on)
+        if corrected.start_date != booking.start_date:
+            log.info(
+                "email %s: corrected check-in year %s -> %s (manual extract, "
+                "received %s)",
+                email.id,
+                booking.start_date,
+                corrected.start_date,
+                received_on,
+            )
+            booking = corrected
+        extraction = Extraction(
+            email_message_id=email.id,
+            model=model.extract_model,
+            payload_json=json.dumps(booking.payload(), sort_keys=True),
+            confidence=booking.confidence,
+            status=ExtractionStatus.pending,
+        )
+        session.add(extraction)
+    elif raw is not None:
+        log.info("email %s manually extracted but the result was unusable", email.id)
+
+    email.processed_at = utcnow()
+    session.add(email)
+    session.commit()
+    if extraction is not None:
+        session.refresh(extraction)
+    return extraction
+
+
 def run_extractions(
     session: Session, model: ExtractionModel, *, limit: int = 20
 ) -> dict:

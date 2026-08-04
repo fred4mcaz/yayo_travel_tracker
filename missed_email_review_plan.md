@@ -189,30 +189,48 @@ one on demand, and persist a learned sender on accept.
 model and the accept/reject queue so the frontend stays thin.
 
 **Assumptions to validate.**
-- [ ] All `/api/review/*` routes are behind the passkey wall (confirmed via
-      existing router).
-- [ ] Re-fetch-by-UID is feasible with `imap_tools` (add `fetch_uids` to the
-      `Mailbox` protocol + `ImapMailbox`).
+- [x] All `/api/review/*` routes are behind the passkey wall (confirmed via
+      existing router). Both new routes sit on the same `router`, so the
+      existing `require_auth` dependency covers them automatically — verified
+      with `test_recent_emails_is_behind_auth` / `test_extract_is_behind_auth`.
+- [x] Re-fetch-by-UID is feasible with `imap_tools`. **Superseded by phase 2's
+      design**: re-fetch goes by `fetch_by_message_id` (Message-ID header),
+      already built in phase 2, so no separate `fetch_uids` was needed.
 
 **Gotchas / risks.**
 - Don't double-extract: if a pending Extraction already exists for the email,
-  return it instead of making another.
+  return it instead of making another. Implemented; covered by
+  `test_extract_email_returns_the_existing_pending_proposal_instead_of_duplicating`,
+  which also asserts the model was never called.
 - IMAP refetch failure (UIDVALIDITY change, message deleted) → fall back to the
-  stored snippet and note reduced fidelity.
+  stored snippet and note reduced fidelity. Caught with a broad
+  `except Exception` around the `fetch_by_message_id` call specifically
+  because it must also absorb `ImapMailbox.from_settings()` raising
+  `RuntimeError` when IMAP is simply unconfigured (common in dev) — that case
+  degrades the same way a live failure does, by design.
 - Cost/rate: manual extract skips triage (user already decided) and calls the
-  extract model once.
+  extract model once. `extract_selected` never calls `model.triage`; asserted
+  directly in `test_extract_selected_never_calls_triage`.
 
 **Tasks.**
-- [ ] `GET /api/review/recent-emails?days=3` → `[{id, from_addr, subject,
+- [x] `GET /api/review/recent-emails?days=3` → `[{id, from_addr, subject,
       snippet, received_at, looks_like_travel, has_pending}]`, newest first.
-- [ ] `extraction.extract_selected(session, model, email, body)` → create pending
+- [x] `extraction.extract_selected(session, model, email, body)` → create pending
       Extraction (bypass the `looks_like_travel` gate; full body from refetch).
-- [ ] `POST /api/review/emails/{id}/extract` → returns the serialized proposal.
-- [ ] On accept (`services.review.accept_extraction`), if the source sender's
+- [x] `POST /api/review/emails/{id}/extract` → returns the serialized proposal.
+- [x] On accept (`services.review.accept_extraction`), if the source sender's
       domain isn't already covered, write a `LearnedRule` (domain only) and log it.
-- [ ] Endpoint tests with fake mailbox + fake model.
+- [x] Endpoint tests with fake mailbox + fake model.
 
-**Exit test.** New API tests + full suite pass. Commit. Hash: ____
+**Lessons learned.** `openrouter_api_key` is the only credential gating manual
+extract (409 if unset) — IMAP is best-effort only, since a missing/failed
+re-fetch degrades to the stored snippet rather than blocking the operator's
+explicit request. `is_sender_covered()` was pulled out of `classify()`'s
+internals into a small public helper in `email_filter.py` so the accept-to-
+learn check in `services/review.py` didn't have to reach into a
+underscore-prefixed function across module boundaries.
+
+**Exit test.** New API tests + full suite pass (249 passed). Commit. Hash: `<pending>`
 
 ---
 

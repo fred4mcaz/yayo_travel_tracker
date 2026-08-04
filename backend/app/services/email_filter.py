@@ -91,6 +91,21 @@ def effective_rules(session: Session) -> FilterRules:
     return replace(base, allow_sender_domains=base.allow_sender_domains | extra)
 
 
+def is_sender_covered(from_addr: str, rules: FilterRules) -> bool:
+    """Whether `from_addr` alone -- address or domain -- satisfies `rules`.
+
+    The same sender test `classify` runs internally, exposed for callers (the
+    accept-to-learn step, phase 4) that only need to know whether a domain is
+    already covered, not run a full classification.
+    """
+    _, address = parseaddr(from_addr or "")
+    address = address.strip().lower()
+    domain = sender_domain(from_addr)
+    return address in rules.allow_sender_addresses or _domain_allowed(
+        domain, rules.allow_sender_domains
+    )
+
+
 def sender_domain(from_addr: str) -> str:
     """The domain of a From header, whether or not it carries a display name.
 

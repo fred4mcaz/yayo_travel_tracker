@@ -29,7 +29,9 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from app.models import (
+    EmailMessage,
     Leg,
+    LearnedRule,
     Stay,
     Trip,
     TravelMode,
@@ -37,6 +39,7 @@ from app.models import (
     ExtractionStatus,
     utcnow,
 )
+from app.services.email_filter import effective_rules, is_sender_covered, sender_domain
 from app.services.extraction import Booking, validate_booking
 from app.services.geocode import fill_coordinates
 from app.services.trips import (
@@ -240,6 +243,32 @@ ALLOWED_OVERRIDES = frozenset(
 )
 
 
+def _learn_sender_if_new(session: Session, extraction: Extraction) -> None:
+    """D3: accepting is what proves a manually-extracted sender is real.
+
+    A no-op for the ordinary auto-extracted case -- that sender already
+    passed the filter, so `is_sender_covered` is already true and nothing is
+    written. It only actually inserts a row for the sender of a message that
+    reached extraction through the manual bypass (D2), and only once its
+    proposal has been accepted, per D3's "learn on accept, not on extract".
+    """
+    email = session.get(EmailMessage, extraction.email_message_id)
+    if email is None or not email.from_addr:
+        return
+    domain = sender_domain(email.from_addr)
+    if not domain:
+        return
+    if is_sender_covered(email.from_addr, effective_rules(session)):
+        return
+    if session.exec(select(LearnedRule).where(LearnedRule.domain == domain)).first():
+        return
+    session.add(LearnedRule(domain=domain, source="manual_extract_accept"))
+    session.commit()
+    log.info(
+        "learned sender domain %s from accepted extraction %s", domain, extraction.id
+    )
+
+
 def accept_extraction(
     session: Session,
     extraction: Extraction,
@@ -312,6 +341,7 @@ def accept_extraction(
         trip_id,
         "new" if created_new_trip else "existing",
     )
+    _learn_sender_if_new(session, extraction)
     return applied
 
 

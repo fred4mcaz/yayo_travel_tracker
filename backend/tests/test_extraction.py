@@ -24,6 +24,7 @@ from app.services.extraction import (
     OpenRouterModel,
     TriageResult,
     correct_year,
+    extract_selected,
     process_email,
     run_extractions,
     validate_booking,
@@ -238,6 +239,60 @@ def test_process_email_returns_the_extraction_or_none(session: Session):
     email2 = _candidate(session, uid=11)
     no = FakeModel(TriageResult(False, 0.1, "n"))
     assert process_email(session, no, email2) is None
+
+
+# --------------------------------------------------------------------------
+# Phase 4: extract_selected -- the manual, operator-initiated bypass (D2)
+# --------------------------------------------------------------------------
+
+
+def test_extract_selected_ignores_the_looks_like_travel_gate(session: Session):
+    """The whole point of the manual path: a message the auto-filter never
+    flagged can still be extracted once a human picks it."""
+    email = _candidate(session, looks_like_travel=False)
+    model = FakeModel(TriageResult(True, 0.9, "unused"), VALID_BOOKING)
+
+    result = extract_selected(session, model, email, "a live-refetched body")
+
+    assert result is not None
+    assert result.status == ExtractionStatus.pending
+    assert result.email_message_id == email.id
+
+
+def test_extract_selected_never_calls_triage(session: Session):
+    """Cost/rate (phase 4's gotcha): the operator already decided; only the
+    extract model runs, never the cheap triage pass."""
+    email = _candidate(session)
+    model = FakeModel(TriageResult(False, 0.0, "would triage out"), VALID_BOOKING)
+
+    result = extract_selected(session, model, email, "body")
+
+    assert result is not None  # triage's False was never consulted
+    assert model.triaged == []
+
+
+def test_extract_selected_uses_the_body_it_is_given_not_the_stored_snippet(
+    session: Session,
+):
+    email = _candidate(session, snippet="stale truncated snippet")
+    model = FakeModel(TriageResult(True, 0.9, "y"), VALID_BOOKING)
+
+    extract_selected(session, model, email, "the full live body")
+
+    assert model.extracted[0][1] == "the full live body"
+
+
+def test_extract_selected_marks_processed_even_when_nothing_is_extracted(
+    session: Session,
+):
+    email = _candidate(session)
+    model = FakeModel(TriageResult(True, 0.9, "y"), None)
+
+    result = extract_selected(session, model, email, "body")
+
+    assert result is None
+    session.refresh(email)
+    assert email.processed_at is not None
 
 
 # --------------------------------------------------------------------------

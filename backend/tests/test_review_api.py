@@ -6,7 +6,7 @@ other data route.
 """
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlmodel import Session, select
 
@@ -14,9 +14,12 @@ from app.models import (
     EmailMessage,
     Extraction,
     ExtractionStatus,
+    LearnedRule,
     Stay,
     Trip,
+    utcnow,
 )
+from app.services.email_ingest import IncomingEmail
 from app.services.trips import refresh_trip_dates, sync_country_entries
 
 
@@ -292,3 +295,347 @@ def test_poll_when_configured_runs_a_cycle(client, monkeypatch):
 
 def test_poll_is_behind_auth(anon_client):
     assert anon_client.post("/api/review/poll").status_code == 401
+
+
+# --------------------------------------------------------------------------
+# Phase 4: recent emails + manual extract -- the safety net for a missed
+# message the automatic filter never flagged
+# --------------------------------------------------------------------------
+
+
+def _email(session: Session, *, uid=200, received_at=None, **kw) -> EmailMessage:
+    email = EmailMessage(
+        imap_uid=uid,
+        message_id=f"<{uid}@mail.example>",
+        from_addr=kw.get("from_addr", "someone@unlisted.example"),
+        subject=kw.get("subject", "Your ticket is confirmed"),
+        received_at=received_at if received_at is not None else utcnow(),
+        snippet=kw.get("snippet", "PNR RB998877"),
+        looks_like_travel=kw.get("looks_like_travel", False),
+    )
+    session.add(email)
+    session.commit()
+    session.refresh(email)
+    return email
+
+
+VALID_MANUAL_BOOKING = {
+    "kind": "ferry",
+    "country_code": "SG",
+    "city": "Batam",
+    "start_date": "2026-08-05",
+    "end_date": None,
+    "hotel_name": None,
+    "carrier": "redBus",
+    "confirmation_code": "RB998877",
+    "confidence": 0.9,
+}
+
+
+class _FakeMailbox:
+    """Stands in for `ImapMailbox` as a context manager."""
+
+    def __init__(self, body):
+        self._body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def fetch_by_message_id(self, message_id):
+        if self._body is None:
+            return None
+        return IncomingEmail(
+            uid=999,
+            message_id=message_id,
+            from_addr="x",
+            subject="x",
+            received_at=None,
+            body=self._body,
+        )
+
+
+class _FakeMailboxFactory:
+    """Stands in for the `ImapMailbox` class -- `.from_settings()` only."""
+
+    def __init__(self, body=None):
+        self._body = body
+
+    def from_settings(self):
+        return _FakeMailbox(self._body)
+
+
+class _FailingMailboxFactory:
+    """A mailbox that can't even connect -- the IMAP-unconfigured case."""
+
+    def from_settings(self):
+        raise RuntimeError("IMAP credentials are not configured.")
+
+
+class _FakeExtractionModel:
+    extract_model = "anthropic/claude-sonnet-5"
+
+    def __init__(self, result):
+        self._result = result
+        self.calls: list[tuple] = []
+
+    def extract(self, subject, body, received_on=None):
+        self.calls.append((subject, body, received_on))
+        return self._result
+
+
+class _FakeModelFactory:
+    def __init__(self, model):
+        self._model = model
+
+    def from_settings(self):
+        return self._model
+
+
+def _with_openrouter_key(client_call):
+    """Run one client call with an OpenRouter key configured, then restore."""
+    from app.config import Settings, get_settings
+    from app.main import app
+
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        openrouter_api_key="sk-or-test"
+    )
+    try:
+        return client_call()
+    finally:
+        del app.dependency_overrides[get_settings]
+
+
+# --------------------------------------------------------------------------
+# GET /recent-emails
+# --------------------------------------------------------------------------
+
+
+def test_recent_emails_lists_last_n_days_newest_first(client, session: Session):
+    _email(session, uid=1, received_at=utcnow() - timedelta(days=10))
+    mid = _email(session, uid=2, received_at=utcnow() - timedelta(days=1))
+    new = _email(session, uid=3, received_at=utcnow() - timedelta(hours=1))
+
+    rows = client.get("/api/review/recent-emails?days=3").json()
+
+    assert [r["id"] for r in rows] == [new.id, mid.id]
+
+
+def test_recent_emails_defaults_to_a_three_day_window(client, session: Session):
+    _email(session, uid=1, received_at=utcnow() - timedelta(days=5))
+    recent = _email(session, uid=2, received_at=utcnow() - timedelta(hours=2))
+
+    rows = client.get("/api/review/recent-emails").json()
+
+    assert [r["id"] for r in rows] == [recent.id]
+
+
+def test_recent_emails_flags_whether_a_pending_proposal_already_exists(
+    client, session: Session
+):
+    email = _email(session, uid=1)
+
+    before = client.get("/api/review/recent-emails").json()
+    assert before[0]["has_pending"] is False
+
+    session.add(
+        Extraction(
+            email_message_id=email.id,
+            model="m",
+            payload_json="{}",
+            status=ExtractionStatus.pending,
+        )
+    )
+    session.commit()
+
+    after = client.get("/api/review/recent-emails").json()
+    assert after[0]["has_pending"] is True
+
+
+def test_recent_emails_includes_unflagged_messages(client, session: Session):
+    """The whole point: a message the automatic filter never touched still
+    shows up here, ready to be manually selected."""
+    _email(session, uid=1, looks_like_travel=False)
+
+    rows = client.get("/api/review/recent-emails").json()
+
+    assert rows[0]["looks_like_travel"] is False
+
+
+def test_recent_emails_is_behind_auth(anon_client):
+    assert anon_client.get("/api/review/recent-emails").status_code == 401
+
+
+# --------------------------------------------------------------------------
+# POST /emails/{id}/extract
+# --------------------------------------------------------------------------
+
+
+def test_extract_email_bypasses_the_filter_and_creates_a_pending_proposal(
+    client, session: Session, monkeypatch
+):
+    from app import api
+
+    email = _email(
+        session,
+        uid=5,
+        looks_like_travel=False,
+        from_addr="ticketmaster@redbus.sg",
+        subject="Your ferry ticket",
+        snippet="PNR RB998877",
+    )
+    monkeypatch.setattr(api.review, "ImapMailbox", _FakeMailboxFactory(body=None))
+    monkeypatch.setattr(
+        api.review,
+        "OpenRouterModel",
+        _FakeModelFactory(_FakeExtractionModel(VALID_MANUAL_BOOKING)),
+    )
+
+    res = _with_openrouter_key(
+        lambda: client.post(f"/api/review/emails/{email.id}/extract")
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "pending"
+    assert body["booking"]["confirmation_code"] == "RB998877"
+    session.refresh(email)
+    assert email.processed_at is not None
+
+
+def test_extract_email_uses_a_live_refetch_body_when_available(
+    client, session: Session, monkeypatch
+):
+    from app import api
+
+    email = _email(session, uid=6, snippet="stale truncated snippet")
+    model = _FakeExtractionModel(VALID_MANUAL_BOOKING)
+    monkeypatch.setattr(
+        api.review, "ImapMailbox", _FakeMailboxFactory(body="the full live body")
+    )
+    monkeypatch.setattr(api.review, "OpenRouterModel", _FakeModelFactory(model))
+
+    _with_openrouter_key(lambda: client.post(f"/api/review/emails/{email.id}/extract"))
+
+    assert model.calls[0][1] == "the full live body"
+
+
+def test_extract_email_falls_back_to_the_stored_snippet_when_refetch_fails(
+    client, session: Session, monkeypatch
+):
+    from app import api
+
+    email = _email(session, uid=7, snippet="the only body we have")
+    model = _FakeExtractionModel(VALID_MANUAL_BOOKING)
+    monkeypatch.setattr(api.review, "ImapMailbox", _FailingMailboxFactory())
+    monkeypatch.setattr(api.review, "OpenRouterModel", _FakeModelFactory(model))
+
+    res = _with_openrouter_key(
+        lambda: client.post(f"/api/review/emails/{email.id}/extract")
+    )
+
+    assert res.status_code == 200
+    assert model.calls[0][1] == "the only body we have"
+
+
+def test_extract_email_returns_the_existing_pending_proposal_instead_of_duplicating(
+    client, session: Session, monkeypatch
+):
+    from app import api
+
+    email = _email(session, uid=8)
+    existing = Extraction(
+        email_message_id=email.id,
+        model="m",
+        payload_json=json.dumps(VALID_MANUAL_BOOKING),
+        status=ExtractionStatus.pending,
+    )
+    session.add(existing)
+    session.commit()
+    session.refresh(existing)
+
+    model = _FakeExtractionModel(VALID_MANUAL_BOOKING)
+    monkeypatch.setattr(api.review, "OpenRouterModel", _FakeModelFactory(model))
+    monkeypatch.setattr(api.review, "ImapMailbox", _FakeMailboxFactory(body=None))
+
+    res = _with_openrouter_key(
+        lambda: client.post(f"/api/review/emails/{email.id}/extract")
+    )
+
+    assert res.status_code == 200
+    assert res.json()["id"] == existing.id
+    assert model.calls == []  # the existing proposal was reused, not re-extracted
+
+
+def test_extract_email_when_the_model_finds_nothing_is_422(
+    client, session: Session, monkeypatch
+):
+    from app import api
+
+    email = _email(session, uid=9)
+    monkeypatch.setattr(
+        api.review, "OpenRouterModel", _FakeModelFactory(_FakeExtractionModel(None))
+    )
+    monkeypatch.setattr(api.review, "ImapMailbox", _FakeMailboxFactory(body=None))
+
+    res = _with_openrouter_key(
+        lambda: client.post(f"/api/review/emails/{email.id}/extract")
+    )
+
+    assert res.status_code == 422
+
+
+def test_extract_missing_email_is_404(client):
+    assert client.post("/api/review/emails/999/extract").status_code == 404
+
+
+def test_extract_without_openrouter_key_configured_is_409(client, session: Session):
+    email = _email(session, uid=10)
+
+    res = client.post(f"/api/review/emails/{email.id}/extract")
+
+    assert res.status_code == 409
+    assert "YAYO_OPENROUTER_API_KEY" in res.json()["detail"]
+
+
+def test_extract_is_behind_auth(anon_client):
+    assert anon_client.post("/api/review/emails/1/extract").status_code == 401
+
+
+# --------------------------------------------------------------------------
+# D3: accepting a manually-extracted proposal teaches the filter the sender
+# --------------------------------------------------------------------------
+
+
+def test_manual_extract_then_accept_learns_the_sender_domain(
+    client, session: Session, monkeypatch
+):
+    from app import api
+
+    email = _email(
+        session,
+        uid=11,
+        from_addr="ticketmaster@redbus2.example",
+        looks_like_travel=False,
+    )
+    monkeypatch.setattr(api.review, "ImapMailbox", _FakeMailboxFactory(body=None))
+    monkeypatch.setattr(
+        api.review,
+        "OpenRouterModel",
+        _FakeModelFactory(_FakeExtractionModel(VALID_MANUAL_BOOKING)),
+    )
+
+    extracted = _with_openrouter_key(
+        lambda: client.post(f"/api/review/emails/{email.id}/extract")
+    ).json()
+
+    # Extracting alone teaches nothing -- only an accepted proposal does (D3).
+    assert session.exec(select(LearnedRule)).all() == []
+
+    accept_res = client.post(f"/api/review/{extracted['id']}/accept", json={})
+
+    assert accept_res.status_code == 200
+    learned = session.exec(select(LearnedRule)).all()
+    assert [r.domain for r in learned] == ["redbus2.example"]
