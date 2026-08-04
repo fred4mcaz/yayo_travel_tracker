@@ -204,7 +204,7 @@ offline and the cost controlled.
   (`OpenRouterPolicyModel.from_settings()`), matching how `extraction.py`
   separates the pure pipeline from its `from_settings()` constructor.
 
-Commit: `_____`
+Commit: `c80d768`
 
 ---
 
