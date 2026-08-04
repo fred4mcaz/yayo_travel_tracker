@@ -110,25 +110,34 @@ plus the whole suite pass (224 passed). Commit. Hash: `8676747`
 an empty snippet and a frozen `False` flag, so it needs a targeted one-off.
 
 **Assumptions to validate.**
-- [ ] The message still exists in the mailbox under a UID we can re-fetch, and
+- [x] The message still exists in the mailbox under a UID we can re-fetch, and
       UIDVALIDITY is unchanged (so the stored `imap_uid` is still valid).
-- [ ] Its `EmailMessage` row exists (by `message_id`).
+      **Superseded by design** -- `ImapMailbox.fetch_by_message_id` searches by
+      the `Message-ID` header (`imap_tools.Header`), not by UID, so this never
+      needs to hold. UIDVALIDITY changing is irrelevant to a header search.
+- [x] Its `EmailMessage` row exists (by `message_id`). Enforced: `reflag()`
+      raises `LookupError` up front if no stored row matches.
 
 **Gotchas / risks.**
 - The stored snippet is empty; re-derive it from a live re-fetch using Phase 1's
-  fallback rather than hand-pasting text.
+  fallback rather than hand-pasting text. (`fetch_by_message_id` reuses the
+  same `msg.text or _html_to_text(msg.html)` path as `fetch_after`, via a
+  shared `_to_incoming` helper.)
 - If UIDVALIDITY changed, fall back to locating by `message_id` via IMAP search.
+  Turned out to be the *only* path, not a fallback -- see assumption above.
 
 **Tasks.**
-- [ ] `app/tasks/reflag_message.py` (management command): given a `message_id`,
+- [x] `app/tasks/reflag_message.py` (management command): given a `message_id`,
       re-fetch the full body over IMAP, update `snippet`, set
       `looks_like_travel=True`, clear `processed_at`.
-- [ ] Unit test against a fake mailbox.
+- [x] Unit test against a fake mailbox.
 - [ ] Run on the server for the ferry `message_id`, then a poll/extraction cycle;
-      confirm a pending proposal appears (ferry, ID Batam→Malaysia).
+      confirm a pending proposal appears (ferry, ID Batam→Malaysia). **Deferred
+      to Phase 6** (needs the deployed image + real mailbox credentials).
 
 **Exit test.** The ferry shows in `GET /api/review` as a pending proposal on the
-server. Commit the command + test. Hash: ____
+server -- verified in Phase 6. This phase's own exit bar (command + test,
+committed, full suite green) is met. Hash: `<pending>`
 
 ---
 

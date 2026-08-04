@@ -282,19 +282,39 @@ class ImapMailbox:
         for msg in self._mailbox.fetch(criteria, mark_seen=False, bulk=True):
             if not msg.uid:
                 continue
-            yield IncomingEmail(
-                uid=int(msg.uid),
-                message_id=_header(msg, "message-id"),
-                from_addr=msg.from_ or "",
-                subject=msg.subject or "",
-                received_at=msg.date,
-                body=msg.text or _html_to_text(msg.html),
-            )
+            yield _to_incoming(msg)
+
+    def fetch_by_message_id(self, message_id: str) -> Optional[IncomingEmail]:
+        """One message, located by its Message-ID header rather than UID.
+
+        Used for one-off recovery (`app.tasks.reflag_message`), where the
+        stored UID may predate a UIDVALIDITY change. A header search sidesteps
+        that entirely -- it never depends on UID validity in the first place.
+        """
+        from imap_tools import AND, Header
+
+        criteria = AND(header=Header("Message-ID", message_id))
+        for msg in self._mailbox.fetch(criteria, mark_seen=False, bulk=True, limit=1):
+            if not msg.uid:
+                continue
+            return _to_incoming(msg)
+        return None
 
 
 def _header(msg, name: str) -> str:
     values = msg.headers.get(name, ())
     return values[0].strip() if values else ""
+
+
+def _to_incoming(msg) -> IncomingEmail:
+    return IncomingEmail(
+        uid=int(msg.uid),
+        message_id=_header(msg, "message-id"),
+        from_addr=msg.from_ or "",
+        subject=msg.subject or "",
+        received_at=msg.date,
+        body=msg.text or _html_to_text(msg.html),
+    )
 
 
 def run_ingest(session: Session) -> dict:
