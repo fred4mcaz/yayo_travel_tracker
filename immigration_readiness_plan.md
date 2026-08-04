@@ -491,7 +491,7 @@ arrival card has been confirmed via email" — the privacy‑preserving local pa
   there this session; same workaround (backend on 8010, proxy retargeted and
   reverted) was used again.
 
-Commit: `_____`
+Commit: `79e91f5`
 
 ---
 
