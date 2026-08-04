@@ -230,7 +230,7 @@ internals into a small public helper in `email_filter.py` so the accept-to-
 learn check in `services/review.py` didn't have to reach into a
 underscore-prefixed function across module boundaries.
 
-**Exit test.** New API tests + full suite pass (249 passed). Commit. Hash: `<pending>`
+**Exit test.** New API tests + full suite pass (249 passed). Commit. Hash: `b1310e2`
 
 ---
 
