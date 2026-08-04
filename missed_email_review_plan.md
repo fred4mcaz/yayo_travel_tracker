@@ -295,7 +295,7 @@ fresh prod pull on every start).
 **Exit test.** `npm run build` + typecheck clean; manual preview confirmed the
 panel renders real (production-synced) inbox data, badges reflect
 `looks_like_travel`/`has_pending` correctly, and the extract 409 path renders
-without sending anything anywhere. Commit. Hash: `<pending>`
+without sending anything anywhere. Commit. Hash: `f62d9ee`
 
 ---
 
