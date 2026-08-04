@@ -51,6 +51,7 @@ const TRIP: TripDetail = {
     permitted_days: null,
     arrival_card: null,
     checked_on: null,
+    discrepancy: null,
     passport: null,
     is_default_us: false,
     checklist: [],
@@ -199,6 +200,46 @@ describe("TripDetailPanel missing-travel banner", () => {
       },
     });
     expect(hasBanner(container)).toBe(false);
+  });
+});
+
+describe("TripDetailPanel discrepancy banner", () => {
+  const discrepancyReadiness = {
+    ...TRIP.readiness,
+    state: "action" as const,
+    discrepancy: {
+      kind: "entry_card" as const,
+      document_nationality: "MX" as const,
+      selected_passport: "US" as const,
+    },
+  };
+
+  it("shows a loud banner when the trip has a discrepancy", () => {
+    const { container } = renderPanel({
+      trip: { ...TRIP, status: "future", readiness: discrepancyReadiness },
+    });
+    expect(container.querySelector(".discrepancy-banner")).not.toBeNull();
+    expect(container.textContent).toContain("Passport mismatch");
+  });
+
+  it("still shows the banner on a past trip, even though the rest of readiness stays quiet", () => {
+    const { container } = renderPanel({
+      trip: { ...TRIP, status: "past", readiness: discrepancyReadiness },
+    });
+    expect(container.querySelector(".discrepancy-banner")).not.toBeNull();
+    // Nothing else from the readiness section renders on a past trip.
+    expect(container.querySelector(".readiness-summary")).toBeNull();
+  });
+
+  it("stays quiet on a past trip with no discrepancy", () => {
+    const { container } = renderPanel({
+      trip: {
+        ...TRIP,
+        status: "past",
+        readiness: { ...TRIP.readiness, state: "unknown", passport: "US" },
+      },
+    });
+    expect(container.querySelector(".readiness-section")).toBeNull();
   });
 });
 

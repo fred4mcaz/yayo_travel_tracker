@@ -1210,6 +1210,22 @@ textarea {
   color: var(--upcoming);
   margin: 0 0 8px;
 }
+/* Decision 3: loud, not a quiet note. Reuses .alert-danger's colour but lays
+   the heading and the sentence out in a column like .missing-travel does. */
+.discrepancy-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.discrepancy-banner strong {
+  font-weight: 500;
+}
+.trip-card-discrepancy {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--danger);
+  margin-top: 2px;
+}
 .readiness-advisory {
   font-size: 12px;
   margin: 8px 0 0;
@@ -1449,6 +1465,11 @@ textarea {
 }
 
 .recent-email-badges {
+  display: flex;
+  gap: 6px;
+}
+
+.recent-email-actions {
   display: flex;
   gap: 6px;
 }

@@ -424,7 +424,39 @@ def _alternate_passport_hint(
     return f"A {other.value} passport would be visa-free here."
 
 
-def _empty_readiness(state: str, passport: Optional[str] = None, is_default_us: bool = False) -> dict:
+def _discrepancy(
+    session: Session, trip_id: int, nationality: Nationality
+) -> Optional[dict]:
+    """A loud passport-mismatch flag (decision 3): a Requirement row whose
+    accepted immigration email (Phase 5) named a different nationality than
+    the trip's *currently* selected passport.
+
+    Checked independent of whether a policy is cached -- an accepted
+    confirmation is real regardless of readiness state, and flipping the
+    trip's passport later to match clears this without the stored row ever
+    being touched again (see Requirement.discrepancy_nationality).
+    """
+    rows = session.exec(
+        select(Requirement)
+        .where(Requirement.trip_id == trip_id)
+        .where(Requirement.discrepancy_nationality.is_not(None))
+    ).all()
+    for row in rows:
+        if row.discrepancy_nationality != nationality:
+            return {
+                "kind": row.kind.value,
+                "document_nationality": row.discrepancy_nationality.value,
+                "selected_passport": nationality.value,
+            }
+    return None
+
+
+def _empty_readiness(
+    state: str,
+    passport: Optional[str] = None,
+    is_default_us: bool = False,
+    discrepancy: Optional[dict] = None,
+) -> dict:
     return {
         "state": state,
         "passport": passport,
@@ -436,6 +468,7 @@ def _empty_readiness(state: str, passport: Optional[str] = None, is_default_us: 
         "advisory": "",
         "checked_on": None,
         "alternate_passport_hint": None,
+        "discrepancy": discrepancy,
     }
 
 
@@ -458,10 +491,11 @@ def trip_readiness(session: Session, trip: Trip) -> dict:
     entry = _trip_entry(session, trip.id)
     nationality = readiness_passport(entry)
     is_default_us = entry is None or entry.passport is None
+    discrepancy = _discrepancy(session, trip.id, nationality)
 
     policy = cached_policy(session, code, nationality)
     if policy is None:
-        return _empty_readiness("unknown", nationality.value, is_default_us)
+        return _empty_readiness("unknown", nationality.value, is_default_us, discrepancy)
 
     rows = {
         r.kind: r
@@ -505,6 +539,7 @@ def trip_readiness(session: Session, trip: Trip) -> dict:
         "advisory": policy.advisory,
         "checked_on": str(policy.fetched_at.date()),
         "alternate_passport_hint": _alternate_passport_hint(session, code, nationality, policy),
+        "discrepancy": discrepancy,
     }
 
 

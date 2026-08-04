@@ -16,9 +16,10 @@ import httpx
 import pytest
 from sqlmodel import Session, select
 
-from app.models import EmailMessage, Extraction, ExtractionStatus
+from app.models import EmailMessage, Extraction, ExtractionStatus, Nationality, RequirementKind
 from app.services.extraction import (
     EXTRACT_TOOL,
+    IMMIGRATION_DOC_TOOL,
     TRIAGE_TOOL,
     Booking,
     OpenRouterModel,
@@ -29,6 +30,7 @@ from app.services.extraction import (
     run_extractions,
     validate_booking,
     validate_bookings,
+    validate_immigration_document,
 )
 
 
@@ -263,6 +265,91 @@ def test_validate_bookings_of_nothing_is_empty():
     assert validate_bookings(None) == []
     assert validate_bookings({"bookings": []}) == []
     assert validate_bookings({"bookings": "not a list"}) == []
+
+
+# --------------------------------------------------------------------------
+# Phase 5: validate_immigration_document
+# --------------------------------------------------------------------------
+
+VALID_IMMIGRATION_DOC = {
+    "requirement_kind": "entry_card",
+    "country_code": "id",
+    "nationality": "MX",
+    "reference": "ECD-123456",
+    "confidence": 0.9,
+}
+
+
+def test_validate_immigration_document_normalises_a_good_payload():
+    doc = validate_immigration_document(VALID_IMMIGRATION_DOC)
+    assert doc is not None
+    assert doc.requirement_kind == RequirementKind.entry_card
+    assert doc.country_code == "ID"
+    assert doc.nationality == Nationality.MX
+    assert doc.reference == "ECD-123456"
+    assert doc.confidence == 0.9
+
+
+def test_validate_immigration_document_rejects_a_bad_requirement_kind():
+    assert validate_immigration_document(
+        {**VALID_IMMIGRATION_DOC, "requirement_kind": "custom"}
+    ) is None
+    assert validate_immigration_document(
+        {**VALID_IMMIGRATION_DOC, "requirement_kind": "not_a_real_kind"}
+    ) is None
+
+
+def test_validate_immigration_document_rejects_a_bad_nationality():
+    assert validate_immigration_document(
+        {**VALID_IMMIGRATION_DOC, "nationality": "CA"}
+    ) is None
+
+
+def test_validate_immigration_document_rejects_a_bad_country_code():
+    assert validate_immigration_document(
+        {**VALID_IMMIGRATION_DOC, "country_code": "Indonesia"}
+    ) is None
+
+
+def test_validate_immigration_document_rejects_out_of_range_confidence():
+    assert validate_immigration_document(
+        {**VALID_IMMIGRATION_DOC, "confidence": 1.5}
+    ) is None
+
+
+def test_validate_immigration_document_rejects_not_a_dict():
+    assert validate_immigration_document(None) is None
+    assert validate_immigration_document("nope") is None
+    assert validate_immigration_document([VALID_IMMIGRATION_DOC]) is None
+
+
+def test_validate_immigration_document_rejects_a_reading_with_neither_kind_nor_nationality():
+    """A reading that names no requirement kind and no nationality confirms
+    nothing a proposal could act on."""
+    empty = {
+        "requirement_kind": None,
+        "country_code": "ID",
+        "nationality": None,
+        "reference": None,
+        "confidence": 0.4,
+    }
+    assert validate_immigration_document(empty) is None
+
+
+def test_validate_immigration_document_accepts_a_kind_only_reading():
+    """A reading with a kind but no nationality is still usable -- the
+    discrepancy flag is only relevant when a nationality was actually read."""
+    reading = {
+        "requirement_kind": "visa",
+        "country_code": None,
+        "nationality": None,
+        "reference": None,
+        "confidence": 0.6,
+    }
+    doc = validate_immigration_document(reading)
+    assert doc is not None
+    assert doc.requirement_kind == RequirementKind.visa
+    assert doc.nationality is None
 
 
 def test_run_extractions_counts_each_journey_of_a_round_trip(session: Session):
@@ -552,6 +639,26 @@ def test_real_client_omits_the_system_message_without_a_date(session: Session):
     model = _model_with_transport(handler)
     model.extract("Your booking", "Sofitel, Hanoi")
 
+    assert [m for m in sent["messages"] if m["role"] == "system"] == []
+
+
+def test_real_client_sends_the_immigration_doc_tool_and_reads_the_tool_call():
+    sent: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(json.loads(request.content))
+        return _openrouter_tool_response(IMMIGRATION_DOC_TOOL["name"], VALID_IMMIGRATION_DOC)
+
+    model = _model_with_transport(handler)
+    raw = model.extract_immigration_document(
+        "Your Indonesia Arrival Card is confirmed", "Your e-CD reference is ECD-123456."
+    )
+
+    assert raw == VALID_IMMIGRATION_DOC
+    assert sent["tools"][0]["function"]["strict"] is True
+    assert sent["tools"][0]["function"]["name"] == IMMIGRATION_DOC_TOOL["name"]
+    assert sent["tool_choice"]["function"]["name"] == IMMIGRATION_DOC_TOOL["name"]
+    # No received_on -- no year-anchoring system message, unlike extract().
     assert [m for m in sent["messages"] if m["role"] == "system"] == []
 
 

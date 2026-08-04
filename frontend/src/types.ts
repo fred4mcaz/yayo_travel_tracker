@@ -87,6 +87,10 @@ export interface Requirement {
   /** `system` rows are materialised by the entry-policy checklist and get
    *  reconciled automatically; `manual` and `email` rows never are. */
   source: Actor;
+  /** Set when a Phase 5 immigration-document extraction read a nationality
+   *  off the email -- the raw fact, not a live verdict (see Readiness.discrepancy,
+   *  which compares this against the trip's *currently* selected passport). */
+  discrepancy_nationality: Nationality | null;
 }
 
 export interface CountryEntry {
@@ -142,6 +146,16 @@ export interface ArrivalCardReading {
   reference: string;
 }
 
+/** Decision 3's loud flag: an accepted immigration email (Phase 5) named a
+ *  nationality that differs from the trip's *currently* selected passport.
+ *  A live comparison, not a stored verdict -- flipping the passport to match
+ *  clears this on the next read. */
+export interface Discrepancy {
+  kind: RequirementKind;
+  document_nationality: Nationality;
+  selected_passport: Nationality;
+}
+
 /** What the trip list's compact badge needs -- the full checklist and
  *  advisory text only render on the trip's own detail panel. */
 export interface ReadinessSummary {
@@ -150,6 +164,7 @@ export interface ReadinessSummary {
   permitted_days: number | null;
   arrival_card: ArrivalCardReading | null;
   checked_on: string | null;
+  discrepancy: Discrepancy | null;
 }
 
 export interface ReadinessChecklistItem {
@@ -282,11 +297,14 @@ export interface ReviewBooking {
 
 export type ExtractionKind = "booking" | "immigration";
 
-/** A local, LLM-free match: a flagged immigration email proposes confirming
- *  one requirement kind on the suggested trip (Phase 4 only ever proposes
- *  `entry_card` -- the arrival card the worked example is about). */
+/** An immigration confirmation match: proposes confirming one requirement
+ *  kind on the suggested trip. `nationality`/`reference` are populated only
+ *  by Phase 5's manual, model-read extraction -- a Phase 4 local match (a
+ *  bare sender+date match, always `entry_card`) leaves both null/empty. */
 export interface ImmigrationProposal {
   requirement_kind: RequirementKind;
+  nationality: Nationality | null;
+  reference: string;
 }
 
 /** One proposal awaiting review: what the email said, what was read out of it,
@@ -322,6 +340,7 @@ export interface RecentEmail {
   snippet: string;
   received_at: string | null;
   looks_like_travel: boolean;
+  looks_like_immigration: boolean;
   has_pending: boolean;
 }
 

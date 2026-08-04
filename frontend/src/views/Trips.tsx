@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { api, ApiError } from "../lib/api";
 import { countryFlag, formatRange, relativeDays } from "../lib/format";
-import { readinessBadge } from "../lib/immigration";
+import { discrepancyMessage, readinessBadge } from "../lib/immigration";
 import type { TripStatus, TripSummary } from "../types";
 
 const GROUPS: { status: TripStatus; label: string }[] = [
@@ -115,6 +115,15 @@ export function TripList({ trips, selectedId, onSelect, onCreated }: Props) {
                   {badge && (
                     <div className={`trip-card-readiness ${badge.className}`}>
                       {badge.icon} {badge.text}
+                    </div>
+                  )}
+                  {/* Decision 3: loud on the card too, not just the detail
+                      panel, and never gated on trip.status -- an accepted
+                      confirmation is a real fact whether or not the trip is
+                      already over. */}
+                  {trip.readiness.discrepancy && (
+                    <div className="trip-card-discrepancy">
+                      ⚠️ {discrepancyMessage(trip.readiness.discrepancy)}
                     </div>
                   )}
                   {trip.start_date && trip.status !== "past" && (

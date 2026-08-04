@@ -116,7 +116,15 @@ def list_trips(session: Session = Depends(get_session)) -> list[dict]:
                 "readiness": {
                     k: v
                     for k, v in trip_readiness(session, trip).items()
-                    if k in ("state", "permit", "permitted_days", "arrival_card", "checked_on")
+                    if k
+                    in (
+                        "state",
+                        "permit",
+                        "permitted_days",
+                        "arrival_card",
+                        "checked_on",
+                        "discrepancy",
+                    )
                 },
             }
         )

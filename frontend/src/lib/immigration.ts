@@ -3,7 +3,7 @@
  *  drift into describing the same state differently.
  */
 
-import type { PermitType, ReadinessSummary } from "../types";
+import type { Discrepancy, PermitType, ReadinessSummary, RequirementKind } from "../types";
 
 export const PERMIT_LABEL: Record<PermitType, string> = {
   visa_free: "Visa-free",
@@ -13,6 +13,27 @@ export const PERMIT_LABEL: Record<PermitType, string> = {
   residency: "Residency",
   citizen: "Citizen",
 };
+
+export const REQUIREMENT_KIND_LABEL: Record<RequirementKind, string> = {
+  entry_card: "Arrival card",
+  visa: "Visa",
+  eta: "Electronic travel authorization",
+  insurance: "Travel insurance",
+  vaccination: "Vaccination",
+  onward_ticket: "Onward ticket",
+  custom: "Requirement",
+};
+
+/** Decision 3's loud copy: one sentence naming the mismatch, never a quiet
+ *  note. Shared so the trip card and the detail section say the same thing. */
+export function discrepancyMessage(discrepancy: Discrepancy): string {
+  const kind = REQUIREMENT_KIND_LABEL[discrepancy.kind].toLowerCase();
+  return (
+    `The ${kind} confirmation names a ${discrepancy.document_nationality} passport, ` +
+    `but this trip has ${discrepancy.selected_passport} selected. Check which ` +
+    `passport you're actually carrying.`
+  );
+}
 
 /** "Visa on arrival · 30 days", or null when there is nothing to summarise. */
 export function permitSummary(

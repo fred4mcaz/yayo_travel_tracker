@@ -28,6 +28,7 @@ function trip(over: Partial<TripSummary>): TripSummary {
       permitted_days: null,
       arrival_card: null,
       checked_on: null,
+      discrepancy: null,
     },
     ...over,
   };
@@ -80,5 +81,40 @@ describe("TripList upcoming order", () => {
     ]);
 
     expect(cardsUnder(container, "Past")).toEqual(["Recent", "Older"]);
+  });
+});
+
+describe("TripList discrepancy flag", () => {
+  it("shows the loud line on the card, even for a past trip", () => {
+    const { container } = renderList([
+      trip({
+        id: 1,
+        label: "Batam",
+        status: "past",
+        start_date: "2025-06-01",
+        end_date: "2025-06-05",
+        readiness: {
+          state: "unknown",
+          permit: null,
+          permitted_days: null,
+          arrival_card: null,
+          checked_on: null,
+          discrepancy: {
+            kind: "entry_card",
+            document_nationality: "MX",
+            selected_passport: "US",
+          },
+        },
+      }),
+    ]);
+
+    const flag = container.querySelector(".trip-card-discrepancy");
+    expect(flag).not.toBeNull();
+    expect(flag?.textContent).toContain("MX passport");
+  });
+
+  it("stays quiet with no discrepancy", () => {
+    const { container } = renderList([trip({ id: 1, label: "Batam" })]);
+    expect(container.querySelector(".trip-card-discrepancy")).toBeNull();
   });
 });

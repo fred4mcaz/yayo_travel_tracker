@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { readinessBadge } from "./immigration";
-import type { ReadinessSummary } from "../types";
+import { discrepancyMessage, readinessBadge } from "./immigration";
+import type { Discrepancy, ReadinessSummary } from "../types";
 
 function summary(over: Partial<ReadinessSummary>): ReadinessSummary {
   return {
@@ -10,6 +10,7 @@ function summary(over: Partial<ReadinessSummary>): ReadinessSummary {
     permitted_days: null,
     arrival_card: null,
     checked_on: null,
+    discrepancy: null,
     ...over,
   };
 }
@@ -79,5 +80,19 @@ describe("readinessBadge", () => {
       }),
     );
     expect(badge?.text).toBe("Visa required");
+  });
+});
+
+describe("discrepancyMessage", () => {
+  it("names the requirement kind and both nationalities in one loud sentence", () => {
+    const discrepancy: Discrepancy = {
+      kind: "entry_card",
+      document_nationality: "MX",
+      selected_passport: "US",
+    };
+    expect(discrepancyMessage(discrepancy)).toBe(
+      "The arrival card confirmation names a MX passport, but this trip has " +
+        "US selected. Check which passport you're actually carrying.",
+    );
   });
 });

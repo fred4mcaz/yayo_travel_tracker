@@ -1,15 +1,18 @@
-"""Phase 4: matching a locally-flagged immigration email to a trip, and the
-review-queue proposal it becomes. No LLM anywhere in this file, mirroring
-services/immigration.py itself.
+"""Phase 4 + 5: matching an immigration email to a trip -- both the local,
+LLM-free path (Phase 4) and the manual, model-read path (Phase 5) -- and the
+review-queue proposal either becomes.
 
 The invariant carried over from Phase 4's booking counterpart (test_review.py):
 
     Nothing writes to a Requirement until accept_confirmation runs.
 
 So matching and proposing are asserted read-only (row-count / status
-untouched), and only accept is asserted to flip anything.
+untouched), and only accept is asserted to flip anything. Phase 5 adds the
+loud discrepancy flag (decision 3): a live comparison at trip_readiness read
+time, not a stored verdict -- see the tests near the bottom of this file.
 """
 
+import json
 from datetime import date, datetime
 from typing import Optional
 
@@ -17,10 +20,13 @@ from sqlmodel import Session, select
 
 from app.models import (
     Actor,
+    CountryEntry,
     EmailMessage,
     Extraction,
     ExtractionKind,
     ExtractionStatus,
+    Nationality,
+    Passport,
     Requirement,
     RequirementKind,
     RequirementStatus,
@@ -29,12 +35,13 @@ from app.models import (
 )
 from app.services.immigration import (
     accept_confirmation,
+    extract_selected_immigration,
     find_matching_trip,
     propose_confirmation,
     run_immigration_matching,
 )
 from app.services.review import NotAcceptable, reject_extraction
-from app.services.trips import refresh_trip_dates, sync_country_entries
+from app.services.trips import refresh_trip_dates, sync_country_entries, trip_readiness
 
 _next_uid = iter(range(200, 200_000))
 
@@ -357,3 +364,191 @@ def test_accept_refuses_when_the_checklist_moved_on(session: Session):
         assert False, "expected NotAcceptable"
     except NotAcceptable:
         pass
+
+
+# --------------------------------------------------------------------------
+# Phase 5 -- extract_selected_immigration, the manual model-read path
+# --------------------------------------------------------------------------
+
+
+class FakeExtractionModel:
+    extract_model = "anthropic/claude-sonnet-5"
+
+    def __init__(self, result):
+        self._result = result
+        self.calls: list[tuple[str, str]] = []
+
+    def extract_immigration_document(self, subject, body):
+        self.calls.append((subject, body))
+        return self._result
+
+
+VALID_DOC = {
+    "requirement_kind": "entry_card",
+    "country_code": "ID",
+    "nationality": "MX",
+    "reference": "ECD-123456",
+    "confidence": 0.9,
+}
+
+
+def test_extract_selected_immigration_matches_and_records_the_reading(session: Session):
+    trip = _make_trip(session, "ID", "Batam", "2026-09-10", "2026-09-14")
+    _entry_card(session, trip)
+    email = _email(
+        session,
+        from_addr="mum@gmail.com",  # unflagged sender -- picking it is the consent
+        looks_like_immigration=False,
+        received_at=datetime(2026, 9, 11, 9, 0),
+    )
+    model = FakeExtractionModel(VALID_DOC)
+
+    extraction = extract_selected_immigration(session, model, email, email.snippet)
+
+    assert extraction is not None
+    assert extraction.kind == ExtractionKind.immigration
+    assert extraction.suggested_trip_id == trip.id
+    assert extraction.model == "anthropic/claude-sonnet-5"
+    assert extraction.confidence == 0.9
+    payload = json.loads(extraction.payload_json)
+    assert payload == {
+        "requirement_kind": "entry_card",
+        "nationality": "MX",
+        "reference": "ECD-123456",
+    }
+    session.refresh(email)
+    assert email.processed_at is not None
+    # Read-only on the requirement -- only accept may flip it.
+    assert _counts(session) == (1, "todo")
+
+
+def test_extract_selected_immigration_uses_the_country_hint_over_the_sender_domain(
+    session: Session,
+):
+    """The model's own country read beats the sender-domain guess -- here the
+    sender is generic but the document names ID."""
+    trip = _make_trip(session, "ID", "Batam", "2026-09-10", "2026-09-14")
+    _entry_card(session, trip)
+    other = _make_trip(session, "MY", "Johor Bahru", "2026-09-10", "2026-09-14")
+    _entry_card(session, other)
+
+    email = _email(
+        session,
+        from_addr="forwarded@gmail.com",
+        looks_like_immigration=False,
+        received_at=datetime(2026, 9, 11, 9, 0),
+    )
+    model = FakeExtractionModel(VALID_DOC)  # country_code: ID
+
+    extraction = extract_selected_immigration(session, model, email, email.snippet)
+
+    assert extraction is not None
+    assert extraction.suggested_trip_id == trip.id
+
+
+def test_extract_selected_immigration_can_target_a_kind_other_than_entry_card(
+    session: Session,
+):
+    """Phase 4's local matcher only ever confirms entry_card; the manual,
+    model-read path can confirm any kind the document actually is."""
+    trip = _make_trip(session, "ID", "Batam", "2026-09-10", "2026-09-14")
+    visa = Requirement(
+        trip_id=trip.id,
+        kind=RequirementKind.visa,
+        status=RequirementStatus.todo,
+        source=Actor.system,
+    )
+    session.add(visa)
+    session.commit()
+
+    email = _email(session, received_at=datetime(2026, 9, 11, 9, 0))
+    model = FakeExtractionModel({**VALID_DOC, "requirement_kind": "visa"})
+
+    extraction = extract_selected_immigration(session, model, email, email.snippet)
+    assert extraction.suggested_trip_id == trip.id
+
+    result = accept_confirmation(session, extraction, reference="")
+    assert result.kind == RequirementKind.visa
+    assert result.status == RequirementStatus.approved
+    assert result.reference == "ECD-123456"  # pre-filled from the reading
+
+
+def test_extract_selected_immigration_marks_processed_when_the_reading_is_unusable(
+    session: Session,
+):
+    email = _email(session, received_at=datetime(2026, 9, 11, 9, 0))
+    model = FakeExtractionModel(None)
+
+    result = extract_selected_immigration(session, model, email, email.snippet)
+
+    assert result is None
+    session.refresh(email)
+    assert email.processed_at is not None
+    assert session.exec(select(Extraction)).all() == []
+
+
+# --------------------------------------------------------------------------
+# Phase 5 -- the loud discrepancy flag (decision 3)
+# --------------------------------------------------------------------------
+
+
+def test_no_discrepancy_when_the_document_nationality_matches_the_selected_passport(
+    session: Session,
+):
+    trip = _make_trip(session, "ID", "Batam", "2026-09-10", "2026-09-14")
+    _entry_card(session, trip)
+    email = _email(session, received_at=datetime(2026, 9, 11, 9, 0))
+    model = FakeExtractionModel({**VALID_DOC, "nationality": "US"})  # matches default
+
+    extraction = extract_selected_immigration(session, model, email, email.snippet)
+    accept_confirmation(session, extraction, reference="")
+
+    assert trip_readiness(session, trip)["discrepancy"] is None
+
+
+def test_discrepancy_shows_after_accepting_a_mismatched_nationality(session: Session):
+    """Decision 3, at the service level: an MX-nationality document accepted
+    on a trip with no passport chosen (reads as the US default) must flag,
+    and accept must still have gone through -- the card is confirmed either
+    way, the flag is additional, not a block."""
+    trip = _make_trip(session, "ID", "Batam", "2026-09-10", "2026-09-14")
+    _entry_card(session, trip)
+    email = _email(session, received_at=datetime(2026, 9, 11, 9, 0))
+    model = FakeExtractionModel(VALID_DOC)  # nationality: MX
+
+    extraction = extract_selected_immigration(session, model, email, email.snippet)
+    result = accept_confirmation(session, extraction, reference="")
+
+    assert result.status == RequirementStatus.approved  # still confirmed
+    readiness = trip_readiness(session, trip)
+    assert readiness["discrepancy"] == {
+        "kind": "entry_card",
+        "document_nationality": "MX",
+        "selected_passport": "US",
+    }
+
+
+def test_discrepancy_clears_once_the_passport_is_flipped_to_match(session: Session):
+    """The flag is a live comparison, not a stored verdict -- selecting the MX
+    passport the email actually matches clears it without touching the row
+    accept wrote."""
+    trip = _make_trip(session, "ID", "Batam", "2026-09-10", "2026-09-14")
+    _entry_card(session, trip)
+    email = _email(session, received_at=datetime(2026, 9, 11, 9, 0))
+    model = FakeExtractionModel(VALID_DOC)  # nationality: MX
+    extraction = extract_selected_immigration(session, model, email, email.snippet)
+    accept_confirmation(session, extraction, reference="")
+    assert trip_readiness(session, trip)["discrepancy"] is not None
+
+    mx_passport = Passport(nationality=Nationality.MX)
+    session.add(mx_passport)
+    session.commit()
+    session.refresh(mx_passport)
+    entry = session.exec(
+        select(CountryEntry).where(CountryEntry.trip_id == trip.id)
+    ).first()
+    entry.passport_id = mx_passport.id
+    session.add(entry)
+    session.commit()
+
+    assert trip_readiness(session, trip)["discrepancy"] is None

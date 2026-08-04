@@ -11,10 +11,14 @@ from datetime import date, datetime, timedelta
 from sqlmodel import Session, select
 
 from app.models import (
+    Actor,
     EmailMessage,
     Extraction,
     ExtractionStatus,
     LearnedRule,
+    Requirement,
+    RequirementKind,
+    RequirementStatus,
     Stay,
     Trip,
     utcnow,
@@ -377,13 +381,19 @@ class _FailingMailboxFactory:
 class _FakeExtractionModel:
     extract_model = "anthropic/claude-sonnet-5"
 
-    def __init__(self, result):
+    def __init__(self, result, immigration_result=None):
         self._result = result
+        self._immigration_result = immigration_result
         self.calls: list[tuple] = []
+        self.immigration_calls: list[tuple] = []
 
     def extract(self, subject, body, received_on=None):
         self.calls.append((subject, body, received_on))
         return self._result
+
+    def extract_immigration_document(self, subject, body):
+        self.immigration_calls.append((subject, body))
+        return self._immigration_result
 
 
 class _FakeModelFactory:
@@ -624,6 +634,140 @@ def test_extract_email_when_the_model_finds_nothing_is_422(
     )
 
     assert res.status_code == 422
+
+
+# --------------------------------------------------------------------------
+# kind=immigration: Phase 5's manual immigration-document extraction
+# --------------------------------------------------------------------------
+
+
+def _todo_entry_card(session: Session, trip: Trip) -> Requirement:
+    req = Requirement(
+        trip_id=trip.id,
+        kind=RequirementKind.entry_card,
+        label="Arrival card",
+        status=RequirementStatus.todo,
+        source=Actor.system,
+    )
+    session.add(req)
+    session.commit()
+    session.refresh(req)
+    return req
+
+
+VALID_IMMIGRATION_DOC = {
+    "requirement_kind": "entry_card",
+    "country_code": "ID",
+    "nationality": "MX",
+    "reference": "ECD-123456",
+    "confidence": 0.9,
+}
+
+
+def test_extract_email_as_immigration_reads_the_document_tool(
+    client, session: Session, monkeypatch
+):
+    from app import api
+
+    trip = _make_trip(session, "ID", "Batam", "2026-09-10", "2026-09-14")
+    _todo_entry_card(session, trip)
+
+    email = _email(
+        session,
+        uid=20,
+        from_addr="no-reply@imigrasi.go.id",
+        subject="Your Indonesia Arrival Card is confirmed",
+        snippet="Your e-CD reference is ECD-123456.",
+        received_at=datetime(2026, 9, 11, 9, 0),
+        looks_like_travel=False,
+    )
+    model = _FakeExtractionModel(None, VALID_IMMIGRATION_DOC)
+    monkeypatch.setattr(api.review, "ImapMailbox", _FakeMailboxFactory(body=None))
+    monkeypatch.setattr(api.review, "OpenRouterModel", _FakeModelFactory(model))
+
+    res = _with_openrouter_key(
+        lambda: client.post(f"/api/review/emails/{email.id}/extract?kind=immigration")
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body) == 1
+    assert body[0]["kind"] == "immigration"
+    assert body[0]["booking"] is None
+    assert body[0]["immigration"] == {
+        "requirement_kind": "entry_card",
+        "nationality": "MX",
+        "reference": "ECD-123456",
+    }
+    assert body[0]["suggestion"]["trip_id"] == trip.id
+    assert model.immigration_calls[0][0] == "Your Indonesia Arrival Card is confirmed"
+
+
+def test_extract_email_as_immigration_when_the_model_finds_nothing_is_422(
+    client, session: Session, monkeypatch
+):
+    from app import api
+
+    email = _email(session, uid=22, looks_like_travel=False)
+    monkeypatch.setattr(
+        api.review,
+        "OpenRouterModel",
+        _FakeModelFactory(_FakeExtractionModel(None, None)),
+    )
+    monkeypatch.setattr(api.review, "ImapMailbox", _FakeMailboxFactory(body=None))
+
+    res = _with_openrouter_key(
+        lambda: client.post(f"/api/review/emails/{email.id}/extract?kind=immigration")
+    )
+
+    assert res.status_code == 422
+
+
+def test_accepting_an_immigration_document_with_a_nationality_mismatch_flags_discrepancy(
+    client, session: Session, monkeypatch
+):
+    """Decision 3, end to end: a fake model reads an MX nationality off an
+    arrival-card email for a trip that has no passport selected yet (reads as
+    the US default) -- accept still confirms the card, but the readiness
+    payload carries a loud discrepancy afterward."""
+    from app import api
+
+    trip = _make_trip(session, "ID", "Batam", "2026-09-10", "2026-09-14")
+    _todo_entry_card(session, trip)
+
+    email = _email(
+        session,
+        uid=21,
+        from_addr="no-reply@imigrasi.go.id",
+        subject="Your Indonesia Arrival Card is confirmed",
+        snippet="Your e-CD reference is ECD-999.",
+        received_at=datetime(2026, 9, 11, 9, 0),
+        looks_like_travel=False,
+    )
+    doc = {**VALID_IMMIGRATION_DOC, "reference": "ECD-999"}
+    monkeypatch.setattr(api.review, "ImapMailbox", _FakeMailboxFactory(body=None))
+    monkeypatch.setattr(
+        api.review, "OpenRouterModel", _FakeModelFactory(_FakeExtractionModel(None, doc))
+    )
+    extracted = _with_openrouter_key(
+        lambda: client.post(f"/api/review/emails/{email.id}/extract?kind=immigration")
+    ).json()
+    extraction_id = extracted[0]["id"]
+
+    res = client.post(f"/api/review/{extraction_id}/accept", json={})
+    assert res.status_code == 200
+    assert res.json()["accepted"] is True
+
+    detail = client.get(f"/api/trips/{trip.id}").json()
+    req = next(r for r in detail["requirements"] if r["kind"] == "entry_card")
+    assert req["status"] == "approved"
+    assert req["reference"] == "ECD-999"
+    assert req["discrepancy_nationality"] == "MX"
+    assert detail["readiness"]["discrepancy"] == {
+        "kind": "entry_card",
+        "document_nationality": "MX",
+        "selected_passport": "US",
+    }
 
 
 def test_extract_missing_email_is_404(client):

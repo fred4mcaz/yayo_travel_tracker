@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 
 import { ReviewQueue } from "./Review";
 import { api } from "../lib/api";
-import type { ReviewItem } from "../types";
+import type { RecentEmail, ReviewItem } from "../types";
 
 vi.mock("../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/api")>();
@@ -16,6 +16,8 @@ vi.mock("../lib/api", async (importOriginal) => {
         list: vi.fn(),
         accept: vi.fn(),
         reject: vi.fn(),
+        recentEmails: vi.fn(),
+        extractEmail: vi.fn(),
       },
     },
   };
@@ -67,7 +69,7 @@ const IMMIGRATION_ITEM: ReviewItem = {
     received_at: "2026-09-11T09:00:00",
   },
   booking: null,
-  immigration: { requirement_kind: "entry_card" },
+  immigration: { requirement_kind: "entry_card", nationality: null, reference: "" },
   suggestion: { trip_id: 7, label: "Batam · Oakwood Grand Batam" },
 };
 
@@ -118,5 +120,58 @@ describe("ReviewQueue", () => {
     fireEvent.click(screen.getByText("Dismiss"));
 
     await waitFor(() => expect(api.review.reject).toHaveBeenCalledWith(2));
+  });
+});
+
+const RECENT_EMAIL: RecentEmail = {
+  id: 30,
+  from_addr: "no-reply@imigrasi.go.id",
+  subject: "Your Indonesia Arrival Card is confirmed",
+  snippet: "Your e-CD reference is ECD-123456.",
+  received_at: "2026-09-11T09:00:00",
+  looks_like_travel: false,
+  looks_like_immigration: true,
+  has_pending: false,
+};
+
+describe("RecentEmailsPanel", () => {
+  it("extracting 'as immigration doc' calls extractEmail with kind=immigration", async () => {
+    vi.mocked(api.review.list).mockResolvedValue([]);
+    vi.mocked(api.review.recentEmails).mockResolvedValue([RECENT_EMAIL]);
+    vi.mocked(api.review.extractEmail).mockResolvedValue([]);
+
+    render(<ReviewQueue onReviewed={vi.fn()} />);
+    fireEvent.click(await screen.findByText("Find recent emails"));
+
+    await waitFor(() =>
+      expect(screen.getByText("Your Indonesia Arrival Card is confirmed")).toBeTruthy(),
+    );
+    // The local immigration classifier flagged this one -- shown so the
+    // reviewer knows without opening the email.
+    expect(screen.getByText("Gov mail")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("As immigration doc"));
+
+    await waitFor(() =>
+      expect(api.review.extractEmail).toHaveBeenCalledWith(30, "immigration"),
+    );
+  });
+
+  it("the plain Extract button still defaults to kind=booking", async () => {
+    vi.mocked(api.review.list).mockResolvedValue([]);
+    vi.mocked(api.review.recentEmails).mockResolvedValue([
+      { ...RECENT_EMAIL, looks_like_immigration: false, looks_like_travel: true },
+    ]);
+    vi.mocked(api.review.extractEmail).mockResolvedValue([]);
+
+    render(<ReviewQueue onReviewed={vi.fn()} />);
+    fireEvent.click(await screen.findByText("Find recent emails"));
+    await waitFor(() => expect(screen.getByText("Extract")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("Extract"));
+
+    await waitFor(() =>
+      expect(api.review.extractEmail).toHaveBeenCalledWith(30, "booking"),
+    );
   });
 });

@@ -25,9 +25,10 @@ import {
   toISODate,
   today,
 } from "../lib/format";
-import { permitSummary, readinessBadge } from "../lib/immigration";
+import { discrepancyMessage, permitSummary, readinessBadge } from "../lib/immigration";
 import type {
   TripCountry,
+  Discrepancy,
   Leg,
   Passport,
   Readiness,
@@ -241,18 +242,17 @@ export function TripDetailPanel({
         />
       )}
 
-      {trip.status !== "past" && (
-        <ReadinessSection
-          readiness={trip.readiness}
-          requirements={trip.requirements}
-          busy={busy}
-          onUpdateStatus={(reqId, status) =>
-            void run(() =>
-              api.trips.updateRequirement(trip.id, reqId, { status }),
-            )
-          }
-        />
-      )}
+      <ReadinessSection
+        readiness={trip.readiness}
+        requirements={trip.requirements}
+        busy={busy}
+        quiet={trip.status === "past"}
+        onUpdateStatus={(reqId, status) =>
+          void run(() =>
+            api.trips.updateRequirement(trip.id, reqId, { status }),
+          )
+        }
+      />
 
       {trip.mergeable.length > 0 && (
         <section className="merge-suggest">
@@ -503,24 +503,40 @@ export function TripDetailPanel({
 
 /** Whether this trip is ready to cross the border, and what's still owed.
  *  `na` renders nothing -- no country recorded yet, or undated, so there is
- *  nothing to assess (mirrors the missing-travel banner's own quiet state). */
+ *  nothing to assess (mirrors the missing-travel banner's own quiet state).
+ *  `quiet` (a past trip) suppresses everything except a loud discrepancy
+ *  banner (decision 3) -- a stale checklist is noise, but a real passport
+ *  mismatch on an accepted confirmation stays worth surfacing regardless. */
 function ReadinessSection({
   readiness,
   requirements,
   busy,
+  quiet,
   onUpdateStatus,
 }: {
   readiness: Readiness;
   requirements: Requirement[];
   busy: boolean;
+  quiet: boolean;
   onUpdateStatus: (reqId: number, status: string) => void;
 }) {
   if (readiness.state === "na") return null;
+
+  if (quiet) {
+    if (!readiness.discrepancy) return null;
+    return (
+      <section className="readiness-section">
+        <h3>Immigration readiness</h3>
+        <DiscrepancyBanner discrepancy={readiness.discrepancy} />
+      </section>
+    );
+  }
 
   if (readiness.state === "unknown") {
     return (
       <section className="readiness-section">
         <h3>Immigration readiness</h3>
+        {readiness.discrepancy && <DiscrepancyBanner discrepancy={readiness.discrepancy} />}
         <p className="muted">
           Not checked yet for a {readiness.passport ?? "US"} passport.
         </p>
@@ -546,6 +562,8 @@ function ReadinessSection({
           </span>
         </div>
       </div>
+
+      {readiness.discrepancy && <DiscrepancyBanner discrepancy={readiness.discrepancy} />}
 
       {readiness.alternate_passport_hint && (
         <p className="readiness-hint">{readiness.alternate_passport_hint}</p>
@@ -576,15 +594,23 @@ function ReadinessSection({
         );
       })}
 
-      {/* Loud discrepancy flag lands here in Phase 5: an accepted
-          immigration email whose nationality differs from the passport
-          selected above renders a banner in this spot, not a quiet note. */}
-
       <p className="readiness-advisory muted">
         {readiness.checked_on ? `Checked ${formatDate(readiness.checked_on)}. ` : ""}
         {readiness.advisory}
       </p>
     </section>
+  );
+}
+
+/** Decision 3: loud, not a quiet note -- an accepted immigration email
+ *  (Phase 5) named a nationality that differs from the passport currently
+ *  selected on this trip. */
+function DiscrepancyBanner({ discrepancy }: { discrepancy: Discrepancy }) {
+  return (
+    <div className="alert alert-danger discrepancy-banner">
+      <strong>Passport mismatch</strong>
+      <span>{discrepancyMessage(discrepancy)}</span>
+    </div>
   );
 }
 

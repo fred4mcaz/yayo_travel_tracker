@@ -236,6 +236,14 @@ class Requirement(SQLModel, table=True):
     # before this column existed was typed by hand.
     source: Actor = Field(default=Actor.manual, index=True)
 
+    # Set on accept when a Phase 5 immigration-document extraction read a
+    # nationality off the email -- the raw fact, not a live verdict. Whether
+    # it's shown as a loud discrepancy (decision 3) is decided at read time
+    # by services.trips.trip_readiness comparing this against the trip's
+    # *currently* selected passport, so flipping the passport later to match
+    # clears the banner without this column ever being touched again.
+    discrepancy_nationality: Optional[Nationality] = Field(default=None, index=True)
+
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 

@@ -84,6 +84,10 @@ def _serialise(session: Session, extraction: Extraction) -> dict:
     if extraction.kind == ExtractionKind.immigration:
         immigration_proposal = {
             "requirement_kind": payload.get("requirement_kind", "entry_card"),
+            # Phase 5 only: a model-read nationality/reference. Both stay
+            # null/empty for a Phase 4 local match, which read neither.
+            "nationality": payload.get("nationality"),
+            "reference": payload.get("reference", ""),
         }
     else:
         code = payload.get("country_code")
@@ -161,6 +165,7 @@ def _serialise_email(session: Session, email: EmailMessage) -> dict:
         "snippet": email.snippet,
         "received_at": email.received_at.isoformat() if email.received_at else None,
         "looks_like_travel": email.looks_like_travel,
+        "looks_like_immigration": email.looks_like_immigration,
         "has_pending": has_pending,
     }
 
@@ -186,6 +191,7 @@ def recent_emails(
 @router.post("/emails/{email_id}/extract")
 def extract_email(
     email_id: int,
+    kind: str = "booking",
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> list[dict]:
@@ -193,10 +199,15 @@ def extract_email(
 
     Picking an email here *is* the operator's per-message consent to send
     that one message to the extractor -- a deliberate, logged relaxation of
-    the privacy control, never automatic. Returns a list because one email can
-    yield several proposals -- a round-trip ticket is two journeys. If pending
-    proposals already exist for this email, those are returned rather than
-    extracting again.
+    the privacy control, never automatic. `kind="immigration"` (Phase 5)
+    reads a requirement kind, a reference, and a nationality instead of a
+    booking -- for an unflagged government email the local classifier
+    missed, or for a richer read of one it already flagged (Phase 4's local
+    match only ever confirms a bare entry_card). Returns a list because one
+    email can yield several proposals -- a round-trip ticket is two journeys,
+    though an immigration read yields at most one. If pending proposals
+    already exist for this email, those are returned rather than extracting
+    again.
     """
     email = get_or_404(session, EmailMessage, email_id, "email")
 
@@ -208,7 +219,8 @@ def extract_email(
     ).all()
     if existing:
         for row in existing:
-            suggest(session, row)
+            if row.kind == ExtractionKind.booking:
+                suggest(session, row)
         session.commit()
         return [_serialise(session, row) for row in existing]
 
@@ -241,16 +253,20 @@ def extract_email(
         )
 
     model = OpenRouterModel.from_settings()
-    extractions = extract_selected(session, model, email, body)
+    if kind == "immigration":
+        extraction = immigration.extract_selected_immigration(session, model, email, body)
+        extractions = [extraction] if extraction else []
+    else:
+        extractions = extract_selected(session, model, email, body)
+        for extraction in extractions:
+            suggest(session, extraction)
+        session.commit()
+
     if not extractions:
         raise HTTPException(
             status_code=422,
             detail="the model found nothing to extract from this email",
         )
-
-    for extraction in extractions:
-        suggest(session, extraction)
-    session.commit()
     return [_serialise(session, extraction) for extraction in extractions]
 
 

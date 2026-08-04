@@ -178,6 +178,7 @@ def test_undated_or_countryless_trip_reads_na_with_no_rows(session: Session, cli
         "advisory": "",
         "checked_on": None,
         "alternate_passport_hint": None,
+        "discrepancy": None,
     }
 
 

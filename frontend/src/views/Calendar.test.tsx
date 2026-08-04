@@ -25,6 +25,7 @@ function trip(over: Partial<TripSummary> = {}): TripSummary {
       permitted_days: null,
       arrival_card: null,
       checked_on: null,
+      discrepancy: null,
     },
     ...over,
   };

@@ -511,15 +511,100 @@ validity, **nationality/passport** → the loud discrepancy flag).
   persist + render **loudly** (decision 3).
 
 **Tasks**
-- [ ] `IMMIGRATION_DOC_TOOL` (strict) + `extract_selected_immigration`.
-- [ ] Review UI: allow choosing "extract as immigration document" for a recent
-      email; accept flips the requirement and records nationality/reference.
-- [ ] Discrepancy detection + loud banner on the trip detail + card.
+- [x] `IMMIGRATION_DOC_TOOL` (strict, in `extraction.py` alongside the booking
+      tools) + `ExtractionModel.extract_immigration_document` (Protocol +
+      `OpenRouterModel` impl) + `validate_immigration_document`/
+      `ImmigrationDocument`. `services/immigration.py#extract_selected_immigration`
+      orchestrates: calls the model, validates, and calls a **generalised**
+      `find_matching_trip(session, email, kind=, country_hint=)` — Phase 4's
+      version hardcoded `entry_card`; Phase 5 passes whatever kind the
+      document read, and a `country_hint` from the model's own reading that
+      wins over the sender-domain guess. `_todo_entry_card` was renamed
+      `_todo_requirement(session, trip_id, kind)` to match.
+- [x] Review UI: `POST /api/review/emails/{id}/extract?kind=immigration`
+      (new `kind` query param, default `booking` — the existing endpoint,
+      not a new route) branches to `extract_selected_immigration`.
+      `RecentEmailsPanel` now shows two buttons per email ("Extract" /
+      "As immigration doc") plus a "Gov mail" pill when
+      `looks_like_immigration` is set, so a flagged-but-unread email is
+      visible before picking either. Accept reads `reference`/`nationality`
+      pre-filled from the model's own reading (reviewer's typed override
+      still wins) — `accept_confirmation` (Phase 4) now reads
+      `requirement_kind`/`reference`/`nationality` off the proposal's own
+      `payload_json` instead of assuming `entry_card`.
+- [x] Discrepancy detection + loud banner on the trip detail + card. New
+      `Requirement.discrepancy_nationality` (migration `50cd760e587a`,
+      nullable, no `server_default` trap) stores the raw fact — the
+      nationality a Phase 5 reading named — unconditionally on accept.
+      **Deliberately not a stored verdict**: `services.trips.trip_readiness`
+      compares it against the trip's *currently* selected passport at every
+      read, so flipping the passport later to match clears the banner
+      without the row ever being touched again (verified live in the
+      browser, see below). `discrepancy` is now a field on both
+      `ReadinessSummary` (compact, on trip cards) and the full `Readiness`
+      (trip detail) — checked independent of whether a policy is even
+      cached, since an accepted confirmation is a real fact regardless of
+      readiness state. On the trip detail panel this is the one thing that
+      still renders on a **past** trip (`ReadinessSection` grew a `quiet`
+      prop for this — Phase 3's "gate the whole section on status" became
+      "gate everything except a loud discrepancy on status").
 
 **Tests that must pass to proceed**
-- [ ] Fake model extracts an arrival card w/ MX nationality on a US‑selected trip
-      → discrepancy recorded; accept still confirms the card but the flag shows.
-- [ ] `npm test` + browser verify the loud flag renders. Screenshot.
+- [x] Fake model extracts an arrival card w/ MX nationality on a US‑selected trip
+      → discrepancy recorded; accept still confirms the card but the flag shows
+      (`test_discrepancy_shows_after_accepting_a_mismatched_nationality` at the
+      service level, `test_accepting_an_immigration_document_with_a_nationality_mismatch_flags_discrepancy`
+      end-to-end through the API).
+- [x] `npm test` green (53 passed, was 45) + browser verify the loud flag
+      renders — see below. No pixel screenshot (Browser pane wasn't
+      displayed for compositing this session either), but the full
+      `get_page_text` transcript is the evidence trail, same as Phases 3–4.
+- [x] Bonus, not in the original list: the country-hint-overrides-sender-domain
+      case; targeting a kind other than `entry_card` (Phase 4's local matcher
+      never can); a reading naming neither a kind nor a nationality is
+      rejected as unusable; the discrepancy clears once the passport is
+      flipped to match (both at the service level and live in the browser).
+- [x] `pytest backend/tests` green (331 passed, was 312); `ruff check` clean.
+      Migration rehearsed against a copy of the real local dev DB, then
+      applied to it for real.
+
+**Tests that must pass to proceed, browser verification detail**
+Seeded a real `todo` `entry_card` requirement + a flagged immigration email on
+the local dev DB's Indonesia trip (MX passport selected), then ran the actual
+`extract_selected_immigration`/`accept_confirmation` functions with a fake
+model reading a **US** nationality — a genuine mismatch against the trip's
+selected MX passport. Confirmed: the card showed "⚠️ The arrival card
+confirmation names a US passport, but this trip has MX selected..."; the trip
+detail panel showed a red "Passport mismatch" banner with the same sentence,
+above the (now-quiet, since no policy is cached) "Not checked yet" line; the
+`Requirement` correctly showed "Approved" in the generic Paperwork fallback.
+Flipping the passport selector to US live-cleared the banner on both the card
+and the detail panel, no reload needed — proving the "live comparison, not a
+stored verdict" design end to end. Flipped back to MX and deleted all seeded
+rows afterward; the local dev DB carries no lasting change beyond the schema
+migration.
+
+**Notes for the next engineer**
+- `services/immigration.py` now does double duty: Phase 4's fully-automatic,
+  LLM-free `propose_confirmation`/`run_immigration_matching` (always
+  `entry_card`, matched by sender-domain + date only) and Phase 5's manual,
+  model-read `extract_selected_immigration` (any kind, model's own country
+  read, nationality). Both funnel through the same `accept_confirmation` —
+  it reads everything it needs (`requirement_kind`, `reference`,
+  `nationality`) from the proposal's own `payload_json`, so the accept
+  endpoint and the UI never need to know which path produced a given
+  immigration proposal.
+- `RequirementKind` values other than `custom` line up exactly between
+  `services.trips.POLICY_REQUIREMENT_KINDS` (Phase 2) and
+  `extraction.IMMIGRATION_REQUIREMENT_KINDS` (Phase 5) — both are "every
+  kind except custom". If a future kind is ever added that shouldn't be
+  policy-driven or document-confirmable, that assumption needs revisiting in
+  both places.
+- The stray unrelated `python.exe` on port 8000 (noted in Phases 3 and 4) was
+  *not* checked this session — same 8010 + temporarily-retargeted-proxy
+  workaround was used without re-verifying it's still there. Worth an actual
+  look before Phase 6's deploy, since it's unrelated to this feature and its
+  origin is still unknown.
 
 Commit: `_____`
 

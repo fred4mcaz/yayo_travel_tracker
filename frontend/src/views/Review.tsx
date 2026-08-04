@@ -2,18 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, ApiError } from "../lib/api";
 import { countryFlag, formatDateTime, formatRange } from "../lib/format";
+import { REQUIREMENT_KIND_LABEL } from "../lib/immigration";
 import type { RecentEmail, ReviewBooking, ReviewItem } from "../types";
 import { Field, Row, Text } from "../components/Fields";
-
-const REQUIREMENT_KIND_LABEL: Record<string, string> = {
-  entry_card: "Arrival card",
-  visa: "Visa",
-  eta: "Electronic travel authorization",
-  insurance: "Travel insurance",
-  vaccination: "Vaccination",
-  onward_ticket: "Onward ticket",
-  custom: "Requirement",
-};
 
 interface Props {
   onReviewed: () => void;
@@ -161,7 +152,9 @@ export function ReviewQueue({ onReviewed }: Props) {
 function RecentEmailsPanel({ onExtracted }: { onExtracted: () => void }) {
   const [emails, setEmails] = useState<RecentEmail[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [extractingId, setExtractingId] = useState<number | null>(null);
+  // "<id>:<kind>" so the two buttons on the same row can be disabled/labelled
+  // independently while one of them is in flight.
+  const [extractingKey, setExtractingKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -176,17 +169,17 @@ function RecentEmailsPanel({ onExtracted }: { onExtracted: () => void }) {
     void load();
   }, [load]);
 
-  async function extract(id: number) {
-    setExtractingId(id);
+  async function extract(id: number, kind: "booking" | "immigration") {
+    setExtractingKey(`${id}:${kind}`);
     setError(null);
     try {
-      await api.review.extractEmail(id);
+      await api.review.extractEmail(id, kind);
       onExtracted();
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
-      setExtractingId(null);
+      setExtractingKey(null);
     }
   }
 
@@ -222,6 +215,11 @@ function RecentEmailsPanel({ onExtracted }: { onExtracted: () => void }) {
                       Flagged
                     </span>
                   )}
+                  {e.looks_like_immigration && (
+                    <span className="pill" title="Matched the immigration filter">
+                      Gov mail
+                    </span>
+                  )}
                   {e.has_pending && (
                     <span className="pill" title="Already sent for extraction">
                       Extracted
@@ -229,13 +227,25 @@ function RecentEmailsPanel({ onExtracted }: { onExtracted: () => void }) {
                   )}
                 </div>
                 {!e.has_pending && (
-                  <button
-                    className="btn btn-sm"
-                    onClick={() => extract(e.id)}
-                    disabled={extractingId !== null}
-                  >
-                    {extractingId === e.id ? "Extracting…" : "Extract"}
-                  </button>
+                  <div className="recent-email-actions">
+                    <button
+                      className="btn btn-sm"
+                      onClick={() => extract(e.id, "booking")}
+                      disabled={extractingKey !== null}
+                    >
+                      {extractingKey === `${e.id}:booking` ? "Extracting…" : "Extract"}
+                    </button>
+                    <button
+                      className="btn btn-sm"
+                      onClick={() => extract(e.id, "immigration")}
+                      disabled={extractingKey !== null}
+                      title="Read a visa/arrival-card/etc. confirmation instead of a booking"
+                    >
+                      {extractingKey === `${e.id}:immigration`
+                        ? "Extracting…"
+                        : "As immigration doc"}
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -421,13 +431,15 @@ function ImmigrationReviewCard({
   item: ReviewItem;
   onDone: (learnedDomain?: string | null) => void;
 }) {
-  const [reference, setReference] = useState("");
+  const [reference, setReference] = useState(item.immigration?.reference ?? "");
   const [busy, setBusy] = useState<"accept" | "reject" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (!item.immigration) return null;
   const kindLabel =
     REQUIREMENT_KIND_LABEL[item.immigration.requirement_kind] ?? "Requirement";
+  // A Phase 4 local match never calls a model (extraction.model stays "").
+  const readByModel = item.model !== "";
 
   async function accept() {
     setBusy("accept");
@@ -457,10 +469,16 @@ function ImmigrationReviewCard({
     <div className="review-card">
       <div className="review-card-head">
         <span className="review-kind">
-          <span className="pill" title="Matched locally, no model involved">
+          <span
+            className="pill"
+            title={readByModel ? "Read by the model" : "Matched locally, no model involved"}
+          >
             Immigration
           </span>{" "}
           {kindLabel} confirmation
+          {item.immigration.nationality && (
+            <span className="muted"> · {item.immigration.nationality} passport</span>
+          )}
         </span>
         <div className="review-card-actions">
           <button

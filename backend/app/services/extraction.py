@@ -33,7 +33,14 @@ from typing import Optional, Protocol
 
 from sqlmodel import Session, select
 
-from app.models import EmailMessage, Extraction, ExtractionStatus, utcnow
+from app.models import (
+    EmailMessage,
+    Extraction,
+    ExtractionStatus,
+    Nationality,
+    RequirementKind,
+    utcnow,
+)
 
 log = logging.getLogger("yayo.extraction")
 
@@ -171,6 +178,77 @@ EXTRACT_TOOL = {
 }
 
 
+# The requirement kinds a document can confirm. `custom` is always
+# user-authored, never something a document read confirms.
+IMMIGRATION_REQUIREMENT_KINDS = tuple(
+    k.value for k in RequirementKind if k != RequirementKind.custom
+)
+
+IMMIGRATION_DOC_TOOL = {
+    "name": "record_immigration_document",
+    "description": (
+        "Record what this government/immigration email actually confirms -- "
+        "an arrival card, a visa grant, an ETA/ESTA approval, or similar "
+        "entry paperwork. Read only what the email states; use null for "
+        "anything not there rather than guessing."
+    ),
+    "strict": True,
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "requirement_kind",
+            "country_code",
+            "nationality",
+            "reference",
+            "confidence",
+        ],
+        "properties": {
+            "requirement_kind": {
+                "type": ["string", "null"],
+                "enum": list(IMMIGRATION_REQUIREMENT_KINDS) + [None],
+                "description": (
+                    "Which checklist item this document confirms: entry_card "
+                    "(arrival/entry/disembarkation card, e-CD, TDAC), visa "
+                    "(including an e-visa or visa-on-arrival grant), eta "
+                    "(ESTA, eTA, UK ETA), insurance, vaccination, or "
+                    "onward_ticket. Null if unclear."
+                ),
+            },
+            "country_code": {
+                "type": ["string", "null"],
+                "description": (
+                    "ISO 3166-1 alpha-2 of the country this document is for "
+                    "entering, e.g. ID, TH, SG, US. Null if unclear."
+                ),
+            },
+            "nationality": {
+                "type": ["string", "null"],
+                "enum": ["US", "MX", None],
+                "description": (
+                    "The passport nationality this document was issued "
+                    "against, only if the email actually states one -- e.g. "
+                    "'U.S. citizen', 'Mexican passport', 'nationality: MX'. "
+                    "Null if no nationality is mentioned anywhere."
+                ),
+            },
+            "reference": {
+                "type": ["string", "null"],
+                "description": (
+                    "The confirmation or reference number, e.g. an e-CD "
+                    "number or an ESTA application number. Null if none is "
+                    "given."
+                ),
+            },
+            "confidence": {
+                "type": "number",
+                "description": "0 to 1, how sure you are of this reading.",
+            },
+        },
+    },
+}
+
+
 # --------------------------------------------------------------------------
 # The model, behind a seam
 # --------------------------------------------------------------------------
@@ -201,6 +279,15 @@ class ExtractionModel(Protocol):
 
         `received_on` is the date the confirmation arrived: the one hard anchor
         for the year, since a booking is always for a stay on or after it.
+        """
+        ...
+
+    def extract_immigration_document(self, subject: str, body: str) -> Optional[dict]:
+        """The raw `record_immigration_document` tool input, or None.
+
+        Phase 5's manual-only path (services.immigration.extract_selected_immigration)
+        -- there is no automatic trigger, so no year-anchoring `received_on` is
+        needed here the way `extract` needs one.
         """
         ...
 
@@ -323,6 +410,72 @@ def validate_bookings(payload) -> list["Booking"]:
     entry among good ones is discarded without sinking the rest.
     """
     return [b for b in (validate_booking(item) for item in _booking_dicts(payload)) if b is not None]
+
+
+# --------------------------------------------------------------------------
+# The immigration-document reading -- Phase 5's manual, richer extraction
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ImmigrationDocument:
+    requirement_kind: Optional[RequirementKind]
+    country_code: Optional[str]
+    nationality: Optional[Nationality]
+    reference: Optional[str]
+    confidence: Optional[float]
+
+
+def validate_immigration_document(payload) -> Optional[ImmigrationDocument]:
+    """Coerce a raw tool input into an ImmigrationDocument, or None if unusable.
+
+    Mirrors validate_booking: strict mode from the real API guarantees shape,
+    but nothing here is trusted blindly. A reading naming neither a
+    requirement kind nor a nationality confirms nothing a proposal could act
+    on, so it is rejected rather than stored as noise.
+    """
+    if not isinstance(payload, dict):
+        return None
+    try:
+        kind_raw = payload.get("requirement_kind")
+        requirement_kind: Optional[RequirementKind] = None
+        if kind_raw is not None:
+            if kind_raw not in IMMIGRATION_REQUIREMENT_KINDS:
+                return None
+            requirement_kind = RequirementKind(kind_raw)
+
+        country = _clean_str(payload.get("country_code"))
+        if country is not None:
+            country = country.upper()
+            if len(country) != 2 or not country.isalpha():
+                return None
+
+        nat_raw = payload.get("nationality")
+        nationality: Optional[Nationality] = None
+        if nat_raw is not None:
+            if nat_raw not in ("US", "MX"):
+                return None
+            nationality = Nationality(nat_raw)
+
+        confidence = payload.get("confidence")
+        if confidence is not None:
+            confidence = float(confidence)
+            if not 0.0 <= confidence <= 1.0:
+                return None
+
+        document = ImmigrationDocument(
+            requirement_kind=requirement_kind,
+            country_code=country,
+            nationality=nationality,
+            reference=_clean_str(payload.get("reference")),
+            confidence=confidence,
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    if document.requirement_kind is None and document.nationality is None:
+        return None
+    return document
 
 
 # --------------------------------------------------------------------------
@@ -572,6 +725,9 @@ class OpenRouterModel:
         return self._call(
             self.extract_model, EXTRACT_TOOL, subject, body, received_on
         )
+
+    def extract_immigration_document(self, subject: str, body: str) -> Optional[dict]:
+        return self._call(self.extract_model, IMMIGRATION_DOC_TOOL, subject, body)
 
     def _call(
         self,
