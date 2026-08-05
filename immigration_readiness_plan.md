@@ -671,7 +671,7 @@ Commit: `9f1b94e`
   but **prod's state is independent**; the entrypoint's `alembic upgrade head`
   will apply whatever chain prod is missing, in order.
 
-Commit: `_____`
+Commit (docs): `8911d5c`. Deploy: pending the user's `git push`.
 
 ---
 
