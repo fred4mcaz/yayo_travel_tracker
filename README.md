@@ -153,6 +153,16 @@ reading shows a "checked \<date\>" line so the staleness risk stays visible
 rather than hidden. An unconfigured box (`YAYO_OPENROUTER_API_KEY` unset)
 reads `unknown`, never errors.
 
+**Curated overrides win over the model.** Because that call is LLM factual
+recall, it can be confidently wrong (it once told a Mexican passport holder
+Indonesia was visa-free), and `validate_policy` only checks *shape*, not
+*correctness*. So `data/rules/entry-policy-overrides.json` holds human-verified
+`(country_code, nationality)` readings that beat **both** the model and any row
+already cached — `cached_policy` checks the file before the DB, so an override
+corrects a stale/wrong row, and an overridden pair never triggers a model call.
+Editing that committed file is the correction path; the LLM only fills the
+pairs it doesn't cover.
+
 **Readiness is computed for the trip's selected passport, defaulting to
 US.** Selecting the MX passport on a `CountryEntry` recomputes the whole
 reading for that trip. `services/trips.py#sync_requirements` turns a cached
@@ -655,8 +665,10 @@ one accept boundary.
   "As immigration doc" path. `trip_readiness` reads from what's *already*
   cached and doesn't trigger a fetch, so a policy first cached by one trip only
   reaches a sibling same-country trip after that sibling is next mutated. A
-  wrong cached policy can only be corrected by a manual DB edit — there is no
-  refresh path, by design (§1). The onward-ticket check is a proxy: with no
+  wrong cached policy is corrected by adding the pair to
+  `data/rules/entry-policy-overrides.json` (a *reviewed commit*, not a runtime
+  refresh — decision 7's "no automatic re-fetch" still holds). The onward-ticket
+  check is a proxy: with no
   airport→country lookup, "departs this country near the trip's end" is
   approximated as "a booked `Leg` arriving a *different* country within a few
   days of the end date," so a leg from an unrelated trip could in principle

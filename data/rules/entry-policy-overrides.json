@@ -1,0 +1,42 @@
+{
+  "_comment": "Curated, human-verified entry policies. Any (country_code, nationality) listed here is AUTHORITATIVE: it wins over the LLM cache AND any row already in the entry_policy table, and is never re-queried. This is the correction path -- if the site ever shows a wrong visa reading, add or fix the pair here and redeploy. Keys prefixed with _ are commentary and ignored. Fields mirror the assess_entry_policy tool; omitted booleans default to false, an omitted permitted_days/entry_card_name to null.",
+  "_permit_types": "visa_free | evisa | visa_on_arrival | visa | residency | citizen",
+  "policies": [
+    {
+      "_note": "Mexican citizens need a Visa on Arrival (e-VOA / VoA) for Indonesia, 30 days, plus the electronic customs declaration (e-CD) on arrival. They are NOT visa-free. This entry corrects an LLM reading that wrongly said visa_free (2026-08-05).",
+      "country_code": "ID",
+      "nationality": "MX",
+      "permit_type": "visa_on_arrival",
+      "permitted_days": 30,
+      "visa_required": true,
+      "entry_card_required": true,
+      "entry_card_name": "Indonesia e-CD",
+      "eta_required": false,
+      "insurance_required": false,
+      "vaccination_required": false,
+      "onward_ticket_required": false,
+      "summary": "Visa on arrival, 30 days.",
+      "advisory": "Advisory only -- border rules change without notice, verify with the Indonesian mission before you fly.",
+      "checked_on": "2026-08-05",
+      "source": "Manually verified. Corrects a claude-sonnet-5 error that read visa-free."
+    },
+    {
+      "_note": "US citizens: Visa on Arrival for Indonesia, 30 days, e-CD on arrival. Pinned here so the whole Indonesia corridor is authoritative, not just the corrected MX pair.",
+      "country_code": "ID",
+      "nationality": "US",
+      "permit_type": "visa_on_arrival",
+      "permitted_days": 30,
+      "visa_required": true,
+      "entry_card_required": true,
+      "entry_card_name": "Indonesia e-CD",
+      "eta_required": false,
+      "insurance_required": false,
+      "vaccination_required": false,
+      "onward_ticket_required": false,
+      "summary": "Visa on arrival, 30 days.",
+      "advisory": "Advisory only -- border rules change without notice, verify with the Indonesian mission before you fly.",
+      "checked_on": "2026-08-05",
+      "source": "Manually verified."
+    }
+  ]
+}

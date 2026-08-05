@@ -44,6 +44,27 @@ def _production_auth(monkeypatch):
     monkeypatch.setattr(Settings, "auth_optional", property(lambda self: False))
 
 
+@pytest.fixture(autouse=True)
+def _no_entry_policy_overrides(tmp_path, monkeypatch):
+    """Curated entry-policy overrides are opt-in per test.
+
+    The shipped data/rules/entry-policy-overrides.json makes (ID, US)/(ID, MX)
+    authoritative -- which is exactly the pair many tests use as their canonical
+    example, and an override short-circuits the model fetch those tests assert
+    on. Point the loader at a nonexistent file so load_overrides() reads empty
+    by default; the override tests patch overrides_path themselves, and the
+    shipped-file regression guard reads the real path directly.
+    """
+    from app.services import entry_policy
+
+    monkeypatch.setattr(
+        entry_policy, "overrides_path", lambda: tmp_path / "no-overrides.json"
+    )
+    entry_policy.load_overrides.cache_clear()
+    yield
+    entry_policy.load_overrides.cache_clear()
+
+
 @pytest.fixture(name="_patched_lifespan")
 def patched_lifespan_fixture(engine, monkeypatch):
     """Point the startup hook at the test database.

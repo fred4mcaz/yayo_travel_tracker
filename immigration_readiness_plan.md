@@ -960,3 +960,131 @@ Commit: `fa5d1a6`
 **Notes for the next engineer**
 - Docs commit: `196d9e4`. Deploy shipped and verified on prod
   (`travel.foryayo.com`), no schema change, healthy after 4s.
+
+---
+
+## Decisions locked with the user (2026‑08‑05, round 4)
+
+Follow‑up prompted by a **wrong reading in production**: the site told the
+traveller that a **Mexican passport holder can enter Indonesia visa‑free**. It
+cannot — Mexico gets Visa on Arrival, same as the US. The prod cache held
+`(ID, MX) → visa_free` from `anthropic/claude-sonnet-5`, even though `(ID, US)`
+was correctly `visa_on_arrival`. Root cause: the entry policy is a **single LLM
+factual‑recall call**, `validate_policy` checks only *structure* (enum, day
+range) not *correctness*, and decision 7 caches the answer **forever with no
+correction path** but a manual DB edit. A second suspect row (`GB/US → evisa
+180d`) confirmed this is a long‑tail reliability problem, not a one‑off.
+
+10. **The fix is a curated override layer, not trusting the LLM more.** A
+    committed `data/rules/entry-policy-overrides.json`, keyed by
+    `(country_code, nationality)`, whose entries **win over both the LLM cache
+    and any DB row** and are never re‑queried. Authoritative for the corridors
+    actually travelled (US/MX into the countries he visits), git‑reviewable, and
+    **editing the file is the correction path** — so decision 7's "no automatic
+    refresh" stands, but "a wrong reading can only be fixed by a raw DB edit" no
+    longer does.
+11. **Keep decision 7 otherwise** — no `POST /api/policy/refresh`, no in‑app
+    re‑fetch button. The override file is the only correction mechanism, and it
+    is deliberately a *reviewed commit*, not a runtime action.
+12. **Delete the wrong prod rows rather than hand‑editing them.** `(ID, MX)` and
+    `(GB, US)` are removed from the live cache (after a DB backup); the override
+    supplies the truth for the pairs it covers, and an uncovered pair simply
+    re‑fetches. No hand‑typed values go straight into the prod DB — the asserted
+    facts live only in the reviewed override file.
+
+*(Round‑4 numbering restarts the list; these are distinct from round‑2/3's 6–12.)*
+
+---
+
+## Phase 10 — Curated entry‑policy overrides (authoritative layer)
+
+**Why:** an LLM guess is being treated as authoritative for a safety‑relevant
+fact. A committed ground‑truth file for the pairs that matter removes that class
+of error for the traveller's real corridors and gives every future wrong reading
+a one‑line, reviewable correction.
+
+**Assumptions to validate**
+- `cached_policy` is the single lookup every read path funnels through
+  (`get_policy` calls it first; `trip_readiness` and `_alternate_passport_hint`
+  call it directly). Intercepting there makes the override win everywhere at
+  once. (Verified in `entry_policy.py`/`trips.py`.)
+- Returning an **unsaved** `EntryPolicy` instance from the override is safe:
+  callers only read attributes; nobody adds the looked‑up policy to a session
+  (`get_policy` persists only a *freshly fetched* row, never the cached path).
+
+**Gotchas / risks**
+- **The override must beat a stale DB row**, not just a missing one — so the
+  check goes *before* the DB query in `cached_policy`. The wrong `(ID, MX)` row
+  is being deleted anyway, but the override winning regardless is the invariant.
+- **`get_policy` must not fetch when an override exists** — returning early on
+  the `cached_policy` hit already guarantees this; a test pins the model‑call
+  count at zero.
+- **A malformed override entry must not break the whole file** — run each
+  through `validate_policy`, skip (and log) any that don't validate, mirroring
+  "trust nothing" even for committed data.
+- `@lru_cache` like `load_rules`, with a `cache_clear()` the tests call; keys
+  prefixed `_` are commentary (same convention as `email-filter.json`).
+
+**Tasks**
+- [x] Added `data/rules/entry-policy-overrides.json` with `(ID, MX)` and
+      `(ID, US)` → `visa_on_arrival`, 30 days, `entry_card` "Indonesia e‑CD",
+      each with a `_note` + provenance `source`.
+- [x] `services/entry_policy.py`: `overrides_path()`, `@lru_cache
+      load_overrides()` → `dict[(CODE, Nationality), EntryPolicy]` (each built
+      via `validate_policy`, `source_model="curated-override"`, `fetched_at`
+      from `checked_on`), and the override check at the top of `cached_policy`.
+      Malformed entries are skipped, not fatal.
+- [x] `README.md` §1 gained a "Curated overrides win over the model" paragraph;
+      §7's open edge changed from "manual DB edit" to "edit the override file."
+
+**Tests that must pass to proceed**
+- [x] Override **wins over a stale DB row** (persisted `(ID, MX)=visa_free` +
+      override → `cached_policy` returns `visa_on_arrival`).
+- [x] `get_policy` with an override present **makes zero model calls** and
+      persists no competing row.
+- [x] An **uncovered** pair still falls through to the DB cache / model.
+- [x] A malformed override entry is **skipped**, not fatal.
+- [x] The **shipped file** reads `(ID, MX)` as `visa_on_arrival` /
+      `visa_required=true` (regression guard, run against the real file).
+- [x] `pytest backend/tests` green (341 passed, was 336); `ruff check` clean.
+
+**Notes for the next engineer**
+- Overrides are **opt-in in tests**: `conftest.py`'s autouse
+  `_no_entry_policy_overrides` points `overrides_path` at a nonexistent file so
+  the default is empty — otherwise the shipped `(ID, US)`/`(ID, MX)` rows would
+  short-circuit every existing test that uses Indonesia as its example and
+  asserts a model fetch. Tests that want overrides patch `overrides_path`
+  themselves; the shipped-file guard reads the real path directly via
+  `load_overrides(path=...)`.
+- A returned override is an **unsaved** `EntryPolicy` instance (from the file,
+  not the DB). Safe because every caller only reads attributes and none add the
+  looked-up policy to a session — but don't `session.add()` a value returned by
+  `cached_policy`/`get_policy` without checking `.id is None` first.
+
+---
+
+## Phase 11 — Deploy, purge the wrong prod rows, verify
+
+**Why:** the override only helps once shipped, and the live cache still holds the
+false `visa_free` row until it's removed.
+
+**Gotchas / risks**
+- **Back up the DB before the manual DELETE** — `deploy.sh` snapshots on rebuild,
+  but a hand DELETE is outside that; take an explicit `.backup` first.
+- After deploy the **badge/permit summary corrects immediately** (read live from
+  the override), but the trip's **checklist visa row** only materialises on the
+  next mutation of that trip (`sync_requirements` runs on edit, not
+  retroactively — the same derived‑state rule documented in Phase 3). Note this
+  to the user rather than forcing a resync.
+
+**Tasks**
+- [ ] User review of the override file (the asserted facts), then push.
+- [ ] Deploy via `deploy/deploy.sh`; verify health + the shipped bundle is live.
+- [ ] Back up prod `var/travel.db`, then `DELETE` the `(ID, MX)` and `(GB, US)`
+      rows from `entry_policy`; confirm the count.
+- [ ] Verify `(ID, MX)` now reads `visa_on_arrival` via the override on the live
+      site.
+- [ ] Stamp Phase 10–11 hashes.
+
+**Notes for the next engineer**
+- *(filled in on completion)*

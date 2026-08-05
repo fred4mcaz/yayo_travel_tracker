@@ -23,12 +23,15 @@ suite; the real implementation is `OpenRouterPolicyModel` at the bottom.
 import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
 from typing import Optional, Protocol
 
 from sqlmodel import Session, select
 
 from app.countries import country_name
-from app.models import CountryEntry, EntryPolicy, Nationality, PermitType
+from app.models import CountryEntry, EntryPolicy, Nationality, PermitType, utcnow
 
 log = logging.getLogger("yayo.entry_policy")
 
@@ -239,6 +242,76 @@ def validate_policy(payload) -> Optional[PolicyReading]:
 
 
 # --------------------------------------------------------------------------
+# Curated overrides -- human-verified ground truth that beats the LLM
+# --------------------------------------------------------------------------
+#
+# The entry policy is, at bottom, an LLM factual-recall call, and models get
+# border rules wrong -- confidently and plausibly enough that validate_policy
+# (which only checks *shape*) can't catch it, after which decision 7 caches it
+# forever. This layer is the answer: a committed file of hand-verified
+# (country, nationality) readings that win over both the model and any cached
+# row, and are never re-queried. Editing that file is the correction path, so
+# a wrong reading no longer needs a raw DB edit -- just a reviewed commit.
+
+OVERRIDE_SOURCE = "curated-override"
+
+
+def overrides_path() -> Path:
+    from app.config import get_settings
+
+    return get_settings().data_dir / "rules" / "entry-policy-overrides.json"
+
+
+def _override_row(raw: dict) -> Optional[EntryPolicy]:
+    """Build one authoritative EntryPolicy from an override entry, or None if it
+    doesn't validate. Trust nothing -- even committed data goes through
+    validate_policy, so a typo'd permit_type is skipped, not shipped."""
+    code = _clean_str(raw.get("country_code")).upper()
+    nat_raw = _clean_str(raw.get("nationality")).upper()
+    if len(code) != 2 or nat_raw not in (n.value for n in Nationality):
+        return None
+    reading = validate_policy(raw)
+    if reading is None:
+        return None
+    when = raw.get("checked_on")
+    try:
+        fetched_at = datetime.fromisoformat(when) if isinstance(when, str) else utcnow()
+    except ValueError:
+        fetched_at = utcnow()
+    return EntryPolicy(
+        country_code=code,
+        nationality=Nationality(nat_raw),
+        source_model=OVERRIDE_SOURCE,
+        fetched_at=fetched_at,
+        **reading.__dict__,
+    )
+
+
+@lru_cache
+def load_overrides(
+    path: Optional[Path] = None,
+) -> dict[tuple[str, Nationality], EntryPolicy]:
+    """The committed overrides, keyed by (country_code upper, Nationality).
+
+    Cached like email_filter.load_rules; call cache_clear() in tests. A single
+    malformed entry is skipped (and logged), never fatal -- one bad row must not
+    blank the whole authoritative set.
+    """
+    target = path or overrides_path()
+    if not target.exists():
+        return {}
+    raw = json.loads(target.read_text(encoding="utf-8"))
+    out: dict[tuple[str, Nationality], EntryPolicy] = {}
+    for entry in raw.get("policies", []):
+        row = _override_row(entry)
+        if row is None:
+            log.warning("skipping unusable entry-policy override: %r", entry)
+            continue
+        out[(row.country_code, row.nationality)] = row
+    return out
+
+
+# --------------------------------------------------------------------------
 # The cache -- read-through, permanent, no refresh
 # --------------------------------------------------------------------------
 
@@ -247,7 +320,15 @@ def cached_policy(session: Session, country_code: str, nationality: Nationality)
     """A read-only cache lookup -- never fetches. Public so callers that must
     not trigger a model call (e.g. trip_readiness's alternate-passport hint)
     can still see what happens to already be cached.
+
+    A curated override wins over everything: it is checked before the DB, so it
+    beats a stale (or wrong) cached row, not just a missing one. Because
+    get_policy returns on this hit, an overridden pair never triggers a model
+    call and never gets a competing row baked into the cache.
     """
+    override = load_overrides().get((country_code.upper(), nationality))
+    if override is not None:
+        return override
     return session.exec(
         select(EntryPolicy)
         .where(EntryPolicy.country_code == country_code.upper())
