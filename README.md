@@ -136,6 +136,56 @@ deleted — including when one is absorbed by a merge — cascades the row away.
 the UI — keeping trips apart is the default, and if a pair really is one stay
 you merge them.
 
+### Immigration readiness
+
+Answers, per trip: are you eligible to enter on the passport you're carrying,
+do you need a visa (or e-visa / visa-on-arrival / ETA), and do you need to
+submit an arrival card? Shown as a compact badge (✅ ready / ⚠️ action /
+❔ unknown) on the trip card and a full "Immigration readiness" section on the
+trip detail, and confirmed via Gmail like everything else in §5.
+
+**The policy source is the LLM, at runtime, cached forever.**
+`services/entry_policy.py#get_policy` asks a strict tool "what does a
+US/MX passport holder need to enter country X" once per `(country_code,
+nationality)` and caches the answer in `EntryPolicy` — there is **no refresh
+path at all**, by design; border rules change without notice, and every
+reading shows a "checked \<date\>" line so the staleness risk stays visible
+rather than hidden. An unconfigured box (`YAYO_OPENROUTER_API_KEY` unset)
+reads `unknown`, never errors.
+
+**Readiness is computed for the trip's selected passport, defaulting to
+US.** Selecting the MX passport on a `CountryEntry` recomputes the whole
+reading for that trip. `services/trips.py#sync_requirements` turns a cached
+policy into the trip's actual `Requirement` checklist rows (`source=system`),
+reconciling them on every hotel/leg/passport change — but it **never touches**
+a row a human added by hand or an email confirmed (`source=manual`/`email`),
+even if the policy would no longer require it. `trip_readiness` derives the
+compact/full reading purely from what's cached and what rows already exist;
+it never triggers a fetch itself.
+
+**Confirmed via Gmail, two ways**, both landing as Review-queue proposals —
+nothing writes to a `Requirement` without an explicit accept, same boundary as
+§5:
+- **Automatic, local, no LLM** (`services/immigration.py#propose_confirmation`):
+  a *second*, disjoint sender/keyword allow-list
+  (`immigration_sender_domains`/`immigration_keywords` in
+  `email-filter.json`) flags government mail
+  (`EmailMessage.looks_like_immigration`) entirely on-box. A bare sender+date
+  match against a trip's outstanding `entry_card` requirement is as far as
+  this goes — never sent to a model.
+- **Manual, model-read** (`extract_selected_immigration`): picking an
+  *unflagged* email from the recent-emails list (or a flagged one, for a
+  richer read) is the per-message consent to extract it — reads a real
+  requirement kind, a reference, and a **nationality** out of the body.
+
+**The loud discrepancy flag.** If a Phase-5 read names a nationality that
+differs from the trip's *currently* selected passport, `Requirement`'s
+`discrepancy_nationality` is stamped on accept — the raw fact, not a stored
+verdict. `trip_readiness` compares it against the live passport selection on
+every read, so a red "Passport mismatch" banner appears on the card and the
+detail panel, and **clears itself** the moment the passport is corrected —
+the only thing that still renders on an otherwise-quiet past trip.
+
 ---
 
 ## 2. Architecture and layout
@@ -155,18 +205,22 @@ Inside the two apps:
 
 ```
 backend/app/
-  models.py            15 tables. Times are naive local wall-clock, by design
+  models.py            17 tables. Times are naive local wall-clock, by design
   schemas.py           Create/Update payloads, separate from tables
   countries.py         GENERATED — run scripts/build_countries.py
-  api/trips.py         Trips, hotels, travel, paperwork, passport-used.
-                       GET /api/trips carries a compact stay per hotel, because
-                       the calendar draws a bar for each and only ever sees the
-                       list payload
+  api/trips.py         Trips, hotels, travel, paperwork, passport-used,
+                       immigration readiness (compact on GET /api/trips, full
+                       on trip detail — see §1). GET /api/trips carries a
+                       compact stay per hotel, because the calendar draws a
+                       bar for each and only ever sees the list payload
   api/{auth,passports,notes,geo,review,export}.py
-  services/trips.py    All derived state: label, status, country, unbooked gaps
+  services/trips.py    All derived state: label, status, country, unbooked
+                       gaps, sync_requirements/trip_readiness (§1)
+  services/entry_policy.py  The cached, never-refreshed LLM policy lookup (§1)
   services/auth.py     WebAuthn, sessions, recovery codes — all hashed
   services/geocode.py  City → lat/lon and autocomplete, from bundled data
-  services/            email_ingest, email_filter, extraction, review, scheduler (see §5)
+  services/            email_ingest, email_filter, extraction, immigration,
+                       review, scheduler (see §5)
 frontend/src/
   views/TripDetail.tsx The country-first detail panel
   views/{Trips,Calendar,Map,Settings,Auth,Review}.tsx
@@ -174,6 +228,8 @@ frontend/src/
   lib/countries.ts     GENERATED — source of truth for country names
   lib/format.ts        Date formatting and parsing (month-first; parseDate)
   lib/calendarRange.ts Maps a calendar drag to stay dates (see §1)
+  lib/immigration.ts   Readiness badge + discrepancy copy, shared by the card
+                       and the detail panel so the two never word it differently
   **/*.test.{ts,tsx}   vitest, colocated with what they cover — `npm test`
 data/geo/              GENERATED — run scripts/build_geo.py
 ```
@@ -183,7 +239,7 @@ data/geo/              GENERATED — run scripts/build_geo.py
 | Area | State |
 |---|---|
 | Auth | Passkeys only, bound to the hostname. Recovery codes hashed |
-| Data model | 15 tables, 5 Alembic migrations, run on container start |
+| Data model | 17 tables, 9 Alembic migrations, run on container start |
 | Trip entry | Country picker, city autocomplete, date steppers — works end to end |
 | Trip detail | Country-first panel, capped to 70% width and left-justified (`.pane-detail`) |
 | Missing hotels | See §1. "Leaving Country On" sits at the bottom of the country block, and the uncovered part of a calendar wrapper says the same thing visually |
@@ -193,6 +249,7 @@ data/geo/              GENERATED — run scripts/build_geo.py
 | Calendar | Sunday-to-Saturday month grid; one distinctly-coloured bar per hotel, offset to start mid-check-in-day and end mid-checkout-day, inside an outlined wrapper for the country stay; notes as dots. Consecutive stays share a row with a travel-mode hop in the gap (§1). Drag across days to start a new trip with those dates pre-filled |
 | Map | Canvas world map, country fill, city pins, route arcs. No tile server |
 | Passports | Two passports (MX, US), last-4 only |
+| Immigration readiness | Live — per-trip visa/arrival-card/ETA status from a cached LLM policy lookup, confirmed via Gmail, with a loud passport-mismatch flag. See §1 and §5 |
 | Gmail ingest | Live and on — fetch → filter → extract → propose → you accept. §5 |
 | Export | Live — Settings → Export: full JSON, or a CSV zip (trips/hotels/legs), ASCII-folded |
 | Backup | Pre-deploy SQLite snapshot only. No schedule, no off-box copy |
@@ -207,9 +264,13 @@ in `var/` instead. These directories must contain at least one tracked file
 |---|---|
 | `geo/countries.min.geojson` | Natural Earth 110m admin-0 boundaries, simplified. Drives the country fills on the map |
 | `geo/cities.min.json` | GeoNames subset (population > 15k) giving lat/lon per city, so typing a city name places a pin with no geocoding API |
-| `rules/email-filter.json` | The Gmail allow-list and keyword rules (§5). Currently the only file in `rules/` |
-| `rules/entry-requirements.json` | *(designed, not built)* per-country paperwork: entry card, e-visa, ETA |
-| `rules/visa-free.json` | *(designed, not built)* permitted visa-free days per passport. Advisory only — visa rules change without notice |
+| `rules/email-filter.json` | The Gmail allow-lists and keyword rules (§5): the booking allow-list, **and** a *disjoint* immigration allow-list (`immigration_sender_domains` → country, `immigration_keywords`) for government/arrival-card mail (§1, §5). The only file in `rules/` |
+
+The `entry-requirements.json` / `visa-free.json` static datasets that earlier
+drafts of §7 anticipated were **never built and are no longer planned** — the
+immigration-readiness feature (§1) answers the same question at runtime via a
+cached LLM lookup (`EntryPolicy`) instead of a shipped table, precisely because
+border rules change without notice and a committed file would silently rot.
 
 ---
 
@@ -418,6 +479,11 @@ the Gmail app password and OpenRouter key in place.
    never reaches the API. Domain matching requires the dot (`booking.com`
    does not match `notbooking.com`); denials are subject-only, keywords match
    subject or body. Extend the allow-list as new senders show up.
+   A **second, disjoint** classifier (`classify_immigration`) runs here too,
+   against the immigration allow-list, and sets `looks_like_immigration` — a
+   sibling flag, never unioned with `looks_like_travel`. Government mail never
+   rides in on the booking rules and vice versa. Setting this flag sends
+   nothing anywhere; it only feeds the immigration path below.
 3. **Extract** — `services/extraction.py`. Candidates go through **OpenRouter's
    OpenAI-compatible API** (`openai` SDK pointed at openrouter.ai) behind
    **strict** function-calling tools: Claude Haiku triages ("is this really a
@@ -464,6 +530,30 @@ container **fails to boot loudly**, naming the unset vars (never their values).
 `POST /api/review/poll` (the "Check email now" button) runs one cycle on demand,
 gated identically — 409 with the reason if off or unconfigured. Costs a little
 when on: Haiku per triaged candidate, Sonnet only when triage says yes.
+
+### The immigration path (a sibling of the booking cycle)
+
+Immigration confirmations ride the same fetch/filter/review machinery but split
+off at the filter (`looks_like_immigration`, above) and are handled by
+`services/immigration.py`. An `Extraction.kind` column (`booking` |
+`immigration`) is the discriminator; both kinds share the Review tab and the
+one accept boundary.
+
+- **Automatic, on-box, no LLM.** `run_immigration_matching` runs every poll
+  (needs no OpenRouter key). It matches a flagged email to a trip's outstanding
+  `entry_card` requirement by date and — when the sender domain maps to one —
+  country, and proposes a confirmation. Ambiguous (two qualifying trips) means
+  no proposal; a human decides.
+- **Manual, model-read.** From the recent-emails list, "As immigration doc"
+  (`?kind=immigration`) sends the picked email to a strict
+  `record_immigration_document` tool that reads a requirement kind, a reference,
+  and a nationality — the per-message consent, same D2 rule as the booking
+  manual-extract.
+- **Accept flips one `Requirement` to `approved`** (`source=email`, so
+  `sync_requirements` never later clobbers it), pre-filling the reference from
+  the reading unless the reviewer typed one. A read nationality is stamped onto
+  `discrepancy_nationality`; the loud mismatch flag is computed live at read
+  time (§1), never stored as a verdict.
 
 ---
 
@@ -522,7 +612,6 @@ when on: Haiku per triaged candidate, Sonnet only when triage says yes.
 
 - **Notes creation UI.** The notes API is complete and notes render on the
   calendar and trip detail, but there is still no way to create one from the UI.
-- **`Requirement` rows** render read-only on trip detail; nothing creates them.
 - **Calendar drag is mouse-only.** No touch equivalent, so it does nothing on a
   phone — where the calendar is most used. Needs `touchmove` +
   `document.elementFromPoint`, since touch events stay targeted at the element
@@ -533,24 +622,28 @@ when on: Haiku per triaged candidate, Sonnet only when triage says yes.
   boundary, or between trips the layout stacked onto different rows, is left
   undrawn — the horizontal-gap anchor has nowhere to go in those cases.
 - **The frontend suite covers the calendar (drag, week layout, hotel bars), the
-  stay-form-on-mount lifecycle, the Trips-list ordering, and the merge card's
-  keep-separate flow** (28 tests). Everything else in the SPA is still untested;
-  there is no `App`-level test, because that needs the `api` module mocked
-  (though `TripDetail.test.tsx` now mocks a single `api.trips` call to exercise
-  keep-separate, which is the pattern an `App`-level test would extend).
+  stay-form-on-mount lifecycle, the Trips-list ordering, the merge card's
+  keep-separate flow, the readiness badge / discrepancy copy, and the Review
+  queue's two card kinds** (53 tests). Everything else in the SPA is still
+  untested; there is no `App`-level test, because that needs the `api` module
+  mocked (though `TripDetail.test.tsx` and `Review.test.tsx` mock individual
+  `api` calls, which is the pattern an `App`-level test would extend).
 - **Backup is still thin.** Only the pre-deploy snapshot in `deploy.sh` exists:
   same disk, no schedule, no off-box copy, and `YAYO_BACKUP_KEEP_DAYS` is
   defined but unwired (nothing prunes). He was offered scheduled/off-box backups
   and declined for now — export was the piece he wanted.
 - **Nightly backup cron and the ICS feed** are unbuilt. The `ics` dependency is
   already pinned in `requirements.txt`, ready for the feed.
-- **Visa-free advisory dataset** (`data/rules/visa-free.json`,
-  `entry-requirements.json`) was designed but never built. `email-filter.json`
-  is the only thing in `data/rules/` so far.
+- **Immigration readiness open edges.** Visa/ETA confirmations only get an
+  automatic (LLM-free) proposal for `entry_card`; other kinds need the manual
+  "As immigration doc" path. `trip_readiness` reads from what's *already*
+  cached and doesn't trigger a fetch, so a policy first cached by one trip only
+  reaches a sibling same-country trip after that sibling is next mutated. A
+  wrong cached policy can only be corrected by a manual DB edit — there is no
+  refresh path, by design (§1).
 
-Smaller things he was once offered: entry-card/visa reminders per country,
-passport-expiry warnings against entry dates, scheduled/off-box backups, an ICS
-subscribe feed.
+Smaller things he was once offered: passport-expiry warnings against entry
+dates, scheduled/off-box backups, an ICS subscribe feed.
 
 ---
 

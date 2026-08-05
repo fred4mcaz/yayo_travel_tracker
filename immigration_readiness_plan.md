@@ -614,12 +614,62 @@ Commit: `9f1b94e`
 
 **Why:** README §4 — do not skip the deploy; verify the shipped bundle.
 
+**Assumptions to validate**
+- The migration chain (`... → 50cd760e587a`) runs cleanly on container start,
+  against the *real* prod DB — not just a local copy. `deploy/entrypoint.sh`
+  runs `alembic upgrade head` before the app starts; `deploy.sh` snapshots the
+  DB first (`sqlite3 .backup`), so a bad migration is recoverable.
+- `YAYO_OPENROUTER_API_KEY` is already set in prod's `deploy/.env` (Gmail
+  ingest has been live, §5), so `get_policy` will actually fetch — the feature
+  is not silently degraded to `unknown` on the box.
+
+**Gotchas / risks**
+- **Do not skip the deploy** (README §4's loud warning — three commits once
+  shipped late). After the user pushes, deploy immediately, then grep the
+  shipped JS bundle for a new string to prove it's really live.
+- The stray unrelated `python.exe` on local port 8000 (Phases 3–5) is a
+  *local dev* nuisance only — it has nothing to do with prod and does not
+  affect the deploy.
+- Four new migrations land on prod at once (`b119ab960928`, `f086d52834fb`,
+  `50cd760e587a`, plus Phase 0's already-counted one) — all additive
+  (new table + nullable/defaulted columns), all rehearsed locally against a
+  copy of the real DB across the phases.
+
 **Tasks**
-- [ ] User pushes; run `deploy/deploy.sh` over SSH; verify the new strings are in
-      the shipped bundle.
-- [ ] Update `README.md` (§2 rules files, §5 immigration path, §7 remove
-      "Requirement rows … nothing creates them").
-- [ ] Stamp every phase's commit hash above.
+- [x] Update `README.md`: §1 gained an "Immigration readiness" subsection; §2
+      updated the tables list (15→17), migration count (5→9), the file tree
+      (`entry_policy.py`, `immigration.py`, `lib/immigration.ts`), the feature
+      table, and the static-reference-data table (the never-built
+      `entry-requirements.json`/`visa-free.json` entries removed, immigration
+      allow-list documented); §5 gained the `looks_like_immigration` filter
+      note and a full "immigration path" subsection; §7 dropped the stale
+      "`Requirement` rows … nothing creates them" and "visa-free dataset"
+      items and refreshed the frontend test count (28→53).
+- [ ] **User pushes** (the assistant cannot `git push` — README §4). Local is
+      ahead of `origin/main` by the Phase 2–6 commits.
+- [ ] Assistant runs `deploy/deploy.sh` over SSH once the push lands, then
+      verifies a new string is in the shipped bundle (e.g. `Passport mismatch`
+      or `Immigration readiness`).
+- [x] Stamp every phase's commit hash above (Phases 0–5 all stamped;
+      Phase 6's is this commit).
+
+**Verification once deployed** (to run after the push + deploy):
+- `curl -s http://127.0.0.1:8081/api/health` returns healthy over SSH.
+- The shipped JS bundle contains a Phase 3/5 string:
+  `ssh … 'ASSET=$(curl -sS https://travel.foryayo.com/ | grep -o "/assets/index-[A-Za-z0-9_-]*\.js"); curl -sS "https://travel.foryayo.com$ASSET" | grep -c "Passport mismatch"'`
+- Open a real upcoming trip on the live site → an "Immigration readiness"
+  section renders (with a real cached policy, since prod has the OpenRouter
+  key), not just "unknown".
+
+**Notes for the next engineer**
+- The frontend `dist/` is gitignored and built inside the Docker image, so
+  there is nothing to commit from `npm run build` — the bundle-string check is
+  purely a post-deploy verification, not a build step.
+- Prod already had the Phase 0 migration (`b119ab960928`) applied? No — check
+  `alembic current` on the box before assuming. Locally the dev DB was found on
+  `b119ab960928` at the start of Phase 4 (Phase 3's session had applied it),
+  but **prod's state is independent**; the entrypoint's `alembic upgrade head`
+  will apply whatever chain prod is missing, in order.
 
 Commit: `_____`
 
