@@ -50,6 +50,7 @@ const TRIP: TripDetail = {
     permit: null,
     permitted_days: null,
     arrival_card: null,
+    onward_ticket: null,
     checked_on: null,
     discrepancy: null,
     passport: null,

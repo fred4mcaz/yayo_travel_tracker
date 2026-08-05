@@ -852,7 +852,7 @@ state (the same rule that put `readinessBadge` in one shared module in Phase 3).
   `approved`, which is what `confirmed` reads). Don't be tempted to auto‑flip on
   a pending proposal — that would breach the accept boundary (decision 9).
 
-Commit: _(pending)_
+Commit: `7ccafe9`
 
 ---
 
@@ -876,32 +876,51 @@ lines for the arrival card and onward ticket.
   `onward_ticket?.required && !onward_ticket.confirmed`.
 
 **Tasks**
-- [ ] `types.ts` — `ArrivalCardReading` → `{name, state: "none"|"received"|
-      "confirmed", reference}`; add `OnwardTicketReading` and `onward_ticket`
-      on both `ReadinessSummary` (compact) and `Readiness` (full).
-- [ ] `lib/immigration.ts` — `readinessBadge`: arrival‑card note keys off
-      `state`; add the onward‑ticket note. Keep one shared source of the copy.
-- [ ] `TripDetail.tsx` `ReadinessSection` — in the checklist map, render
-      `entry_card` as the 3‑state read‑only indicator (icon + sentence + name +
-      reference) and `onward_ticket` as a read‑only confirmed / not‑confirmed
-      line (with the journey when confirmed); everything else keeps its
-      `<select>`. Remove the now‑unused status handler for those two kinds.
-- [ ] `lib/immigration.test.ts` — cover the arrival‑card `state` mapping and the
-      onward note; update fixtures to the new `arrival_card` shape.
-- [ ] Update `arrival_card` fixtures in `Trips.test.tsx`, `TripDetail.test.tsx`,
-      `Calendar.test.tsx` (they use `arrival_card: null`, so likely just add
-      `onward_ticket: null`).
+- [x] `types.ts` — `ArrivalCardReading` → `{name, state, reference}` (+
+      `ArrivalCardState`); added `OnwardTicketReading` and `onward_ticket` on
+      `ReadinessSummary` (inherited by `Readiness`).
+- [x] `lib/immigration.ts` — `readinessBadge`: arrival‑card note keys off
+      `state !== "confirmed"`; added the onward‑ticket note. One shared source.
+- [x] `TripDetail.tsx` — `entry_card` and `onward_ticket` render via new
+      read‑only `ArrivalCardRow` / `OnwardTicketRow` components; every other kind
+      keeps its `<select>`. Added `.readiness-status` CSS (reuses the badge
+      palette). No status handler is invoked for the two automated kinds.
+- [x] `lib/immigration.test.ts` — arrival‑card `state` mapping (none / received /
+      confirmed) + onward note (unconfirmed / confirmed); fixtures updated.
+- [x] Added `onward_ticket: null` to the `arrival_card: null` readiness fixtures
+      in `Trips.test.tsx`, `TripDetail.test.tsx`, `Calendar.test.tsx`.
 
 **Tests that must pass to proceed**
-- [ ] `npm test` green (incl. new badge/indicator cases); `tsc --noEmit` clean.
-- [ ] Browser (local): a VoA trip shows the arrival‑card indicator with no
-      dropdown; seed a pending immigration proposal → it reads "received"; flip
-      to approved → "confirmed." An onward‑required trip with/without a
-      qualifying later‑trip leg shows confirmed / not‑confirmed with no dropdown.
-      Revert all seeded rows afterward. (Text‑based verification per Phases 3–5.)
+- [x] `npm test` green (56 passed, was 53); `tsc --noEmit` clean; `vite build`
+      clean.
+- [x] Browser (local, backend‑local on 8010, proxy temporarily retargeted and
+      reverted — same pattern as Phases 3–5; the stray port‑8000 process was left
+      untouched). Seeded trip 3 (Batam/Indonesia, MX passport) with a cached
+      policy requiring **both** arrival card and onward ticket, via the real
+      `sync_requirements`. Verified, live, all through the readiness section with
+      **zero `<select>`s** in it:
+      - base → *Arrival card: "⚠️ No confirmation email received"*, *Onward
+        ticket: "⚠️ No onward ticket confirmed"*; card badge *"⚠️ arrival card
+        not yet confirmed · onward ticket not confirmed"*.
+      - + a pending immigration proposal → *Arrival card: "📥 Confirmation email
+        received — confirm it in Review"* (and **no** Requirement written — the
+        accept boundary held).
+      - + an onward `Leg` (SG, departing the trip's end date) → *Onward ticket:
+        "ZZ 7 → Singapore (Aug 24, 2026) · ✅ Onward ticket confirmed"*.
+      - entry_card approved → *Arrival card: "✅ Confirmed by email · e‑CD
+        88213"*; card badge flips to *"✅ Ready"*.
+      No console errors throughout. All seeded rows removed afterward (trip 3
+      back to `unknown`, no residue); no pixel screenshot (Browser pane wasn't
+      compositing this session, same as Phases 3–5 — the JS/`get_page_text`
+      transcript is the evidence trail).
 
 **Notes for the next engineer**
-- *(filled in on completion)*
+- The readiness *summary* line reads "Nothing required to enter" whenever
+  `permit` is null (`permitSummary` returns null). During verification the
+  seeded policy had `permit_type = None`, so that line showed even though the
+  checklist had two required items — a pre‑existing copy quirk of the summary
+  header, unrelated to this phase (a real fetched policy carries a permit type).
+  Left as‑is; flag it if the header ever needs to reflect "action" more honestly.
 
 ---
 

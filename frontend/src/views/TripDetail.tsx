@@ -27,9 +27,11 @@ import {
 } from "../lib/format";
 import { discrepancyMessage, permitSummary, readinessBadge } from "../lib/immigration";
 import type {
+  ArrivalCardReading,
   TripCountry,
   Discrepancy,
   Leg,
+  OnwardTicketReading,
   Passport,
   Readiness,
   Requirement,
@@ -570,15 +572,32 @@ function ReadinessSection({
       )}
 
       {readiness.checklist.map((item) => {
+        // The arrival card and onward ticket are automated (decision 9/10):
+        // read-only indicators, no dropdown. Everything else stays hand-set.
+        if (item.kind === "entry_card") {
+          return (
+            <ArrivalCardRow
+              key={item.kind}
+              label={item.label}
+              reading={readiness.arrival_card}
+            />
+          );
+        }
+        if (item.kind === "onward_ticket") {
+          return (
+            <OnwardTicketRow
+              key={item.kind}
+              label={item.label}
+              reading={readiness.onward_ticket}
+            />
+          );
+        }
         const req = reqByKind.get(item.kind);
         if (!req) return null;
         return (
           <div className="req-row" key={item.kind}>
             <div className="entry-main">
               <strong>{item.label}</strong>
-              {item.kind === "entry_card" && readiness.arrival_card?.name && (
-                <span className="muted">{readiness.arrival_card.name}</span>
-              )}
             </div>
             <select
               value={req.status}
@@ -610,6 +629,78 @@ function DiscrepancyBanner({ discrepancy }: { discrepancy: Discrepancy }) {
     <div className="alert alert-danger discrepancy-banner">
       <strong>Passport mismatch</strong>
       <span>{discrepancyMessage(discrepancy)}</span>
+    </div>
+  );
+}
+
+/** Automated arrival-card indicator (decision 9): no dropdown. Driven entirely
+ *  by the immigration-email pipeline -- none / received (pending in Review) /
+ *  confirmed (an email was accepted). */
+function ArrivalCardRow({
+  label,
+  reading,
+}: {
+  label: string;
+  reading: ArrivalCardReading | null;
+}) {
+  if (!reading) return null;
+  const status = {
+    none: { icon: "⚠️", text: "No confirmation email received", cls: "readiness-action" },
+    received: {
+      icon: "📥",
+      text: "Confirmation email received — confirm it in Review",
+      cls: "readiness-unknown",
+    },
+    confirmed: { icon: "✅", text: "Confirmed by email", cls: "readiness-ready" },
+  }[reading.state];
+  return (
+    <div className="req-row">
+      <div className="entry-main">
+        <strong>{label}</strong>
+        {reading.name && <span className="muted">{reading.name}</span>}
+      </div>
+      <span className={`readiness-status ${status.cls}`}>
+        {status.icon} {status.text}
+        {reading.state === "confirmed" && reading.reference
+          ? ` · ${reading.reference}`
+          : ""}
+      </span>
+    </div>
+  );
+}
+
+/** Automated onward-ticket indicator (decision 10): no dropdown. Confirmed live
+ *  from a booked journey leaving the country near the trip's end. */
+function OnwardTicketRow({
+  label,
+  reading,
+}: {
+  label: string;
+  reading: OnwardTicketReading | null;
+}) {
+  if (!reading) return null;
+  const journey = reading.journey;
+  const flight = journey
+    ? [journey.carrier, journey.number].filter(Boolean).join(" ")
+    : "";
+  return (
+    <div className="req-row">
+      <div className="entry-main">
+        <strong>{label}</strong>
+        {reading.confirmed && journey && (
+          <span className="muted">
+            {[flight, journey.to_place].filter(Boolean).join(" → ")}
+            {journey.depart_on ? ` (${formatDate(journey.depart_on)})` : ""}
+          </span>
+        )}
+      </div>
+      <span
+        className={`readiness-status ${
+          reading.confirmed ? "readiness-ready" : "readiness-action"
+        }`}
+      >
+        {reading.confirmed ? "✅ Onward ticket confirmed" : "⚠️ No onward ticket confirmed"}
+      </span>
     </div>
   );
 }

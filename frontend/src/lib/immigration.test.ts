@@ -9,6 +9,7 @@ function summary(over: Partial<ReadinessSummary>): ReadinessSummary {
     permit: null,
     permitted_days: null,
     arrival_card: null,
+    onward_ticket: null,
     checked_on: null,
     discrepancy: null,
     ...over,
@@ -53,8 +54,7 @@ describe("readinessBadge", () => {
         permitted_days: 30,
         arrival_card: {
           name: "Indonesia e-CD",
-          status: "todo",
-          confirmed: false,
+          state: "none",
           reference: "",
         },
       }),
@@ -66,20 +66,53 @@ describe("readinessBadge", () => {
     });
   });
 
+  it("still calls out the arrival card while a confirmation only sits in Review", () => {
+    const badge = readinessBadge(
+      summary({
+        state: "action",
+        permit: "visa_on_arrival",
+        arrival_card: { name: "Indonesia e-CD", state: "received", reference: "" },
+      }),
+    );
+    expect(badge?.text).toBe("Visa on arrival · arrival card not yet confirmed");
+  });
+
   it("drops the arrival-card note once it's confirmed", () => {
     const badge = readinessBadge(
       summary({
         state: "action",
         permit: "visa",
-        arrival_card: {
-          name: "",
-          status: "approved",
-          confirmed: true,
-          reference: "",
-        },
+        arrival_card: { name: "", state: "confirmed", reference: "" },
       }),
     );
     expect(badge?.text).toBe("Visa required");
+  });
+
+  it("calls out an unconfirmed onward ticket when action is needed", () => {
+    const badge = readinessBadge(
+      summary({
+        state: "action",
+        permit: "visa_free",
+        permitted_days: 30,
+        onward_ticket: { required: true, confirmed: false, journey: null },
+      }),
+    );
+    expect(badge?.text).toBe("Visa-free · 30 days · onward ticket not confirmed");
+  });
+
+  it("drops the onward note once a journey confirms it", () => {
+    const badge = readinessBadge(
+      summary({
+        state: "ready",
+        permit: "visa_free",
+        onward_ticket: {
+          required: true,
+          confirmed: true,
+          journey: { carrier: "SQ", number: "123", depart_on: "2026-09-15", to_place: "Singapore" },
+        },
+      }),
+    );
+    expect(badge?.text).toBe("Ready · Visa-free");
   });
 });
 

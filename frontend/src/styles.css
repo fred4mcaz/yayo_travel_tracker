@@ -1230,6 +1230,25 @@ textarea {
   font-size: 12px;
   margin: 8px 0 0;
 }
+/* The automated arrival-card / onward-ticket lines (decision 9/10): a read-only
+   status in place of the dropdown the other requirement rows still carry. Sits
+   where the <select> would, right-aligned, and colours like the badge. */
+.readiness-status {
+  flex-shrink: 0;
+  max-width: 55%;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 500;
+}
+.readiness-status.readiness-ready {
+  color: var(--ongoing);
+}
+.readiness-status.readiness-action {
+  color: var(--warn);
+}
+.readiness-status.readiness-unknown {
+  color: var(--text-muted);
+}
 
 /* Merge suggestion: a same-country trip a few days off that may be one stay.
    A quiet accent card, not a warning — nothing is wrong, it is just an offer. */

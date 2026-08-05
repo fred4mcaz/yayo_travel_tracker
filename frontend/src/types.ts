@@ -139,11 +139,32 @@ export interface StaySummary {
  *  nothing to assess. */
 export type ReadinessState = "ready" | "action" | "unknown" | "na";
 
+/** The automated arrival-card indicator (no dropdown). Driven by the
+ *  immigration-email pipeline, never a manual status pick:
+ *  - none: no confirmation email has matched this trip.
+ *  - received: a confirmation matched and is waiting in the Review queue --
+ *    surfaced the moment mail lands, but it only *counts* once accepted.
+ *  - confirmed: the entry_card requirement was accepted (approved). */
+export type ArrivalCardState = "none" | "received" | "confirmed";
+
 export interface ArrivalCardReading {
   name: string;
-  status: RequirementStatus;
-  confirmed: boolean;
+  state: ArrivalCardState;
   reference: string;
+}
+
+/** The automated onward-ticket indicator (no dropdown). Confirmed live from
+ *  booked journeys: a Leg departing the trip's country near its end date.
+ *  Present only when the entry policy requires onward proof. */
+export interface OnwardTicketReading {
+  required: boolean;
+  confirmed: boolean;
+  journey: {
+    carrier: string;
+    number: string;
+    depart_on: string;
+    to_place: string;
+  } | null;
 }
 
 /** Decision 3's loud flag: an accepted immigration email (Phase 5) named a
@@ -163,6 +184,7 @@ export interface ReadinessSummary {
   permit: PermitType | null;
   permitted_days: number | null;
   arrival_card: ArrivalCardReading | null;
+  onward_ticket: OnwardTicketReading | null;
   checked_on: string | null;
   discrepancy: Discrepancy | null;
 }

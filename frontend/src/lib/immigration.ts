@@ -75,12 +75,18 @@ export function readinessBadge(readiness: ReadinessSummary): ReadinessBadge | nu
 
   // action
   const cardNote =
-    readiness.arrival_card && !readiness.arrival_card.confirmed
+    readiness.arrival_card && readiness.arrival_card.state !== "confirmed"
       ? "arrival card not yet confirmed"
+      : null;
+  const onwardNote =
+    readiness.onward_ticket?.required && !readiness.onward_ticket.confirmed
+      ? "onward ticket not confirmed"
       : null;
   return {
     icon: "⚠️",
-    text: [summary, cardNote].filter(Boolean).join(" · ") || "Action needed",
+    text:
+      [summary, cardNote, onwardNote].filter(Boolean).join(" · ") ||
+      "Action needed",
     className: "readiness-action",
   };
 }
