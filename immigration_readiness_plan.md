@@ -1078,13 +1078,29 @@ false `visa_free` row until it's removed.
   to the user rather than forcing a resync.
 
 **Tasks**
-- [ ] User review of the override file (the asserted facts), then push.
-- [ ] Deploy via `deploy/deploy.sh`; verify health + the shipped bundle is live.
-- [ ] Back up prod `var/travel.db`, then `DELETE` the `(ID, MX)` and `(GB, US)`
-      rows from `entry_policy`; confirm the count.
-- [ ] Verify `(ID, MX)` now reads `visa_on_arrival` via the override on the live
-      site.
-- [ ] Stamp Phase 10–11 hashes.
+- [x] User reviewed the override file and pushed (`origin/main` at `b3d08ef`).
+- [x] Deployed via `deploy/deploy.sh` — image rebuilt (ships the new
+      `data/rules/` file), container recreated, **healthy after 4s**.
+- [x] Backed up prod `var/travel.db` to
+      `var/backups/pre-override-fix-20260805-145332.sqlite` (400 KB), then
+      `DELETE`d `(ID, MX)` and `(GB, US)` via stdin SQL. Remaining rows:
+      `(ID, US)=visa_on_arrival`, `(MY, MX)`, `(SG, US)` — the two stale ones
+      gone.
+- [x] Verified in the running container:
+      `load_overrides()[("ID", MX)]` → `visa_on_arrival` / `visa_required=True` /
+      "Indonesia e-CD" / `source_model=curated-override`. So MX→Indonesia now
+      reads Visa on Arrival live.
+- [x] Stamped Phase 10–11 hashes.
 
 **Notes for the next engineer**
-- *(filled in on completion)*
+- **Watch out for SQLite double-quote identifiers over SSH.** The first DELETE
+  attempt used shell-escaped `\"ID\"`, which SQLite parses as an *identifier*,
+  not a string literal — it silently didn't match. Redone by piping SQL with
+  proper `'ID'` single-quoted literals into `sqlite3` over stdin (a heredoc),
+  which sidesteps all the nested-quote hazards. Prefer that for any prod DB edit.
+- The trip's **checklist** won't show its new `visa` row until that trip is next
+  mutated (`sync_requirements` runs on edit, Phase 3's derived-state rule); the
+  headline badge/summary corrected immediately from the override.
+
+Commit (Phase 10 code): `b3d08ef`. Deploy + data fix: shipped and verified on
+prod, DB unchanged in schema, healthy after 4s.
