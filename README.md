@@ -178,6 +178,21 @@ nothing writes to a `Requirement` without an explicit accept, same boundary as
   richer read) is the per-message consent to extract it — reads a real
   requirement kind, a reference, and a **nationality** out of the body.
 
+**The arrival card and onward ticket are automated read-only indicators — no
+dropdown.** The *arrival card* reads one of three states, driven entirely by the
+Gmail pipeline above: **none** (no confirmation email has matched this trip),
+**received** (a confirmation matched and is waiting in the Review queue — the
+receipt is surfaced the moment mail lands, but it only *counts* once accepted,
+the boundary holds), or **confirmed** (the `entry_card` requirement was
+accepted). The *onward ticket* is derived live from booked journeys: it's
+confirmed when a `Leg` departs the trip's country near its end date — which is
+exactly how an onward/return flight is already recorded, since every `Leg` is an
+*arrival into* a country and the journey out of trip X is a later trip's inbound
+leg. Both show only when the policy requires them, and neither is hand-settable
+(`services/trips.py#_arrival_card_reading` / `_onward_ticket_reading`); the other
+requirement kinds (visa, ETA, insurance, vaccination) keep their status
+dropdowns.
+
 **The loud discrepancy flag.** If a Phase-5 read names a nationality that
 differs from the trip's *currently* selected passport, `Requirement`'s
 `discrepancy_nationality` is stamped on accept — the raw fact, not a stored
@@ -623,8 +638,9 @@ one accept boundary.
   undrawn — the horizontal-gap anchor has nowhere to go in those cases.
 - **The frontend suite covers the calendar (drag, week layout, hotel bars), the
   stay-form-on-mount lifecycle, the Trips-list ordering, the merge card's
-  keep-separate flow, the readiness badge / discrepancy copy, and the Review
-  queue's two card kinds** (53 tests). Everything else in the SPA is still
+  keep-separate flow, the readiness badge / discrepancy copy (incl. the
+  automated arrival-card `state` and onward-ticket notes), and the Review
+  queue's two card kinds** (56 tests). Everything else in the SPA is still
   untested; there is no `App`-level test, because that needs the `api` module
   mocked (though `TripDetail.test.tsx` and `Review.test.tsx` mock individual
   `api` calls, which is the pattern an `App`-level test would extend).
@@ -640,7 +656,11 @@ one accept boundary.
   cached and doesn't trigger a fetch, so a policy first cached by one trip only
   reaches a sibling same-country trip after that sibling is next mutated. A
   wrong cached policy can only be corrected by a manual DB edit — there is no
-  refresh path, by design (§1).
+  refresh path, by design (§1). The onward-ticket check is a proxy: with no
+  airport→country lookup, "departs this country near the trip's end" is
+  approximated as "a booked `Leg` arriving a *different* country within a few
+  days of the end date," so a leg from an unrelated trip could in principle
+  count — acceptable, since it still evidences onward travel around that time.
 
 Smaller things he was once offered: passport-expiry warnings against entry
 dates, scheduled/off-box backups, an ICS subscribe feed.

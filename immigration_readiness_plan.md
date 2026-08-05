@@ -922,6 +922,8 @@ lines for the arrival card and onward ticket.
   header, unrelated to this phase (a real fetched policy carries a permit type).
   Left as‑is; flag it if the header ever needs to reflect "action" more honestly.
 
+Commit: `fa5d1a6`
+
 ---
 
 ## Phase 9 — Deploy, verify on prod, document
@@ -940,12 +942,15 @@ lines for the arrival card and onward ticket.
   confirmation") to prove it's live.
 
 **Tasks**
-- [ ] Update `README.md` (§1 immigration‑readiness subsection: note the arrival
-      card and onward ticket are now automated/read‑only; §5 if the wording
-      references the dropdowns; frontend test count).
+- [x] Updated `README.md` §1: new "arrival card and onward ticket are automated
+      read‑only indicators" paragraph (3‑state arrival card + onward‑from‑journeys),
+      the onward‑ticket proxy limitation noted in §7's open‑edges bullet, and the
+      frontend test count refreshed (53→56).
+- [x] `alembic check` — no drift; Phases 7–8 add no columns/tables, so the deploy
+      is a plain image rebuild, no migration risk.
 - [ ] User pushes; assistant deploys via `deploy/deploy.sh` over SSH and verifies
       the bundle string + `/api/health`.
-- [ ] Stamp Phases 7–9 commit hashes.
+- [ ] Stamp Phase 9 commit hashes.
 
 **Notes for the next engineer**
 - *(filled in on completion)*
