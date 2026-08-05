@@ -948,9 +948,15 @@ Commit: `fa5d1a6`
       frontend test count refreshed (53→56).
 - [x] `alembic check` — no drift; Phases 7–8 add no columns/tables, so the deploy
       is a plain image rebuild, no migration risk.
-- [ ] User pushes; assistant deploys via `deploy/deploy.sh` over SSH and verifies
-      the bundle string + `/api/health`.
-- [ ] Stamp Phase 9 commit hashes.
+- [x] User pushed (`origin/main` at `8d2a783`); assistant ran `deploy/deploy.sh`
+      on the box. Image rebuilt, container recreated, **healthy after 4s**. No
+      migration ran (Phases 7–8 are schema‑free). Shipped bundle
+      `/assets/index-YuQ1QgQT.js` (same hash as the local `vite build`) contains
+      "No confirmation email received", "No onward ticket confirmed",
+      "Confirmation email received" and "Confirmed by email".
+      `/api/health` returns ok, `email_ingest_enabled=true`.
+- [x] Stamped Phase 9 commit hashes.
 
 **Notes for the next engineer**
-- Docs commit: `196d9e4`. Deploy pending the user's push (README §4 workflow).
+- Docs commit: `196d9e4`. Deploy shipped and verified on prod
+  (`travel.foryayo.com`), no schema change, healthy after 4s.
