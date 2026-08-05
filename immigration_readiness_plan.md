@@ -953,4 +953,4 @@ Commit: `fa5d1a6`
 - [ ] Stamp Phase 9 commit hashes.
 
 **Notes for the next engineer**
-- *(filled in on completion)*
+- Docs commit: `196d9e4`. Deploy pending the user's push (README §4 workflow).
