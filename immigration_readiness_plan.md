@@ -699,3 +699,234 @@ Commit (docs): `8911d5c`. Deploy: shipped and verified on prod
    stated explicitly here so Phase 2 doesn't accidentally render placeholder
    "not required" rows for these three kinds. Visa and entry_card remain the
    headline kinds (always shown when required, per the Indonesia example).
+
+---
+
+## Decisions locked with the user (2026‑08‑05, round 3)
+
+Follow‑up: the **Arrival Card** and **Onward Ticket** sections should stop being
+hand‑set dropdowns and instead report, automatically, what the mailbox and the
+booked journeys already know. Four decisions were locked before planning:
+
+9. **Arrival card = a 3‑state automated indicator, and the accept boundary
+   holds.** No dropdown. It reads one of three states, driven by the immigration
+   email pipeline (Phases 4–5), never by a manual status pick:
+   - **`none`** — no arrival/entry‑card confirmation email has matched this trip.
+     Renders *"No arrival card confirmation received."*
+   - **`received`** — a confirmation email matched this trip and is **waiting in
+     the Review queue** (a pending `Extraction` of kind `immigration` for
+     `entry_card`, `suggested_trip_id == this trip`). Renders *"Confirmation
+     email received — confirm it in Review."* This surfaces receipt the moment
+     mail lands **without** writing trip data: the confirmation still only
+     *counts* once a human accepts it (the accept boundary from README §5 /
+     design‑principles, unchanged).
+   - **`confirmed`** — the `entry_card` requirement is `approved` (an immigration
+     email was accepted, Phase 4/5). Renders *"Arrival card confirmed"* + the
+     reference.
+10. **Onward ticket = derived live from booked journeys, not a stored status.**
+    No dropdown, no new email classifier, no new allow‑list. An onward ticket is
+    *confirmed* when a booked journey (`Leg`) departs the trip's country **around
+    the trip's end date** — which is exactly how a real onward/return flight is
+    already recorded in this app: every `Leg` is an *arrival into* a country, so
+    the journey that carries you **out** of trip X's country is the inbound
+    `Leg` of a later trip, whose `depart_at` sits near trip X's `end_date`. These
+    legs already come from journey‑confirmation emails (booking extraction) or
+    manual entry, so "a journey confirmation email that aligns with the end of
+    the trip" is a `Leg` that departs a different country than trip X's, dated
+    within a few days of trip X's end. Computed at read time (like the
+    discrepancy flag) — nothing is written, so a later booking flips it to
+    confirmed on the next read without touching any row.
+11. **Both indicators show only when the LLM entry policy requires them** —
+    arrival card only when `policy.entry_card_required`, onward ticket only when
+    `policy.onward_ticket_required`. Unchanged from decision 8's gating: a
+    country that doesn't need an arrival card or onward proof shows neither line.
+12. **Fully automated — no manual override, no escape hatch.** Removing the
+    dropdown removes the ability to hand‑mark "I filed a paper card" or "I booked
+    onward travel offline." If no matching email/journey exists, the indicator
+    reads *not confirmed*, full stop. (A paper‑card traveller can still record
+    the journey as a `Leg`, which is the onward‑ticket signal; the arrival card
+    simply relies on the email arriving.)
+
+**What this supersedes:** the `entry_card` and `onward_ticket` rows stop being
+user‑editable via the readiness `<select>`. `visa` / `eta` / `insurance` /
+`vaccination` keep their dropdowns (nothing automated confirms them yet). The
+`entry_card` **Requirement row** is still the store of record for
+*confirmed* (its `approved` status, flipped only on accept); the
+`onward_ticket` Requirement row becomes vestigial for *status* — it records only
+that onward proof is **required**, while *confirmed* is derived from `Leg`s live.
+
+---
+
+## Phase 7 — Backend: automate the arrival‑card & onward‑ticket readings
+
+**Why:** the two indicators are renderings of state the backend already holds —
+the immigration‑email pipeline for the arrival card, the `Leg` table for the
+onward ticket. Compute both in `trip_readiness` so the frontend (Phase 8) is a
+pure rendering change and the trip‑list badge and detail panel read identical
+state (the same rule that put `readinessBadge` in one shared module in Phase 3).
+
+**Assumptions to validate**
+- A pending immigration `Extraction` for `entry_card` on a trip is queryable by
+  `(kind=immigration, status=pending, suggested_trip_id=trip.id)` and its
+  `payload_json.requirement_kind == "entry_card"` — matches how Phase 4 writes it.
+- Every `Leg` records the country it *arrived into* (`Leg.country_code`) and a
+  `depart_at`; there is **no** airport→country lookup, so "departs the trip's
+  country" is approximated as "arrives a **different** country, dated near this
+  trip's end." Validated against `models.py` (`Leg.country_code` is the arrival
+  country; return travel isn't tracked).
+
+**Gotchas / risks**
+- **The accept boundary still holds** (README §5). The `received` state is read
+  from a *pending* proposal — `trip_readiness` must not accept, write, or flip
+  anything. It only *reads* that a proposal is waiting. Confirmation stays a
+  human accept in Review.
+- **`ready` must respect the derived states, not the stored `entry_card` /
+  `onward_ticket` status.** `onward_ticket`'s stored status stays `todo` forever
+  now (nothing flips it), so the old `all(status in _SETTLED)` would read a
+  confirmed‑by‑journey trip as `action`. Compute *settled* per kind:
+  `entry_card` settled ⇔ `arrival_card.state == "confirmed"`; `onward_ticket`
+  settled ⇔ `onward_ticket.confirmed`; every other kind settled ⇔ status in
+  `_SETTLED_STATUSES` (unchanged).
+- **Empty / undated legs.** A `Leg` with no `depart_at`, or `country_code == ""`,
+  can't confirm onward travel — skip it (don't let an empty arrival country
+  `"" != "ID"` sneak through as "a different country").
+- **Window pick.** "Aligns with the end of the trip" = `abs(depart_date −
+  end_date) ≤ ONWARD_SLACK_DAYS`. Use a small symmetric window (`ONWARD_SLACK_DAYS
+  = 3`) — forgiving enough for a same‑night red‑eye out or a next‑morning flight,
+  tight enough not to grab an unrelated trip two weeks later. Its own named
+  constant in `trips.py` (don't couple readiness to `review.MATCH_SLACK_DAYS`,
+  which governs a different thing).
+- **Compact badge parity.** `list_trips` filters `trip_readiness` down to a
+  compact key set (`api/trips.py`); add `onward_ticket` to that set so the card
+  badge can say "onward ticket not confirmed" the way it already can for the
+  arrival card. `arrival_card` is already in the set.
+
+**Tasks**
+- [x] `services/trips.py` — replaced the `arrival_card` reading with the 3‑state
+      shape `{name, state: "none"|"received"|"confirmed", reference}` (dropped
+      the old `confirmed`/`status` keys). Added `_arrival_card_reading` and
+      `_pending_entry_card_email`.
+- [x] `services/trips.py` — added `_onward_ticket_reading(session, trip, code,
+      policy)` returning `{required, confirmed, journey}` when
+      `policy.onward_ticket_required`, else `None`; `ONWARD_SLACK_DAYS = 3`;
+      scans every dated `Leg` with a truthy `country_code != code` within the
+      window, earliest first.
+- [x] `services/trips.py` — `trip_readiness` computes both readings, returns
+      `onward_ticket`, and uses a per‑kind `_settled` rule (entry_card ⇔
+      `arrival_card` confirmed; onward_ticket ⇔ journey found; else stored
+      status). `_empty_readiness` includes `onward_ticket: None`.
+- [x] `api/trips.py` — `"onward_ticket"` added to the compact readiness key set.
+
+**Tests that must pass to proceed**
+- [x] Arrival card **none / received / confirmed** in one test, with a row‑count
+      assertion proving `received` writes no `Requirement` (accept boundary).
+- [x] A pending proposal for a *different* kind (visa) does **not** mark the
+      arrival card `received`.
+- [x] Onward ticket **not required** → `readiness["onward_ticket"] is None`.
+- [x] Onward ticket **required + confirmed** by a later trip's inbound `Leg`
+      (SG, departing the day the TH stay ends) → `confirmed`, journey populated,
+      trip flips to `ready`.
+- [x] Onward ticket **ignores** a same‑country leg and an out‑of‑window leg.
+- [x] Updated the two existing assertions (`arrival_card["confirmed"]` → `state`,
+      and the `na` full‑dict shape gained `onward_ticket: None`); `list_trips`
+      compact test asserts `onward_ticket` rides along.
+- [x] `pytest backend/tests` green (336 passed, was 331); `ruff check app tests`
+      clean.
+
+**Notes for the next engineer**
+- `_onward_ticket_reading` approximates "departs this trip's country" as
+  "arrives a **different** real country, dated within `ONWARD_SLACK_DAYS` of the
+  trip's end" — there is no airport→country lookup, and `Leg.country_code` is
+  the *arrival* country (return travel isn't tracked). This is a proxy: a leg
+  from an unrelated trip that happens to depart a different country near this
+  end date would count. Acceptable — it still evidences booked onward travel
+  around that time — but worth knowing if a false positive ever surfaces.
+- The `onward_ticket` **Requirement row** (still materialised by
+  `sync_requirements` when required) is now vestigial for *status*: nothing
+  flips it, and `_settled` reads the derived journey, not the row. It's kept
+  only so the checklist knows onward proof is required. If you ever want it to
+  reflect confirmation in the DB, that'd be a *write* on a derived signal —
+  deliberately avoided here, same reasoning as the live discrepancy comparison.
+- `arrival_card`'s `received` state reads a *pending* `Extraction`; it never
+  writes. Confirmation still requires a human accept in Review (the row flips to
+  `approved`, which is what `confirmed` reads). Don't be tempted to auto‑flip on
+  a pending proposal — that would breach the accept boundary (decision 9).
+
+Commit: _(pending)_
+
+---
+
+## Phase 8 — Frontend: automated indicators replace the two dropdowns
+
+**Why:** the visible half of the request — "no drop down," read‑only automated
+lines for the arrival card and onward ticket.
+
+**Assumptions to validate**
+- The readiness `<select>` for `entry_card`/`onward_ticket` is the only place
+  those two kinds are user‑editable (the generic Paperwork section already
+  filters out system‑sourced immigration rows, Phase 3) — so removing the two
+  selects removes the last edit path, matching decision 12.
+
+**Gotchas / risks**
+- Keep `visa`/`eta`/`insurance`/`vaccination` on their dropdowns — only
+  `entry_card` and `onward_ticket` become read‑only.
+- Past‑trip `quiet` gating and the `na`/`unknown` early returns are unchanged.
+- The compact badge (`lib/immigration.ts`) reads `arrival_card.confirmed` today;
+  switch it to `arrival_card.state === "confirmed"` and add an onward note when
+  `onward_ticket?.required && !onward_ticket.confirmed`.
+
+**Tasks**
+- [ ] `types.ts` — `ArrivalCardReading` → `{name, state: "none"|"received"|
+      "confirmed", reference}`; add `OnwardTicketReading` and `onward_ticket`
+      on both `ReadinessSummary` (compact) and `Readiness` (full).
+- [ ] `lib/immigration.ts` — `readinessBadge`: arrival‑card note keys off
+      `state`; add the onward‑ticket note. Keep one shared source of the copy.
+- [ ] `TripDetail.tsx` `ReadinessSection` — in the checklist map, render
+      `entry_card` as the 3‑state read‑only indicator (icon + sentence + name +
+      reference) and `onward_ticket` as a read‑only confirmed / not‑confirmed
+      line (with the journey when confirmed); everything else keeps its
+      `<select>`. Remove the now‑unused status handler for those two kinds.
+- [ ] `lib/immigration.test.ts` — cover the arrival‑card `state` mapping and the
+      onward note; update fixtures to the new `arrival_card` shape.
+- [ ] Update `arrival_card` fixtures in `Trips.test.tsx`, `TripDetail.test.tsx`,
+      `Calendar.test.tsx` (they use `arrival_card: null`, so likely just add
+      `onward_ticket: null`).
+
+**Tests that must pass to proceed**
+- [ ] `npm test` green (incl. new badge/indicator cases); `tsc --noEmit` clean.
+- [ ] Browser (local): a VoA trip shows the arrival‑card indicator with no
+      dropdown; seed a pending immigration proposal → it reads "received"; flip
+      to approved → "confirmed." An onward‑required trip with/without a
+      qualifying later‑trip leg shows confirmed / not‑confirmed with no dropdown.
+      Revert all seeded rows afterward. (Text‑based verification per Phases 3–5.)
+
+**Notes for the next engineer**
+- *(filled in on completion)*
+
+---
+
+## Phase 9 — Deploy, verify on prod, document
+
+**Why:** README §4 — don't skip the deploy; verify the shipped bundle.
+
+**Assumptions to validate**
+- **No migration this time** — Phases 7–8 add no columns or tables (the reading
+  is derived; `discrepancy_nationality`‑style live comparison). So the deploy is
+  a plain image rebuild, no `alembic upgrade` risk. Confirm `alembic check`
+  reports no drift before shipping.
+
+**Gotchas / risks**
+- **Do not skip the deploy** (README §4). After the user pushes, deploy, then
+  grep the shipped JS bundle for a new string (e.g. "No arrival card
+  confirmation") to prove it's live.
+
+**Tasks**
+- [ ] Update `README.md` (§1 immigration‑readiness subsection: note the arrival
+      card and onward ticket are now automated/read‑only; §5 if the wording
+      references the dropdowns; frontend test count).
+- [ ] User pushes; assistant deploys via `deploy/deploy.sh` over SSH and verifies
+      the bundle string + `/api/health`.
+- [ ] Stamp Phases 7–9 commit hashes.
+
+**Notes for the next engineer**
+- *(filled in on completion)*

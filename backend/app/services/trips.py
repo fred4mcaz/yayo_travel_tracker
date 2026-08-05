@@ -8,6 +8,7 @@ A trip is one international stay in one country. That is enforced in the API,
 so everything here can assume a single country and say so plainly.
 """
 
+import json
 from datetime import date
 from typing import Optional
 
@@ -17,6 +18,9 @@ from app.countries import country_name
 from app.models import (
     Actor,
     CountryEntry,
+    Extraction,
+    ExtractionKind,
+    ExtractionStatus,
     Leg,
     MergeDismissal,
     Nationality,
@@ -315,6 +319,14 @@ _KIND_LABELS = {
 
 _SETTLED_STATUSES = {RequirementStatus.approved, RequirementStatus.not_required}
 
+# How far a booked onward journey may sit from the trip's end date and still
+# count as "aligned with the end of the trip" (decision 10). Small and
+# symmetric: forgiving of a same-night red-eye out or a next-morning flight,
+# tight enough not to grab an unrelated trip weeks later. Deliberately its own
+# constant, not review.MATCH_SLACK_DAYS (that governs email-to-trip matching, a
+# different thing that just happens to also be a few days).
+ONWARD_SLACK_DAYS = 3
+
 
 def _trip_entry(session: Session, trip_id: int) -> Optional[CountryEntry]:
     return session.exec(
@@ -451,6 +463,102 @@ def _discrepancy(
     return None
 
 
+def _pending_entry_card_email(session: Session, trip_id: int) -> bool:
+    """Whether an arrival-card confirmation email has matched this trip and is
+    waiting in the Review queue (decision 9's `received` state).
+
+    Read-only: the presence of a *pending* immigration proposal for `entry_card`
+    is surfaced so the traveller sees the mail landed, but nothing is written --
+    the confirmation only counts once a human accepts it (the accept boundary,
+    README §5). Phase 4/5 write the proposal's `requirement_kind` into
+    `payload_json`; a proposal for some other kind (a Phase 5 visa/eta read)
+    does not make the *arrival card* "received".
+    """
+    rows = session.exec(
+        select(Extraction)
+        .where(Extraction.kind == ExtractionKind.immigration)
+        .where(Extraction.status == ExtractionStatus.pending)
+        .where(Extraction.suggested_trip_id == trip_id)
+    ).all()
+    for row in rows:
+        try:
+            payload = json.loads(row.payload_json)
+        except (TypeError, ValueError):
+            continue
+        if payload.get("requirement_kind") == RequirementKind.entry_card.value:
+            return True
+    return False
+
+
+def _arrival_card_reading(
+    session: Session,
+    trip_id: int,
+    policy,
+    entry_card_row: Optional[Requirement],
+) -> Optional[dict]:
+    """The 3-state arrival-card indicator (decision 9), or None when the policy
+    doesn't require an arrival card at all.
+
+    - confirmed: the entry_card requirement is approved (an immigration email
+      was accepted, Phase 4/5).
+    - received: not yet confirmed, but a confirmation email matched this trip
+      and is pending in Review.
+    - none: neither -- no confirmation has arrived.
+    """
+    if not policy.entry_card_required:
+        return None
+    if entry_card_row is not None and entry_card_row.status == RequirementStatus.approved:
+        state = "confirmed"
+    elif _pending_entry_card_email(session, trip_id):
+        state = "received"
+    else:
+        state = "none"
+    return {
+        "name": policy.entry_card_name,
+        "state": state,
+        "reference": entry_card_row.reference if entry_card_row else "",
+    }
+
+
+def _onward_ticket_reading(session: Session, trip: Trip, code: str, policy) -> Optional[dict]:
+    """Whether a booked onward journey confirms this trip's onward-ticket
+    requirement (decision 10), or None when the policy doesn't require one.
+
+    Derived live from the Leg table, never stored: every Leg is an *arrival
+    into* a country, so the journey carrying you *out* of this trip's country is
+    a later trip's inbound Leg whose depart_at sits near this trip's end date.
+    A qualifying leg arrives a different, real country and departs within
+    ONWARD_SLACK_DAYS of the end date. Undated legs and empty arrival countries
+    can't confirm anything and are skipped. The earliest qualifying leg is the
+    journey shown.
+    """
+    if not policy.onward_ticket_required:
+        return None
+
+    journey: Optional[dict] = None
+    if trip.end_date is not None:
+        legs = session.exec(
+            select(Leg)
+            .where(Leg.depart_at.is_not(None))
+            .where(Leg.country_code != "")
+            .order_by(Leg.depart_at)
+        ).all()
+        for leg in legs:
+            if leg.country_code.upper() == code:
+                continue
+            if abs((leg.depart_at.date() - trip.end_date).days) > ONWARD_SLACK_DAYS:
+                continue
+            journey = {
+                "carrier": leg.carrier,
+                "number": leg.number,
+                "depart_on": str(leg.depart_at.date()),
+                "to_place": leg.to_place,
+            }
+            break
+
+    return {"required": True, "confirmed": journey is not None, "journey": journey}
+
+
 def _empty_readiness(
     state: str,
     passport: Optional[str] = None,
@@ -465,6 +573,7 @@ def _empty_readiness(
         "permitted_days": None,
         "checklist": [],
         "arrival_card": None,
+        "onward_ticket": None,
         "advisory": "",
         "checked_on": None,
         "alternate_passport_hint": None,
@@ -514,19 +623,24 @@ def trip_readiness(session: Session, trip: Trip) -> dict:
         for kind in POLICY_REQUIREMENT_KINDS
         if kind in rows
     ]
-    ready = all(RequirementStatus(row["status"]) in _SETTLED_STATUSES for row in checklist)
 
     entry_card_row = rows.get(RequirementKind.entry_card)
-    arrival_card = (
-        {
-            "name": policy.entry_card_name,
-            "status": entry_card_row.status.value,
-            "confirmed": entry_card_row.status == RequirementStatus.approved,
-            "reference": entry_card_row.reference,
-        }
-        if entry_card_row is not None
-        else None
-    )
+    arrival_card = _arrival_card_reading(session, trip.id, policy, entry_card_row)
+    onward_ticket = _onward_ticket_reading(session, trip, code, policy)
+
+    # Whether each required item is settled. entry_card and onward_ticket are no
+    # longer hand-set (decision 9/10): their "done" is the derived reading, not
+    # the stored status -- onward_ticket's status in particular stays `todo`
+    # forever now, so reading it here would wrongly hold the trip at `action`.
+    def _settled(item: dict) -> bool:
+        kind = item["kind"]
+        if kind == RequirementKind.entry_card.value:
+            return arrival_card is not None and arrival_card["state"] == "confirmed"
+        if kind == RequirementKind.onward_ticket.value:
+            return onward_ticket is not None and onward_ticket["confirmed"]
+        return RequirementStatus(item["status"]) in _SETTLED_STATUSES
+
+    ready = all(_settled(item) for item in checklist)
 
     return {
         "state": "ready" if ready else "action",
@@ -536,6 +650,7 @@ def trip_readiness(session: Session, trip: Trip) -> dict:
         "permitted_days": policy.permitted_days,
         "checklist": checklist,
         "arrival_card": arrival_card,
+        "onward_ticket": onward_ticket,
         "advisory": policy.advisory,
         "checked_on": str(policy.fetched_at.date()),
         "alternate_passport_hint": _alternate_passport_hint(session, code, nationality, policy),
