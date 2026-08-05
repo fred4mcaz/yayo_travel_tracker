@@ -645,21 +645,26 @@ Commit: `9f1b94e`
       note and a full "immigration path" subsection; §7 dropped the stale
       "`Requirement` rows … nothing creates them" and "visa-free dataset"
       items and refreshed the frontend test count (28→53).
-- [ ] **User pushes** (the assistant cannot `git push` — README §4). Local is
-      ahead of `origin/main` by the Phase 2–6 commits.
-- [ ] Assistant runs `deploy/deploy.sh` over SSH once the push lands, then
-      verifies a new string is in the shipped bundle (e.g. `Passport mismatch`
-      or `Immigration readiness`).
+- [x] **User pushed**; local and `origin/main` in sync.
+- [x] Assistant ran `deploy/deploy.sh` over SSH — image rebuilt, container
+      recreated, **healthy after 4s**. `alembic upgrade head` on the box took
+      prod to `50cd760e587a (head)`, applying all four new migrations against
+      the real DB (3 existing trips preserved). Verified the shipped bundle
+      (`/assets/index-DoJbx2z4.js` — same hash as the local `npm run build`)
+      contains `Passport mismatch`, `Immigration readiness`, and `As
+      immigration doc`. `/api/health` returns ok, `email_ingest_enabled=true`.
+      Read-only schema check on the live DB confirmed the `entry_policy`
+      table + `requirement.source` / `requirement.discrepancy_nationality` /
+      `email_message.looks_like_immigration` / `extraction.kind` columns all
+      present; 0 policies cached yet (expected — none fetched until a trip is
+      opened on the live site).
 - [x] Stamp every phase's commit hash above (Phases 0–5 all stamped;
-      Phase 6's is this commit).
+      Phase 6's docs commit is `8911d5c`).
 
-**Verification once deployed** (to run after the push + deploy):
-- `curl -s http://127.0.0.1:8081/api/health` returns healthy over SSH.
-- The shipped JS bundle contains a Phase 3/5 string:
-  `ssh … 'ASSET=$(curl -sS https://travel.foryayo.com/ | grep -o "/assets/index-[A-Za-z0-9_-]*\.js"); curl -sS "https://travel.foryayo.com$ASSET" | grep -c "Passport mismatch"'`
-- Open a real upcoming trip on the live site → an "Immigration readiness"
-  section renders (with a real cached policy, since prod has the OpenRouter
-  key), not just "unknown".
+**Verification once deployed** — all passed, see the deploy task above. The
+one thing left to happen organically: opening a real upcoming trip on the live
+site will fetch and cache its first real policy (prod has the OpenRouter key),
+turning that trip's badge from `❔ unknown` into a real reading.
 
 **Notes for the next engineer**
 - The frontend `dist/` is gitignored and built inside the Docker image, so
@@ -671,7 +676,8 @@ Commit: `9f1b94e`
   but **prod's state is independent**; the entrypoint's `alembic upgrade head`
   will apply whatever chain prod is missing, in order.
 
-Commit (docs): `8911d5c`. Deploy: pending the user's `git push`.
+Commit (docs): `8911d5c`. Deploy: shipped and verified on prod
+(`travel.foryayo.com`), DB at `50cd760e587a (head)`, healthy after 4s.
 
 ---
 
