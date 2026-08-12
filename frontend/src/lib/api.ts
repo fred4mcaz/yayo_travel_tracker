@@ -94,6 +94,10 @@ export const api = {
           last_used_at: string | null;
         }[]
       >("/api/auth/passkeys"),
+    renamePasskey: (id: number, nickname: string) =>
+      patch<{ id: number; nickname: string }>(`/api/auth/passkeys/${id}`, {
+        nickname,
+      }),
     deletePasskey: (id: number) =>
       del<{ deleted: boolean; remaining: number }>(`/api/auth/passkeys/${id}`),
     logout: () => post<{ authenticated: boolean }>("/api/auth/logout"),

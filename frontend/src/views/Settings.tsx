@@ -142,20 +142,40 @@ export function Settings({ passports, onPassportsChanged, onLoggedOut }: Props) 
                   : " · never used"}
               </span>
             </div>
-            <button
-              className="icon-btn"
-              aria-label="Remove passkey"
-              onClick={async () => {
-                try {
-                  await api.auth.deletePasskey(k.id);
-                  setPasskeys(await api.auth.passkeys());
-                } catch (e) {
-                  alert(e instanceof ApiError ? e.message : String(e));
-                }
-              }}
-            >
-              🗑
-            </button>
+            <div className="item-actions">
+              <button
+                className="icon-btn"
+                aria-label="Rename passkey"
+                onClick={async () => {
+                  const name = prompt("Name this passkey", k.nickname);
+                  if (name === null) return;
+                  const trimmed = name.trim();
+                  if (!trimmed || trimmed === k.nickname) return;
+                  try {
+                    await api.auth.renamePasskey(k.id, trimmed);
+                    setPasskeys(await api.auth.passkeys());
+                  } catch (e) {
+                    alert(e instanceof ApiError ? e.message : String(e));
+                  }
+                }}
+              >
+                ✎
+              </button>
+              <button
+                className="icon-btn"
+                aria-label="Remove passkey"
+                onClick={async () => {
+                  try {
+                    await api.auth.deletePasskey(k.id);
+                    setPasskeys(await api.auth.passkeys());
+                  } catch (e) {
+                    alert(e instanceof ApiError ? e.message : String(e));
+                  }
+                }}
+              >
+                🗑
+              </button>
+            </div>
           </div>
         ))}
         <p className="muted small">

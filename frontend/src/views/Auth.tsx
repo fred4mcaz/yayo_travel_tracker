@@ -38,7 +38,7 @@ export function Auth({ enrolled, enrollmentToken, onAuthenticated }: Props) {
         const credential = await webauthn.register(options);
         const result = await api.auth.registerFinish(
           credential,
-          navigator.platform || "this device",
+          webauthn.deviceName(),
         );
         if (result.recovery_codes) {
           // Shown exactly once. Don't navigate away until acknowledged.

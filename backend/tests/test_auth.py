@@ -203,6 +203,50 @@ def test_logout_endpoint_clears_access(anon_client, session):
     assert anon_client.get("/api/trips").status_code == 401
 
 
+# --- passkey rename ----------------------------------------------------------
+
+
+def test_rename_passkey(client, session):
+    from app.models import PasskeyCredential
+    from sqlmodel import select
+
+    session.add(
+        PasskeyCredential(credential_id="abc", public_key="def", nickname="Win32")
+    )
+    session.commit()
+    cred_id = session.exec(select(PasskeyCredential)).one().id
+
+    r = client.patch(
+        f"/api/auth/passkeys/{cred_id}", json={"nickname": "  Eduardo's iPhone  "}
+    )
+    assert r.status_code == 200
+    assert r.json()["nickname"] == "Eduardo's iPhone"
+    assert client.get("/api/auth/passkeys").json()[0]["nickname"] == "Eduardo's iPhone"
+
+
+def test_rename_passkey_rejects_blank_and_missing(client, session):
+    from app.models import PasskeyCredential
+    from sqlmodel import select
+
+    session.add(
+        PasskeyCredential(credential_id="abc", public_key="def", nickname="x")
+    )
+    session.commit()
+    cred_id = session.exec(select(PasskeyCredential)).one().id
+
+    r = client.patch(f"/api/auth/passkeys/{cred_id}", json={"nickname": "   "})
+    assert r.status_code == 422
+    assert (
+        client.patch("/api/auth/passkeys/9999", json={"nickname": "y"}).status_code
+        == 404
+    )
+
+
+def test_rename_passkey_requires_auth(anon_client):
+    r = anon_client.patch("/api/auth/passkeys/1", json={"nickname": "y"})
+    assert r.status_code == 401
+
+
 # --- lockout protection ----------------------------------------------------
 
 

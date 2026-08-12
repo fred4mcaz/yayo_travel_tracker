@@ -360,6 +360,30 @@ def list_passkeys(
     ]
 
 
+class RenamePasskeyRequest(BaseModel):
+    nickname: str
+
+
+@router.patch("/passkeys/{passkey_id}")
+def rename_passkey(
+    passkey_id: int,
+    payload: RenamePasskeyRequest,
+    session: Session = Depends(get_session),
+    _: bool = Depends(require_auth),
+) -> dict:
+    """The nickname is display-only, so renaming is free of side effects."""
+    cred = session.get(PasskeyCredential, passkey_id)
+    if cred is None:
+        raise HTTPException(status_code=404, detail="Passkey not found")
+    nickname = payload.nickname.strip()[:60]
+    if not nickname:
+        raise HTTPException(status_code=422, detail="Nickname cannot be empty")
+    cred.nickname = nickname
+    session.add(cred)
+    session.commit()
+    return {"id": cred.id, "nickname": cred.nickname}
+
+
 @router.delete("/passkeys/{passkey_id}")
 def delete_passkey(
     passkey_id: int,

@@ -112,6 +112,25 @@ export async function authenticate(
   };
 }
 
+/** A friendly default nickname for a freshly registered passkey.
+ *
+ * navigator.platform is deprecated and reads the literal "Win32" on every
+ * Windows browser, which is how a passkey ended up labelled "Win32" in
+ * Settings. The user agent gets us a name a person would recognise. Display
+ * only -- authentication never touches it. */
+export function deviceName(): string {
+  const ua = navigator.userAgent;
+  if (/iPhone/.test(ua)) return "iPhone";
+  // iPadOS reports a Mac user agent, but Macs have no touch screen.
+  if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1))
+    return "iPad";
+  if (/Android/.test(ua)) return "Android";
+  if (/Windows/.test(ua)) return "Windows";
+  if (/Macintosh|Mac OS X/.test(ua)) return "Mac";
+  if (/Linux/.test(ua)) return "Linux";
+  return "This device";
+}
+
 /** Turn the browser's WebAuthn exceptions into something worth reading. */
 export function describeError(error: unknown): string {
   if (error instanceof DOMException) {
