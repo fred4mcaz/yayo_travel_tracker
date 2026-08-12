@@ -65,8 +65,11 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
-    Arial, sans-serif;
+  /* "Twemoji Country Flags" is injected by the polyfill in main.tsx only on
+     browsers with no native flag emoji (Windows). It contains nothing but the
+     flag code points, so leading the stack is harmless everywhere else. */
+  font-family: "Twemoji Country Flags", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
