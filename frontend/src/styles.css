@@ -432,13 +432,9 @@ h3 {
 .detail-head {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
-  margin-bottom: 16px;
-}
-.detail-head p {
-  margin: 2px 0 0;
-  font-size: 14px;
+  margin-bottom: 8px;
 }
 .detail-head-actions {
   display: flex;

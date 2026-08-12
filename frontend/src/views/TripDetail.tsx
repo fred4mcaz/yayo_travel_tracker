@@ -21,7 +21,6 @@ import {
   formatRange,
   formatTime,
   formatMoney,
-  relativeDays,
   toISODate,
   today,
 } from "../lib/format";
@@ -119,17 +118,10 @@ export function TripDetailPanel({
 
   return (
     <div className="detail">
+      {/* No title block here: the trip list already shows the country, hotel,
+          dates, and how soon, so repeating them wastes the panel's top. Only
+          the actions remain. */}
       <header className="detail-head">
-        <div>
-          <h2>{trip.label}</h2>
-          <p className="muted">
-            {trip.start_date
-              ? `${formatRange(trip.start_date, trip.end_date)} · ${relativeDays(
-                  trip.status === "past" ? trip.end_date : trip.start_date,
-                )}`
-              : "No dates yet — add your first country"}
-          </p>
-        </div>
         <div className="detail-head-actions">
           <button
             className="icon-btn"
@@ -548,13 +540,22 @@ function ReadinessSection({
 
   const badge = readinessBadge(readiness);
   const reqByKind = new Map(requirements.map((r) => [r.kind, r]));
+  // Visa-free entry can't block you at the border, so the summary box stays
+  // green even while checklist items (arrival card, onward ticket) are open —
+  // those rows carry their own warnings below.
+  const boxClass =
+    readiness.permit === "visa_free"
+      ? "readiness-ready"
+      : (badge?.className ?? "");
 
   return (
     <section className="readiness-section">
       <h3>Immigration readiness</h3>
 
-      <div className={`readiness-summary ${badge?.className ?? ""}`}>
-        <span className="readiness-icon">{badge?.icon}</span>
+      <div className={`readiness-summary ${boxClass}`}>
+        <span className="readiness-icon">
+          {boxClass === "readiness-ready" ? "✅" : badge?.icon}
+        </span>
         <div>
           <strong>{permitSummary(readiness) ?? "Nothing required to enter"}</strong>
           <span className="muted">
