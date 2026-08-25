@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { Field, TextArea } from "../components/Fields";
+import { TextArea } from "../components/Fields";
 import { LegForm, emptyLeg, legDraftToPayload, legToDraft } from "../components/LegForm";
 import type { LegDraft } from "../components/LegForm";
 import { DateField } from "../components/DateField";
@@ -58,8 +58,7 @@ interface Props {
 type Editing =
   | { kind: "none" }
   | { kind: "stay"; draft: StayDraft; id?: number; lockCountry?: boolean }
-  | { kind: "leg"; draft: LegDraft; id?: number; country: string }
-  | { kind: "notes"; notes: string };
+  | { kind: "leg"; draft: LegDraft; id?: number; country: string };
 
 const MODE_LABEL: Record<string, string> = {
   flight: "Flight",
@@ -90,6 +89,9 @@ export function TripDetailPanel({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Safe to seed from the prop: App keys this panel by trip.id, so switching
+  // trips remounts it and the draft can never leak across trips.
+  const [notesDraft, setNotesDraft] = useState(trip.notes);
 
   // Burn the one-shot as soon as it has been used. `editing` above is state, so
   // the sheet stays open once the flag flips back off; only a later remount is
@@ -123,13 +125,6 @@ export function TripDetailPanel({
           the actions remain. */}
       <header className="detail-head">
         <div className="detail-head-actions">
-          <button
-            className="icon-btn"
-            title="Trip notes"
-            onClick={() => setEditing({ kind: "notes", notes: trip.notes })}
-          >
-            ✎
-          </button>
           {onClose && (
             <button className="icon-btn" onClick={onClose} aria-label="Close">
               ✕
@@ -139,7 +134,6 @@ export function TripDetailPanel({
       </header>
 
       {error && <p className="alert alert-danger">{error}</p>}
-      {trip.notes && <p className="trip-memo">{trip.notes}</p>}
 
       {country === null && (
         <p className="empty">Nothing recorded yet. Add your first hotel.</p>
@@ -300,62 +294,44 @@ export function TripDetailPanel({
         </section>
       )}
 
-      {/* The system-materialised checklist entries (visa, entry_card, ...)
-          already render inside the Immigration readiness section above --
-          only what's left, mainly hand-added or `custom` items, belongs here. */}
-      {(() => {
-        const immigrationKinds = new Set(
-          trip.readiness.checklist.map((c) => c.kind),
-        );
-        const paperwork = trip.requirements.filter(
-          (r) => !(r.source === "system" && immigrationKinds.has(r.kind)),
-        );
-        return paperwork.length > 0 ? (
-          <section>
-            <h3>Paperwork</h3>
-            {paperwork.map((req) => (
-              <div className="req-row" key={req.id}>
-                <div className="entry-main">
-                  <strong>{req.label || req.kind.replace(/_/g, " ")}</strong>
-                  {req.due_date && (
-                    <span className="muted">due {formatDate(req.due_date)}</span>
-                  )}
-                </div>
-                <select
-                  value={req.status}
-                  onChange={(e) =>
-                    run(() =>
-                      api.trips.updateRequirement(trip.id, req.id, {
-                        status: e.target.value,
-                      }),
-                    )
-                  }
-                >
-                  <option value="todo">To do</option>
-                  <option value="submitted">Submitted</option>
-                  <option value="approved">Approved</option>
-                  <option value="not_required">Not required</option>
-                </select>
-              </div>
-            ))}
-          </section>
-        ) : null;
-      })()}
-
-      {trip.notes_list.length > 0 && (
-        <section>
-          <h3>Notes</h3>
-          {trip.notes_list.map((note) => (
-            <div className="note-row" key={note.id}>
-              <span className="note-date">{formatDateShort(note.on_date)}</span>
-              <div className="entry-main">
-                <strong>{note.title}</strong>
-                {note.body && <span className="muted">{note.body}</span>}
-              </div>
+      <section>
+        <h3>Notes</h3>
+        <TextArea
+          value={notesDraft}
+          onChange={setNotesDraft}
+          rows={4}
+          placeholder="Anything worth remembering about this trip"
+        />
+        {notesDraft !== trip.notes && (
+          <div className="notes-actions">
+            <button
+              className="btn btn-sm"
+              disabled={busy}
+              onClick={() => setNotesDraft(trip.notes)}
+            >
+              Discard
+            </button>
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={busy}
+              onClick={() =>
+                void run(() => api.trips.update(trip.id, { notes: notesDraft }))
+              }
+            >
+              {busy ? "Saving…" : "Save notes"}
+            </button>
+          </div>
+        )}
+        {trip.notes_list.map((note) => (
+          <div className="note-row" key={note.id}>
+            <span className="note-date">{formatDateShort(note.on_date)}</span>
+            <div className="entry-main">
+              <strong>{note.title}</strong>
+              {note.body && <span className="muted">{note.body}</span>}
             </div>
-          ))}
-        </section>
-      )}
+          </div>
+        ))}
+      </section>
 
       <section className="danger-zone">
         <button
@@ -461,36 +437,6 @@ export function TripDetailPanel({
         </Sheet>
       )}
 
-      {editing.kind === "notes" && (
-        <Sheet
-          title="Trip notes"
-          onClose={() => setEditing({ kind: "none" })}
-          footer={
-            <>
-              <button className="btn" onClick={() => setEditing({ kind: "none" })}>
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary"
-                disabled={busy}
-                onClick={() =>
-                  run(() => api.trips.update(trip.id, { notes: editing.notes }))
-                }
-              >
-                {busy ? "Saving…" : "Save"}
-              </button>
-            </>
-          }
-        >
-          <Field label="Notes about this trip" wide>
-            <TextArea
-              value={editing.notes}
-              onChange={(notes) => setEditing({ ...editing, notes })}
-              rows={5}
-            />
-          </Field>
-        </Sheet>
-      )}
     </div>
   );
 }

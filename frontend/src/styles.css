@@ -446,13 +446,12 @@ h3 {
 .detail section {
   margin-bottom: 24px;
 }
-.trip-memo {
-  background: var(--surface-alt);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  font-size: 14px;
-  margin: 0 0 20px;
-  white-space: pre-wrap;
+.notes-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+  margin-bottom: 8px;
 }
 .item-row,
 .entry-row,
