@@ -675,6 +675,9 @@ textarea {
 .cal-day {
   position: relative;
   background: var(--surface);
+  /* The surface color is nearly the same as the page background, so give each
+     cell a soft border to keep the grid legible in both themes. */
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 4px 6px;
   font-size: 12px;

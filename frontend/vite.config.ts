@@ -11,7 +11,9 @@ export default defineConfig({
     assetsDir: "assets",
   },
   server: {
-    port: 5173,
+    // PORT lets a second dev server (e.g. another Claude session) come up on an
+    // assigned port instead of colliding with 5173.
+    port: Number(process.env.PORT) || 5173,
     proxy: {
       "/api": "http://127.0.0.1:8000",
     },
