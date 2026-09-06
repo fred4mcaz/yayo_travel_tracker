@@ -171,8 +171,11 @@ class Stay(SQLModel, table=True):
 
     @property
     def is_confirmed(self) -> bool:
-        """A hotel with no name or no reference is an intention, not a booking."""
-        return bool(self.hotel_name.strip()) and bool(self.confirmation_code.strip())
+        """A named hotel is a booking; a stay with only city and dates is an
+        intention. The calendar draws confirmed stays solid and the rest
+        hatched. (The confirmation code is not required -- a hotel you've named
+        is one you've booked, whether or not you typed its reference.)"""
+        return bool(self.hotel_name.strip())
 
 
 class Leg(SQLModel, table=True):

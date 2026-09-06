@@ -77,21 +77,26 @@ def test_the_trip_list_carries_the_hotels(client):
         "check_in": str(TODAY + timedelta(days=10)),
         "check_out": str(TODAY + timedelta(days=14)),
         "nights": 4,
-        # Hotel name + confirmation code (from _mk_stay's default) = a real
-        # booking, so the calendar draws it solid.
+        # A named hotel = a booking, so the calendar draws it solid.
         "confirmed": True,
     }
 
 
 def test_the_trip_list_flags_an_unconfirmed_stay(client):
-    """A stay with no confirmation reference is an intention, not a booking --
-    the calendar hatches it until a confirmation email fills the code."""
+    """A stay with no hotel name is a placeholder of city + dates, not a
+    booking -- the calendar hatches it. A confirmation code is not required to
+    be solid; the hotel name alone is the threshold."""
     trip_id = _mk_trip(client)
-    _stay_in(client, trip_id, "vn", "Hanoi", 10, hotel_name="Sofitel",
+    # Named but reference-less is still a booking (solid) now.
+    _stay_in(client, trip_id, "vn", "Hue", 20, hotel_name="Azerai",
              confirmation_code="")
+    # No hotel name = an intention (hatched).
+    _stay_in(client, trip_id, "vn", "Hanoi", 10, hotel_name="")
 
-    row = next(t for t in client.get("/api/trips").json() if t["id"] == trip_id)
-    assert row["stays"][0]["confirmed"] is False
+    stays = {s["city"]: s["confirmed"]
+             for s in next(t for t in client.get("/api/trips").json()
+                           if t["id"] == trip_id)["stays"]}
+    assert stays == {"Hue": True, "Hanoi": False}
 
 
 def test_the_trip_list_omits_hotels_for_an_empty_trip(client):
