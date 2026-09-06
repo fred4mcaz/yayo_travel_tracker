@@ -260,7 +260,7 @@ blocked on its prod-DB pull, so the in-browser check is deferred to Phase 5 on
 the deployed app with the real Pegasus email. The jsdom render test covers the
 card output in the meantime.
 
-**Commit:** `PENDING`
+**Commit:** `cf51df8`
 
 ---
 
@@ -269,15 +269,27 @@ card output in the meantime.
 **Objective:** prove it end-to-end on the actual Pegasus booking.
 
 **Tasks:**
-- [ ] User pushes; run `deploy/deploy.sh` over SSH; confirm healthy.
-- [ ] Verify the shipped bundle contains the change (README §4 asset grep).
-- [ ] Re-extract the Pegasus email and confirm the Leg shows `PC1162, PC228`,
-      `STN → NQZ`, both datetimes, and seats — measured against the DB, not just
-      eyeballed.
-- [ ] Update README §5 with the widened field set; note remaining out-of-scope
-      items (cost/currency/hotel address).
+- [x] User pushes; run `deploy/deploy.sh` over SSH; confirm healthy.
+      **Deployed, healthy after 4s.**
+- [x] Verify the shipped bundle contains the change (README §4 asset grep).
+      **`review-legdetail` present in the shipped JS bundle.**
+- [x] Re-extract the Pegasus email through the *deployed image* and confirm the
+      captured detail — **read-only proof** on email 896:
+      `flight_numbers=('PC1162','PC228')`, `London-Stansted (STN) → Astana (NQZ)`,
+      `seat=10A, 11A`, conf `2DS3JN`, full 2122-char body used. The Booking→Leg
+      mapping is unit-tested (`test_review.py`); the real accept is left to the
+      user in the UI (their per-message consent) rather than writing a spurious
+      trip to prod.
+- [x] Update README §5 with the widened field set; noted out-of-scope items
+      (cost/currency/hotel address).
 
-**Commit:** _(hash TBD)_
+**Caveat surfaced by the real email:** Pegasus's own layout is date-ambiguous
+("Check-In: 29 September" vs "Flight Date: 30 September"); the model read the
+Flight Date (30 Sep, arriving 1 Oct after the overnight connection). The route,
+numbers, and seat are all correct; a wrong date is a one-field fix in the Review
+card / leg form. Not a pipeline bug — the source is genuinely ambiguous.
+
+**Commit:** `PENDING`
 
 ---
 
@@ -318,3 +330,9 @@ card output in the meantime.
   read-only `LegDetail` block to the **Review card** so the detail is visible
   *before* accept — kept display-only (editing lives in `LegForm` post-accept)
   to avoid duplicating the whole form and the `flight_numbers` array-edit dance.
+- _(Phase 5)_ Verified on the deployed image with a **read-only** run against the
+  real email rather than a real accept — proof without polluting prod with a
+  spurious trip; the accept mapping is covered by unit tests and left to the user
+  in the UI. The real email also surfaced that a source can be internally
+  date-ambiguous; the pipeline captures a defensible reading and the reviewer
+  corrects the one field. README §5 updated. **Plan complete.**

@@ -518,6 +518,19 @@ the Gmail app password and OpenRouter key in place.
    `validate_booking` re-checks every field regardless of whether the provider
    enforced strict, so a malformed response persists nothing. The model is
    injected behind a Protocol, so the whole pipeline tests offline.
+   **The captured fields:** country, city, dates, hotel name, carrier,
+   confirmation code, **and** the leg detail — flight/train `flight_numbers`
+   (every operating segment; a connecting ticket collapses to one arrival into
+   its destination country but keeps all its numbers), origin/destination place
+   and IATA, `depart_at`/`arrive_at` (naive local wall-clock, offset stripped),
+   and seat. Each detail field validates independently and nulls out on its own
+   if malformed, so a stray value never sinks the booking; cost, currency and
+   hotel address are still extractor-only columns left unfilled by choice. Two
+   parsing hazards are handled explicitly: a `bookings` array the model returns
+   *as a JSON string* is decoded rather than dropped (this was the "found nothing
+   to extract" bug), and the automatic path re-fetches the **full** body (over
+   one shared IMAP login, degrading to the stored snippet) so detail past the
+   400-char snippet is not invisible.
    **The year anchor:** the extractor is handed the email's *received date* as a
    system message — a booking is for a stay on or after it — because the model
    has no other way to know the year and otherwise defaults to a past one (it
