@@ -267,6 +267,32 @@ def test_validate_bookings_of_nothing_is_empty():
     assert validate_bookings({"bookings": "not a list"}) == []
 
 
+def test_validate_bookings_decodes_a_json_string_bookings_field():
+    """Sonnet intermittently returns the array as a JSON *string* rather than a
+    native array -- the "found nothing to extract" bug on a real Pegasus flight.
+    Decode it instead of dropping a genuine booking."""
+    outbound = {**VALID_BOOKING, "country_code": "MY"}
+    inbound = {**VALID_BOOKING, "country_code": "ID"}
+    bookings = validate_bookings({"bookings": json.dumps([outbound, inbound])})
+    assert [b.country_code for b in bookings] == ["MY", "ID"]
+
+
+def test_validate_bookings_decodes_a_double_wrapped_tool_input():
+    """The exact shape observed in production: the whole {"bookings": [...]}
+    envelope re-encoded as the string value of the outer `bookings` field."""
+    inner = json.dumps({"bookings": [VALID_BOOKING]})
+    bookings = validate_bookings({"bookings": inner})
+    assert len(bookings) == 1
+    assert bookings[0].country_code == "VN"
+
+
+def test_validate_bookings_decodes_a_bare_json_string_payload():
+    """Even the top-level tool input re-encoded as a JSON string is recovered."""
+    bookings = validate_bookings(json.dumps({"bookings": [VALID_BOOKING]}))
+    assert len(bookings) == 1
+    assert bookings[0].country_code == "VN"
+
+
 # --------------------------------------------------------------------------
 # Phase 5: validate_immigration_document
 # --------------------------------------------------------------------------

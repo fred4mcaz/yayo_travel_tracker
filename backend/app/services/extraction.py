@@ -380,6 +380,27 @@ def validate_booking(payload) -> Optional[Booking]:
     return booking
 
 
+def _coerce_json(value):
+    """Decode a value that may be JSON re-encoded as a string.
+
+    Sonnet (via OpenRouter) intermittently returns a nested array as a *JSON
+    string* rather than a native array -- e.g. ``{"bookings": "[{...}]"}`` or
+    even the whole tool input double-wrapped as
+    ``{"bookings": "{\\"bookings\\": [{...}]}"}``. This was the "found nothing
+    to extract" bug: `bookings` arrived as a `str`, failed the `isinstance(...,
+    list)` check, and a real Pegasus flight confirmation was silently dropped
+    on ~1 call in 6. Decode a string here so the shape handling below sees the
+    array; leave anything already-decoded untouched, and a string that is not
+    JSON degrades to itself (the caller then rejects it as unusable).
+    """
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except (ValueError, TypeError):
+        return value
+
+
 def _booking_dicts(payload) -> list:
     """The raw booking dicts inside a tool result, however it is shaped.
 
@@ -387,13 +408,19 @@ def _booking_dicts(payload) -> list:
     nothing (a fake, a refusal, or provider drift might not honour strict), so
     a bare single booking dict and a bare list are both tolerated -- the older
     single-booking shape keeps working, and a malformed wrapper degrades to
-    "no bookings" rather than raising.
+    "no bookings" rather than raising. A `bookings` value the model handed back
+    as a JSON string (see `_coerce_json`) is decoded rather than dropped.
     """
+    payload = _coerce_json(payload)
     if payload is None:
         return []
     if isinstance(payload, dict):
         if "bookings" in payload:
-            inner = payload["bookings"]
+            inner = _coerce_json(payload["bookings"])
+            # The model sometimes double-wraps: the decoded string is itself
+            # another {"bookings": [...]} envelope rather than the bare array.
+            if isinstance(inner, dict) and "bookings" in inner:
+                inner = _coerce_json(inner["bookings"])
             return inner if isinstance(inner, list) else []
         return [payload]  # tolerate a single flat booking
     if isinstance(payload, list):
@@ -434,6 +461,7 @@ def validate_immigration_document(payload) -> Optional[ImmigrationDocument]:
     requirement kind nor a nationality confirms nothing a proposal could act
     on, so it is rejected rather than stored as noise.
     """
+    payload = _coerce_json(payload)  # tolerate a JSON-string-wrapped tool input
     if not isinstance(payload, dict):
         return None
     try:
