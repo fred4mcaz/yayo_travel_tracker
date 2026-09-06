@@ -289,7 +289,7 @@ Flight Date (30 Sep, arriving 1 Oct after the overnight connection). The route,
 numbers, and seat are all correct; a wrong date is a one-field fix in the Review
 card / leg form. Not a pipeline bug — the source is genuinely ambiguous.
 
-**Commit:** `PENDING`
+**Commit:** `3ca4122` (README + this plan; docs only, no redeploy)
 
 ---
 
