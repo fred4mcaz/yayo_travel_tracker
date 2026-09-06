@@ -29,7 +29,7 @@ import json
 import logging
 from dataclasses import dataclass, replace
 from datetime import date, datetime
-from typing import Optional, Protocol
+from typing import Callable, Optional, Protocol
 
 from sqlmodel import Session, select
 
@@ -760,15 +760,34 @@ def _record_bookings(
 
 
 def process_email(
-    session: Session, model: ExtractionModel, email: EmailMessage
+    session: Session,
+    model: ExtractionModel,
+    email: EmailMessage,
+    *,
+    fetch_body: Optional[Callable[[EmailMessage], Optional[str]]] = None,
 ) -> list[Extraction]:
     """Triage, extract, and record the pending proposals for one email.
 
     Marks the email processed either way, so a message that triages out or
     yields nothing is not retried on every poll. Returns every Extraction
     created -- none, one, or several (a round trip yields two).
+
+    `fetch_body`, when given, re-fetches the *full* body (the stored snippet is
+    only 400 chars, so a second flight leg or a seat past that is invisible to
+    triage and extraction otherwise). It degrades to the snippet on any miss or
+    error -- the manual path (extract_selected) does the same. Only the snippet
+    is ever stored; the full body is used transiently here.
     """
-    subject, body = email.subject, email.snippet
+    subject = email.subject
+    body = email.snippet
+    if fetch_body is not None:
+        try:
+            full = fetch_body(email)
+        except Exception:  # noqa: BLE001 -- a fetch failure falls back to the snippet
+            full = None
+            log.warning("full-body fetch raised for email %s; using snippet", email.id)
+        if full:
+            body = full
     received_on = email.received_at.date() if email.received_at else None
     created: list[Extraction] = []
 
@@ -820,12 +839,22 @@ def extract_selected(
 
 
 def run_extractions(
-    session: Session, model: ExtractionModel, *, limit: int = 20
+    session: Session,
+    model: ExtractionModel,
+    *,
+    limit: int = 20,
+    fetch_body: Optional[Callable[[EmailMessage], Optional[str]]] = None,
 ) -> dict:
-    """Process the backlog of travel candidates. Returns a summary."""
+    """Process the backlog of travel candidates. Returns a summary.
+
+    `fetch_body` is passed through to each email so the whole batch can re-fetch
+    full bodies over one shared connection (see services.email_ingest
+    .imap_body_fetcher). None keeps the snippet-only behaviour, which is what the
+    offline tests use.
+    """
     proposed = processed = 0
     for email in _pending(session, limit):
-        proposed += len(process_email(session, model, email))
+        proposed += len(process_email(session, model, email, fetch_body=fetch_body))
         processed += 1
     session.commit()
     if processed:

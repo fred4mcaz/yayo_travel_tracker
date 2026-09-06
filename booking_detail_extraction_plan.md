@@ -162,7 +162,7 @@ airports, times, and seat onto the real `Leg`. This is the phase the user sees.
 - [x] Row-count boundary test still holds: nothing writes without accept.
       **360 backend tests pass (+4 new), ruff clean.**
 
-**Commit:** `PENDING`
+**Commit:** `bd49e12`
 
 ---
 
@@ -177,12 +177,14 @@ first few lines — the connecting segment, seat, baggage — is truncated, so t
 auto path structurally cannot capture it even after Phases 1–2.
 
 **Assumptions to validate first:**
-- [ ] `run_extractions` processes a batch; opening one IMAP connection for the
+- [x] `run_extractions` processes a batch; opening one IMAP connection for the
       batch (not one per email) is feasible with `ImapMailbox` as a context
-      manager.
-- [ ] The privacy model is preserved: we still **store** only the 400-char
+      manager. — done via `imap_body_fetcher()` (one login per batch).
+- [x] The privacy model is preserved: we still **store** only the 400-char
       snippet; the full body is used transiently at extraction time, which is
-      already the point where mail leaves the box (README §5).
+      already the point where mail leaves the box (README §5). — confirmed:
+      `process_email` never writes the fetched body; only `email.snippet`
+      (set at ingest) is persisted.
 
 **Common problems to prepare for:**
 - N emails × one IMAP login each = slow and rate-limit-prone. Open the mailbox
@@ -193,19 +195,26 @@ auto path structurally cannot capture it even after Phases 1–2.
   mailbox behind their existing Protocols and inject fakes.
 
 **Tasks:**
-- [ ] Give `process_email` / `run_extractions` an optional body-fetcher; when
-      present, re-fetch full body per email, else use `email.snippet`.
-- [ ] Wire the real `ImapMailbox` fetcher in the scheduler/poll entry point,
-      opening one connection per batch.
-- [ ] Log (per email) whether full body or snippet was used, so a silent
-      degrade is visible.
+- [x] Give `process_email` / `run_extractions` an optional `fetch_body`; when
+      present, re-fetch full body per email (feeds both triage and extraction),
+      else use `email.snippet`.
+- [x] Add `imap_body_fetcher()` context manager (in `email_ingest.py`) that
+      opens ONE IMAP login for the batch and degrades to a None-fetcher if the
+      mailbox will not open.
+- [x] Wire it into the scheduler's `run_poll_cycle`.
+- [x] Log a warning when a re-fetch fails / the fetcher is unavailable, so a
+      silent degrade to snippet is visible.
 
 **Tests that must pass to proceed:**
-- [ ] `process_email` uses the re-fetched body when the fetcher returns one.
-- [ ] Fetcher raising → falls back to snippet, poll still completes.
-- [ ] No socket opened in the offline suite.
+- [x] `process_email` uses the re-fetched body (triage + extract) when the
+      fetcher returns one.
+- [x] Fetcher returning None / raising → falls back to snippet, still extracts.
+- [x] `run_extractions` threads the fetcher to every email in the batch.
+- [x] `imap_body_fetcher` returns the full body via a fake box, and degrades to
+      None when the mailbox will not open. No socket opened in the suite.
+      **366 backend tests pass (+6 new), ruff clean.**
 
-**Commit:** _(hash TBD)_
+**Commit:** `PENDING`
 
 ---
 
@@ -277,3 +286,14 @@ card, and an accepted leg shows its number/seat/airports in `LegForm`'s folded
   (a head start for Phase 4). `_at()` handles the timed-vs-date fallback with no
   new code (`_at(depart_at) or _at(start_date)`). `to_place` falls back to `city`
   so the arrival place never lands empty when only the city was read.
+- _(Phase 3)_ The seam is a `fetch_body(email) -> str | None` callable injected
+  into `process_email`/`run_extractions`, so the suite stays socket-free (tests
+  pass a lambda). The real one, `imap_body_fetcher()`, is a context manager that
+  opens **one** IMAP login for the whole batch and, crucially, must **degrade
+  never fail**: it yields a None-returning fetcher if the mailbox won't open, and
+  swallows a per-message re-fetch error to None. Subtlety hit while writing it —
+  a `@contextmanager` must `yield` exactly once, so the "can we open?" try/except
+  wraps only `from_settings()/__enter__`, never the `yield` itself (else a
+  consumer exception would trigger a second yield). The manual path
+  (`api/review.py`) still does its own inline re-fetch; it could later share this
+  helper but was left as-is.

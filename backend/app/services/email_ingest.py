@@ -14,10 +14,11 @@ No test in this file's suite opens a socket.
 
 import logging
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from html import unescape
-from typing import Iterable, Iterator, Optional, Protocol
+from typing import Callable, Iterable, Iterator, Optional, Protocol
 
 from sqlmodel import Session, select
 
@@ -334,3 +335,52 @@ def run_ingest(session: Session) -> dict:
     """One polling cycle against the configured mailbox."""
     with ImapMailbox.from_settings() as mailbox:
         return ingest_once(session, mailbox)
+
+
+# A fetcher maps a stored EmailMessage to its full body, or None when the body
+# cannot be re-fetched. Extraction only ever *stores* the 400-char snippet
+# (privacy boundary, see ingest); the full body is used transiently at
+# extraction time -- which is already the point where mail leaves the box.
+BodyFetcher = Callable[[EmailMessage], Optional[str]]
+
+
+@contextmanager
+def imap_body_fetcher() -> Iterator[BodyFetcher]:
+    """Yield a `fetch_body(email) -> full body or None`, backed by ONE open IMAP
+    connection so a whole extraction batch re-fetches over a single login.
+
+    Degrades, never fails: if the mailbox will not open (creds missing, server
+    down), yields a fetcher that always returns None, so the caller falls back
+    to the stored snippet. A per-message re-fetch error is likewise swallowed to
+    None so one bad message never aborts the batch.
+    """
+    try:
+        mailbox = ImapMailbox.from_settings()
+        mailbox.__enter__()
+    except Exception:  # noqa: BLE001 -- degrade to snippet-only, never fail the poll
+        log.warning(
+            "full-body fetcher unavailable; extraction will use stored snippets",
+            exc_info=True,
+        )
+        yield lambda email: None
+        return
+
+    try:
+
+        def fetch_body(email: EmailMessage) -> Optional[str]:
+            if not email.message_id:
+                return None
+            try:
+                fetched = mailbox.fetch_by_message_id(email.message_id)
+            except Exception:  # noqa: BLE001 -- one bad message must not stop the batch
+                log.warning(
+                    "re-fetch failed for email %s; using its stored snippet",
+                    email.id,
+                    exc_info=True,
+                )
+                return None
+            return fetched.body if fetched is not None else None
+
+        yield fetch_body
+    finally:
+        mailbox.__exit__(None, None, None)

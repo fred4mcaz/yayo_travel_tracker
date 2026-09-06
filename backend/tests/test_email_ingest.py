@@ -14,8 +14,10 @@ from app.services.email_filter import load_rules
 from app.services.email_ingest import (
     UIDVALIDITY_KEY,
     WATERMARK_KEY,
+    ImapMailbox,
     IncomingEmail,
     _html_to_text,
+    imap_body_fetcher,
     ingest_once,
 )
 from app.services.settings import get_setting
@@ -382,3 +384,52 @@ def test_a_learned_domain_is_honoured_at_store_time(session: Session):
     ingest_once(session, mailbox)
 
     assert _stored(session)[-1].looks_like_travel is True
+
+
+# --------------------------------------------------------------------------
+# imap_body_fetcher -- one shared login for a batch, degrading to snippets
+# (booking_detail plan P3)
+# --------------------------------------------------------------------------
+
+
+class _FakeBox:
+    """A mailbox with the context-manager + fetch_by_message_id surface the
+    body fetcher needs, and no socket."""
+
+    def __init__(self, by_id):
+        self.by_id = by_id
+        self.entered = self.exited = False
+
+    def __enter__(self):
+        self.entered = True
+        return self
+
+    def __exit__(self, *exc):
+        self.exited = True
+
+    def fetch_by_message_id(self, message_id):
+        return self.by_id.get(message_id)
+
+
+def test_imap_body_fetcher_returns_full_body(monkeypatch):
+    box = _FakeBox({"<7@m>": _email(7, "<7@m>", body="FULL BODY")})
+    monkeypatch.setattr(ImapMailbox, "from_settings", classmethod(lambda cls: box))
+
+    with imap_body_fetcher() as fetch:
+        assert fetch(EmailMessage(imap_uid=7, message_id="<7@m>")) == "FULL BODY"
+        # A message not found on the server yields None, not an error.
+        assert fetch(EmailMessage(imap_uid=8, message_id="<gone@m>")) is None
+        # An email with no Message-ID cannot be re-fetched.
+        assert fetch(EmailMessage(imap_uid=9, message_id="")) is None
+
+    assert box.entered and box.exited  # the one login was opened and closed
+
+
+def test_imap_body_fetcher_degrades_when_mailbox_wont_open(monkeypatch):
+    def boom(cls):
+        raise RuntimeError("no creds")
+
+    monkeypatch.setattr(ImapMailbox, "from_settings", classmethod(boom))
+
+    with imap_body_fetcher() as fetch:
+        assert fetch(EmailMessage(imap_uid=1, message_id="<1@m>")) is None

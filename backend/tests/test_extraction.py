@@ -498,6 +498,58 @@ def test_process_email_returns_the_extractions_created(session: Session):
 
 
 # --------------------------------------------------------------------------
+# Full-body coverage on the automatic path (booking_detail plan P3)
+# --------------------------------------------------------------------------
+
+
+def test_process_email_uses_the_fetched_full_body(session: Session):
+    """Detail past the 400-char snippet only reaches the model when the auto
+    path re-fetches the full body -- both triage and extraction must see it."""
+    email = _candidate(session, snippet="short snippet")
+    model = FakeModel(TriageResult(True, 0.9, "y"), VALID_BOOKING)
+
+    full = "the complete email body with the second leg and seat 11A"
+    process_email(session, model, email, fetch_body=lambda e: full)
+
+    assert model.triaged[-1][1] == full  # triage saw the full body
+    assert model.extracted[-1][1] == full  # extraction saw the full body
+
+
+def test_process_email_falls_back_to_snippet_when_fetch_returns_none(session: Session):
+    email = _candidate(session, snippet="stored snippet")
+    model = FakeModel(TriageResult(True, 0.9, "y"), VALID_BOOKING)
+
+    process_email(session, model, email, fetch_body=lambda e: None)
+
+    assert model.extracted[-1][1] == "stored snippet"
+
+
+def test_process_email_falls_back_to_snippet_when_fetch_raises(session: Session):
+    """A re-fetch error must degrade to the snippet, never abort the email."""
+    email = _candidate(session, snippet="stored snippet")
+    model = FakeModel(TriageResult(True, 0.9, "y"), VALID_BOOKING)
+
+    def boom(_email):
+        raise RuntimeError("IMAP fell over")
+
+    created = process_email(session, model, email, fetch_body=boom)
+
+    assert model.extracted[-1][1] == "stored snippet"
+    assert len(created) == 1  # still extracted from the snippet
+
+
+def test_run_extractions_threads_the_fetcher_to_each_email(session: Session):
+    _candidate(session, uid=20, snippet="snip A")
+    _candidate(session, uid=21, snippet="snip B")
+    model = FakeModel(TriageResult(True, 0.9, "y"), VALID_BOOKING)
+
+    run_extractions(session, model, fetch_body=lambda e: f"FULL {e.imap_uid}")
+
+    bodies = {body for _subject, body, _received in model.extracted}
+    assert bodies == {"FULL 20", "FULL 21"}
+
+
+# --------------------------------------------------------------------------
 # Phase 4: extract_selected -- the manual, operator-initiated bypass (D2)
 # --------------------------------------------------------------------------
 

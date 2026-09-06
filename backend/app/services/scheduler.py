@@ -18,7 +18,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from sqlmodel import Session
 
 from app.config import Settings
-from app.services.email_ingest import run_ingest
+from app.services.email_ingest import imap_body_fetcher, run_ingest
 from app.services.extraction import OpenRouterModel, run_extractions
 from app.services.immigration import run_immigration_matching
 
@@ -67,7 +67,11 @@ def run_poll_cycle(engine) -> dict:
     with Session(engine) as session:
         ingest = run_ingest(session)
         model = OpenRouterModel.from_settings()
-        extraction = run_extractions(session, model)
+        # Re-fetch full bodies over one shared IMAP login so detail past the
+        # 400-char snippet (a second leg, a seat) is not invisible to the
+        # automatic path; degrades to snippets if the mailbox will not open.
+        with imap_body_fetcher() as fetch_body:
+            extraction = run_extractions(session, model, fetch_body=fetch_body)
         immigration = run_immigration_matching(session)
     return {"ingest": ingest, "extraction": extraction, "immigration": immigration}
 
