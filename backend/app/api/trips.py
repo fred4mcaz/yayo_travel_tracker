@@ -98,6 +98,13 @@ def list_trips(session: Session = Depends(get_session)) -> list[dict]:
                         "check_in": str(s.check_in),
                         "check_out": str(s.check_out),
                         "nights": s.nights,
+                        # Whether this is a real booking (hotel + reference) or
+                        # just an intention -- the calendar draws confirmed bars
+                        # solid and unconfirmed ones hatched. A booking accepted
+                        # from a confirmation email fills the reference, so it
+                        # lands solid; a hand-added placeholder stays hatched
+                        # until confirmed. Only the flag ships, never the code.
+                        "confirmed": s.is_confirmed,
                     }
                     for s in sorted(stays, key=lambda s: s.check_in)
                 ],

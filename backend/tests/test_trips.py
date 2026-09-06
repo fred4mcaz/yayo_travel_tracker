@@ -77,7 +77,21 @@ def test_the_trip_list_carries_the_hotels(client):
         "check_in": str(TODAY + timedelta(days=10)),
         "check_out": str(TODAY + timedelta(days=14)),
         "nights": 4,
+        # Hotel name + confirmation code (from _mk_stay's default) = a real
+        # booking, so the calendar draws it solid.
+        "confirmed": True,
     }
+
+
+def test_the_trip_list_flags_an_unconfirmed_stay(client):
+    """A stay with no confirmation reference is an intention, not a booking --
+    the calendar hatches it until a confirmation email fills the code."""
+    trip_id = _mk_trip(client)
+    _stay_in(client, trip_id, "vn", "Hanoi", 10, hotel_name="Sofitel",
+             confirmation_code="")
+
+    row = next(t for t in client.get("/api/trips").json() if t["id"] == trip_id)
+    assert row["stays"][0]["confirmed"] is False
 
 
 def test_the_trip_list_omits_hotels_for_an_empty_trip(client):

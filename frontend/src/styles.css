@@ -783,6 +783,21 @@ textarea {
 .cal-bar.status-past {
   opacity: 0.72;
 }
+/* A stay that is not a confirmed booking yet (no confirmation reference): the
+   bar keeps its per-hotel colour but wears a diagonal hatch, so an
+   intended-but-unbooked hotel reads as provisional next to the solid confirmed
+   ones. The colour is applied inline as background-COLOR (not the `background`
+   shorthand), so this image is not clobbered. A confirmation email landing
+   fills the reference and the bar goes solid. */
+.cal-bar.unconfirmed {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0) 0,
+    rgba(255, 255, 255, 0) 4px,
+    rgba(255, 255, 255, 0.5) 4px,
+    rgba(255, 255, 255, 0.5) 8px
+  );
+}
 /* Square off the edge where a trip runs into the next or previous week, so it
    reads as one continuous bar rather than separate blocks. */
 .cal-bar.cont-l {

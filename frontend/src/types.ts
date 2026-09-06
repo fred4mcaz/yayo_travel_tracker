@@ -131,6 +131,9 @@ export interface StaySummary {
   check_in: string;
   check_out: string;
   nights: number;
+  /** A real booking (hotel + confirmation reference) vs. an intention. The
+   *  calendar draws confirmed stays solid and unconfirmed ones hatched. */
+  confirmed: boolean;
 }
 
 /** ready: settled (or nothing required). action: something still owed.

@@ -40,6 +40,7 @@ function stay(over: Partial<StaySummary> = {}): StaySummary {
     check_in: "2026-08-10",
     check_out: "2026-08-12",
     nights: 2,
+    confirmed: true,
     ...over,
   };
 }
@@ -192,8 +193,35 @@ describe("Calendar hotel bars", () => {
       "Hue · Azerai",
     ]);
     // Each hotel gets its own colour, not the trip's.
-    expect(bars[0].style.background).not.toBe(bars[1].style.background);
+    expect(bars[0].style.backgroundColor).not.toBe(bars[1].style.backgroundColor);
     expect(container.querySelectorAll(".cal-country")).toHaveLength(1);
+  });
+
+  it("hatches an unconfirmed stay and leaves a confirmed one solid", () => {
+    const { container } = renderCalendar({
+      trips: [
+        trip({
+          stays: [
+            stay({ id: 1, city: "Hanoi", hotel_name: "Sofitel Legend", confirmed: true }),
+            stay({
+              id: 2,
+              city: "Hue",
+              hotel_name: "",
+              confirmed: false,
+              check_in: "2026-08-12",
+              check_out: "2026-08-14",
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const bars = Array.from(container.querySelectorAll<HTMLElement>(".cal-bar"));
+    // The confirmed booking is solid (no hatch class); the unconfirmed one is
+    // hatched. Both keep their own colour either way.
+    expect(bars[0].classList.contains("unconfirmed")).toBe(false);
+    expect(bars[1].classList.contains("unconfirmed")).toBe(true);
+    expect(bars[1].style.backgroundColor).not.toBe("");
   });
 
   it("keeps each hotel bar cleanly inside its country wrapper", () => {

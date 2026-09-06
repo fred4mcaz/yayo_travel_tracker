@@ -267,19 +267,24 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
                           key={`${bar.stay.id}-${bar.start}`}
                           className={`cal-bar status-${trip.status}${
                             bar.continuesLeft ? " cont-l" : ""
-                          }${bar.continuesRight ? " cont-r" : ""}`}
+                          }${bar.continuesRight ? " cont-r" : ""}${
+                            bar.stay.confirmed ? "" : " unconfirmed"
+                          }`}
+                          // backgroundColor, not the `background` shorthand, so
+                          // the hatch (a CSS background-image on .unconfirmed) is
+                          // not clobbered by this inline rule.
                           style={{
                             left: b.left,
                             width: b.width,
                             top: (group.lane + 1 + bar.lane) * LANE,
-                            background: barColor(bar.stay.id),
+                            backgroundColor: barColor(bar.stay.id),
                           }}
                           title={`${stayLabel(bar.stay)}\n${formatRange(
                             bar.stay.check_in,
                             bar.stay.check_out,
                           )} · ${bar.stay.nights} night${
                             bar.stay.nights === 1 ? "" : "s"
-                          }`}
+                          }${bar.stay.confirmed ? "" : " · not yet confirmed"}`}
                           onClick={() => onSelect(trip.id)}
                         >
                           <span>{stayLabel(bar.stay)}</span>
