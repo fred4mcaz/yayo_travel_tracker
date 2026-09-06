@@ -235,6 +235,103 @@ def test_a_leg_with_a_date_but_no_country_is_kept():
 
 
 # --------------------------------------------------------------------------
+# Leg detail -- flight numbers, airports, times, seat (booking_detail plan P1)
+# --------------------------------------------------------------------------
+
+# A connecting Pegasus ticket, the case that exposed the missing detail: one
+# arrival into KZ, both segment numbers, true origin STN, final destination NQZ.
+FULL_LEG = {
+    "kind": "flight",
+    "country_code": "KZ",
+    "city": "Astana",
+    "start_date": "2026-09-29",
+    "end_date": None,
+    "hotel_name": None,
+    "carrier": "Pegasus",
+    "confirmation_code": "2DS3JN",
+    "confidence": 0.9,
+    "flight_numbers": ["PC1162", "PC228"],
+    "from_place": "London-Stansted",
+    "from_iata": "stn",
+    "to_place": "Astana",
+    "to_iata": "NQZ",
+    "depart_at": "2026-09-29T14:40",
+    "arrive_at": "2026-09-30T04:45",
+    "seat": " 10A, 11A ",
+}
+
+
+def test_validate_booking_captures_full_leg_detail():
+    b = validate_booking(FULL_LEG)
+    assert b is not None
+    assert b.flight_numbers == ("PC1162", "PC228")
+    assert b.from_iata == "STN"  # upper-cased
+    assert b.to_iata == "NQZ"
+    assert b.from_place == "London-Stansted"
+    assert b.depart_at == "2026-09-29T14:40:00"
+    assert b.arrive_at == "2026-09-30T04:45:00"
+    assert b.seat == "10A, 11A"  # trimmed
+
+
+def test_leg_detail_round_trips_through_payload():
+    """payload() is what gets JSON-stored; it must survive a dumps/loads and
+    re-validate identically (the shape the accept path re-reads)."""
+    b1 = validate_booking(FULL_LEG)
+    reloaded = json.loads(json.dumps(b1.payload(), sort_keys=True))
+    b2 = validate_booking(reloaded)
+    assert b2 is not None
+    assert b2.flight_numbers == ("PC1162", "PC228")
+    assert b2.from_iata == "STN"
+    assert b2.depart_at == "2026-09-29T14:40:00"
+    assert b2.seat == "10A, 11A"
+
+
+@pytest.mark.parametrize(
+    "field,bad_value",
+    [
+        ("from_iata", "LONDON"),   # not 3 letters
+        ("to_iata", "N1Z"),        # not all alpha
+        ("depart_at", "not a time"),
+        ("arrive_at", "2026-13-40T99:99"),
+    ],
+)
+def test_bad_leg_detail_field_nulls_only_itself(field, bad_value):
+    """A malformed detail field must null out, never sink the whole booking."""
+    b = validate_booking({**FULL_LEG, field: bad_value})
+    assert b is not None  # booking survives
+    assert getattr(b, field) is None  # just this field dropped
+    assert b.country_code == "KZ"  # the load-bearing fields are intact
+
+
+def test_flight_numbers_tolerates_shapes_and_junk():
+    assert validate_booking({**FULL_LEG, "flight_numbers": []}).flight_numbers == ()
+    assert validate_booking({**FULL_LEG, "flight_numbers": None}).flight_numbers == ()
+    assert validate_booking(
+        {**FULL_LEG, "flight_numbers": "PC1162"}
+    ).flight_numbers == ("PC1162",)
+    # Empty / non-string entries are dropped, good ones kept.
+    assert validate_booking(
+        {**FULL_LEG, "flight_numbers": ["PC1162", "", "  ", 7, "PC228"]}
+    ).flight_numbers == ("PC1162", "PC228")
+
+
+def test_depart_at_strips_timezone_to_wall_clock():
+    """Times are naive local wall-clock by design -- an offset is discarded,
+    the printed clock time kept."""
+    b = validate_booking({**FULL_LEG, "depart_at": "2026-09-29T14:40:00+03:00"})
+    assert b.depart_at == "2026-09-29T14:40:00"
+
+
+def test_a_hotel_keeps_empty_leg_detail():
+    """The 8-field hotel shape still validates; leg detail defaults empty."""
+    b = validate_booking(VALID_BOOKING)
+    assert b is not None
+    assert b.flight_numbers == ()
+    assert b.from_iata is None
+    assert b.depart_at is None
+
+
+# --------------------------------------------------------------------------
 # validate_bookings -- one email can carry more than one booking
 # --------------------------------------------------------------------------
 

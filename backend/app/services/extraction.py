@@ -28,7 +28,7 @@ bottom of the file.
 import json
 import logging
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, datetime
 from typing import Optional, Protocol
 
 from sqlmodel import Session, select
@@ -98,6 +98,14 @@ BOOKING_ITEM_SCHEMA = {
         "end_date",
         "hotel_name",
         "carrier",
+        "flight_numbers",
+        "from_place",
+        "from_iata",
+        "to_place",
+        "to_iata",
+        "depart_at",
+        "arrive_at",
+        "seat",
         "confirmation_code",
         "confidence",
     ],
@@ -121,13 +129,17 @@ BOOKING_ITEM_SCHEMA = {
         "city": {
             "type": ["string", "null"],
             "description": (
-                "Destination city -- the arrival city for a journey, the city "
-                "you stay in for a hotel. Never the origin."
+                "Destination city -- the FINAL arrival city for a journey, the "
+                "city you stay in for a hotel. Never the origin, and for a "
+                "connecting journey never an intermediate connection city."
             ),
         },
         "start_date": {
             "type": ["string", "null"],
-            "description": "YYYY-MM-DD. Check-in for a hotel, departure for a leg.",
+            "description": (
+                "YYYY-MM-DD. Check-in for a hotel; for a leg, the date of the "
+                "FIRST departure. Keep this even when depart_at is also given."
+            ),
         },
         "end_date": {
             "type": ["string", "null"],
@@ -137,6 +149,73 @@ BOOKING_ITEM_SCHEMA = {
         "carrier": {
             "type": ["string", "null"],
             "description": "Airline or operator, for a leg.",
+        },
+        # --- leg detail -----------------------------------------------------
+        # One confirmation is ONE arrival into ONE country even when the ticket
+        # connects (a trip is one arrival into one country -- see models.Leg /
+        # services.review). So a STN -> Istanbul -> Astana ticket is a single
+        # booking arriving into KZ: from_* is the whole journey's true origin,
+        # to_* the final destination, depart_at the first departure, arrive_at
+        # the final arrival, and flight_numbers lists EVERY operating segment.
+        "flight_numbers": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "Every flight/train number on this arrival, in travel order. "
+                "A connecting ticket lists each segment, e.g. "
+                '["PC1162", "PC228"]. Empty [] for a hotel or if none given.'
+            ),
+        },
+        "from_place": {
+            "type": ["string", "null"],
+            "description": (
+                "Origin of the whole journey -- the departure city/airport "
+                "name, e.g. 'London-Stansted'. Never a connection point. Null "
+                "for a hotel."
+            ),
+        },
+        "from_iata": {
+            "type": ["string", "null"],
+            "description": (
+                "3-letter IATA code of the origin, e.g. STN. Null if not shown."
+            ),
+        },
+        "to_place": {
+            "type": ["string", "null"],
+            "description": (
+                "Final destination city/airport name, e.g. 'Astana'. For a "
+                "connecting journey this is the last stop, never a connection. "
+                "Null for a hotel."
+            ),
+        },
+        "to_iata": {
+            "type": ["string", "null"],
+            "description": (
+                "3-letter IATA code of the final destination, e.g. NQZ. Null "
+                "if not shown."
+            ),
+        },
+        "depart_at": {
+            "type": ["string", "null"],
+            "description": (
+                "First departure as local wall-clock time, ISO 8601 "
+                "YYYY-MM-DDTHH:MM (no timezone -- record the time exactly as "
+                "printed). Null if no time is given."
+            ),
+        },
+        "arrive_at": {
+            "type": ["string", "null"],
+            "description": (
+                "Final arrival as local wall-clock time, ISO 8601 "
+                "YYYY-MM-DDTHH:MM (no timezone). Null if no time is given."
+            ),
+        },
+        "seat": {
+            "type": ["string", "null"],
+            "description": (
+                "Seat assignment(s) if shown, e.g. '10A' or '10A, 11A'. Null "
+                "if none."
+            ),
         },
         "confirmation_code": {"type": ["string", "null"]},
         "confidence": {
@@ -309,10 +388,24 @@ class Booking:
     carrier: Optional[str]
     confirmation_code: Optional[str]
     confidence: Optional[float]
+    # Leg detail (Phase 1 of booking_detail_extraction_plan). All additive and
+    # default-empty so a hotel booking and the older 8-field shape both still
+    # construct. flight_numbers is a tuple so the frozen dataclass stays
+    # immutable; payload() serialises it to a JSON array.
+    flight_numbers: tuple[str, ...] = ()
+    from_place: Optional[str] = None
+    from_iata: Optional[str] = None
+    to_place: Optional[str] = None
+    to_iata: Optional[str] = None
+    depart_at: Optional[str] = None
+    arrive_at: Optional[str] = None
+    seat: Optional[str] = None
 
     def payload(self) -> dict:
         d = self.__dict__.copy()
         d.pop("confidence")
+        # A JSON array is the natural shape on the wire and on reload.
+        d["flight_numbers"] = list(self.flight_numbers)
         return d
 
 
@@ -332,6 +425,54 @@ def _clean_date(value) -> Optional[str]:
         return None
     # date.fromisoformat is strict about YYYY-MM-DD; a bad date raises.
     return date.fromisoformat(value).isoformat()
+
+
+# The leg-detail cleaners below deliberately NEVER raise: a malformed single
+# field (a bad IATA, an unparseable time) nulls just that field rather than
+# sinking the whole booking. Contrast _clean_date, whose raise rejects the
+# booking outright -- start/end dates are load-bearing, these are detail.
+
+
+def _clean_iata(value) -> Optional[str]:
+    """A 3-letter IATA code, upper-cased, or None for anything else."""
+    value = _clean_str(value)
+    if value is None:
+        return None
+    value = value.upper()
+    return value if len(value) == 3 and value.isalpha() else None
+
+
+def _clean_datetime(value) -> Optional[str]:
+    """A local wall-clock datetime, normalised to ISO, or None.
+
+    Times are naive by design (see models.py) -- any timezone offset the model
+    hands back is dropped, keeping the wall-clock the email printed.
+    """
+    value = _clean_str(value)
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=None).isoformat()
+
+
+def _clean_str_tuple(value) -> tuple[str, ...]:
+    """A tuple of clean, non-empty strings. Tolerates a bare string or None."""
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, (list, tuple)):
+        return ()
+    out: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            item = item.strip()
+            if item:
+                out.append(item)
+    return tuple(out)
 
 
 def validate_booking(payload) -> Optional[Booking]:
@@ -370,6 +511,14 @@ def validate_booking(payload) -> Optional[Booking]:
             carrier=_clean_str(payload.get("carrier")),
             confirmation_code=_clean_str(payload.get("confirmation_code")),
             confidence=confidence,
+            flight_numbers=_clean_str_tuple(payload.get("flight_numbers")),
+            from_place=_clean_str(payload.get("from_place")),
+            from_iata=_clean_iata(payload.get("from_iata")),
+            to_place=_clean_str(payload.get("to_place")),
+            to_iata=_clean_iata(payload.get("to_iata")),
+            depart_at=_clean_datetime(payload.get("depart_at")),
+            arrive_at=_clean_datetime(payload.get("arrive_at")),
+            seat=_clean_str(payload.get("seat")),
         )
     except (KeyError, TypeError, ValueError):
         return None
