@@ -1418,6 +1418,34 @@ textarea {
   margin-bottom: 4px;
 }
 
+/* Read-only summary of the leg detail the model captured (flight numbers,
+   route, times, seat) -- shown on a flight/train proposal before accept. */
+.review-legdetail {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: var(--surface-muted, rgba(127, 127, 127, 0.08));
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.review-legdetail > div {
+  display: flex;
+  gap: 8px;
+}
+
+.review-legdetail > div + div {
+  margin-top: 3px;
+}
+
+.review-legdetail dt {
+  flex: 0 0 3.5em;
+  color: var(--text-muted);
+}
+
+.review-legdetail dd {
+  margin: 0;
+}
+
 .review-when {
   font-size: 13px;
 }

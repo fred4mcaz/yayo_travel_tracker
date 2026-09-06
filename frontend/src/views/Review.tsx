@@ -266,6 +266,63 @@ const KIND_LABEL: Record<string, string> = {
   other: "Booking",
 };
 
+/** One endpoint of a journey: "London-Stansted (STN)", or just whichever half
+ *  the email gave. */
+function endpoint(place?: string | null, iata?: string | null): string {
+  if (place && iata) return `${place} (${iata})`;
+  return place || iata || "";
+}
+
+/** What the model read out of a leg confirmation, shown read-only on the card so
+ *  the reviewer can see the captured detail (flight numbers, route, times, seat)
+ *  before accepting. It becomes fully editable in the leg form once accepted. */
+function LegDetail({ b }: { b: ReviewBooking }) {
+  const from = endpoint(b.from_place, b.from_iata);
+  const to = endpoint(b.to_place, b.to_iata);
+  const numbers = b.flight_numbers ?? [];
+  const hasTimes = Boolean(b.depart_at || b.arrive_at);
+  if (!from && !to && numbers.length === 0 && !hasTimes && !b.seat) return null;
+
+  return (
+    <dl className="review-legdetail">
+      {(from || to) && (
+        <div>
+          <dt>Route</dt>
+          <dd>
+            {from || "?"} <span className="muted">→</span> {to || "?"}
+          </dd>
+        </div>
+      )}
+      {numbers.length > 0 && (
+        <div>
+          <dt>Flight</dt>
+          <dd>{numbers.join(", ")}</dd>
+        </div>
+      )}
+      {hasTimes && (
+        <div>
+          <dt>When</dt>
+          <dd>
+            {b.depart_at && formatDateTime(b.depart_at)}
+            {b.arrive_at && (
+              <>
+                {" "}
+                <span className="muted">→</span> {formatDateTime(b.arrive_at)}
+              </>
+            )}
+          </dd>
+        </div>
+      )}
+      {b.seat && (
+        <div>
+          <dt>Seat</dt>
+          <dd>{b.seat}</dd>
+        </div>
+      )}
+    </dl>
+  );
+}
+
 function ReviewCard({
   item,
   onDone,
@@ -415,6 +472,7 @@ function ReviewCard({
             <Text value={val("carrier")} onChange={(v) => set("carrier", v)} />
           </Field>
         )}
+        {!isHotel && <LegDetail b={b} />}
       </div>
     </div>
   );

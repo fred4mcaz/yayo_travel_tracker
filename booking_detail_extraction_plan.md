@@ -214,7 +214,7 @@ auto path structurally cannot capture it even after Phases 1–2.
       None when the mailbox will not open. No socket opened in the suite.
       **366 backend tests pass (+6 new), ruff clean.**
 
-**Commit:** `PENDING`
+**Commit:** `d333de4`
 
 ---
 
@@ -225,28 +225,42 @@ card, and an accepted leg shows its number/seat/airports in `LegForm`'s folded
 "usually filled in from your email" section.
 
 **Assumptions to validate first:**
-- [ ] `LegForm.tsx` already has the folded fields for number/seat/IATA (README
-      §1 says it does) — this is wiring, not new form design.
-- [ ] The Review card renders from the serialised extraction payload
-      (`_serialise` in `api/review.py`).
+- [x] `LegForm.tsx` already has the folded fields for number/seat/IATA (README
+      §1 says it does) — this is wiring, not new form design. — confirmed, and
+      **stronger than expected**: `legToDraft` already maps every new field and
+      the "Ticket details" section auto-opens when they are set, so LegForm
+      needed **zero changes** — Phase 2 populating the Leg is enough.
+- [x] The Review card renders from the serialised extraction payload
+      (`_serialise` in `api/review.py`). — confirmed; `_serialise` already
+      spreads `{**payload}` (P2), so the detail was already on the wire.
 
 **Common problems to prepare for:**
 - `frontend/src/types.ts` must gain the new fields or TypeScript drops them
-      silently.
+      silently. — added to `ReviewBooking` (optional *and* nullable, since old
+      proposals predate them). `Leg` already had them.
 - Month-first dates and `parseDate` (never `new Date("...")`) for any new date
-      rendering (README §6).
+      rendering (README §6). — reused `formatDateTime`, which already strips zone
+      and uses `parseDate`.
 
 **Tasks:**
-- [ ] Extend the extraction serialisation + `types.ts` with the new fields.
-- [ ] Show number / origin→destination / times / seat on the Review card.
-- [ ] Populate `LegForm`'s folded fields from accepted data.
+- [x] Extend the extraction serialisation + `types.ts` with the new fields.
+      (Serialisation was already done in P2; `types.ts` `ReviewBooking` widened.)
+- [x] Show number / origin→destination / times / seat on the Review card
+      (new read-only `LegDetail` block on flight/train proposals).
+- [x] Populate `LegForm`'s folded fields from accepted data. — already satisfied
+      by existing `legToDraft` + P2; no change needed.
 
 **Tests that must pass to proceed:**
-- [ ] `Review.test.tsx`: a full-detail proposal renders its flight number and
-      route.
-- [ ] `npm test` and `npm run build` green.
+- [x] `Review.test.tsx`: a full-detail flight proposal renders its flight
+      numbers, route (with IATA), times, and seat.
+- [x] `npm test` (57) and `npm run build` (tsc + vite) green.
 
-**Commit:** _(hash TBD)_
+**Note on live verification:** the local dev server (`dev_backend.py`) was
+blocked on its prod-DB pull, so the in-browser check is deferred to Phase 5 on
+the deployed app with the real Pegasus email. The jsdom render test covers the
+card output in the meantime.
+
+**Commit:** `PENDING`
 
 ---
 
@@ -297,3 +311,10 @@ card, and an accepted leg shows its number/seat/airports in `LegForm`'s folded
   consumer exception would trigger a second yield). The manual path
   (`api/review.py`) still does its own inline re-fetch; it could later share this
   helper but was left as-is.
+- _(Phase 4)_ Almost all the frontend was already in place: `Leg` in `types.ts`
+  already had every field, `LegForm` already rendered and mapped them (and
+  auto-opens its ticket section), so Phase 2 storing the data made the leg *form*
+  show it for free. The only real work was widening `ReviewBooking` and adding a
+  read-only `LegDetail` block to the **Review card** so the detail is visible
+  *before* accept — kept display-only (editing lives in `LegForm` post-accept)
+  to avoid duplicating the whole form and the `flight_numbers` array-edit dance.

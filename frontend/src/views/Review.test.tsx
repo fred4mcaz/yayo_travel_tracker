@@ -54,6 +54,43 @@ const BOOKING_ITEM: ReviewItem = {
   suggestion: null,
 };
 
+const FLIGHT_ITEM: ReviewItem = {
+  id: 3,
+  kind: "booking",
+  status: "pending",
+  model: "claude-sonnet-5",
+  confidence: 0.9,
+  created_at: "2026-09-05T00:00:00",
+  email: {
+    id: 3,
+    from_addr: "pegasus@flypgs.com",
+    subject: "PC1162 Astana: Your booking is confirmed!",
+    snippet: "PNR 2DS3JN",
+    received_at: "2026-09-05T00:00:00",
+  },
+  booking: {
+    kind: "flight",
+    country_code: "KZ",
+    country_name: "Kazakhstan",
+    city: "Astana",
+    start_date: "2026-09-29",
+    end_date: null,
+    hotel_name: null,
+    carrier: "Pegasus",
+    confirmation_code: "2DS3JN",
+    flight_numbers: ["PC1162", "PC228"],
+    from_place: "London-Stansted",
+    from_iata: "STN",
+    to_place: "Astana",
+    to_iata: "NQZ",
+    depart_at: "2026-09-29T14:40:00",
+    arrive_at: "2026-09-30T04:45:00",
+    seat: "10A, 11A",
+  },
+  immigration: null,
+  suggestion: null,
+};
+
 const IMMIGRATION_ITEM: ReviewItem = {
   id: 2,
   kind: "immigration",
@@ -83,6 +120,21 @@ describe("ReviewQueue", () => {
     expect(screen.getByText("Immigration")).toBeTruthy();
     expect(screen.getByText(/Arrival card confirmation/)).toBeTruthy();
     expect(screen.getByText(/Batam · Oakwood Grand Batam/)).toBeTruthy();
+  });
+
+  it("shows the captured leg detail on a flight proposal", async () => {
+    vi.mocked(api.review.list).mockResolvedValue([FLIGHT_ITEM]);
+
+    render(<ReviewQueue onReviewed={vi.fn()} />);
+
+    // The whole point of the feature: flight numbers, route, times, and seat
+    // are visible on the proposal, not silently dropped.
+    await waitFor(() => expect(screen.getByText("PC1162, PC228")).toBeTruthy());
+    expect(screen.getByText(/London-Stansted \(STN\)/)).toBeTruthy();
+    expect(screen.getByText(/Astana \(NQZ\)/)).toBeTruthy();
+    expect(screen.getByText("10A, 11A")).toBeTruthy();
+    expect(screen.getByText(/Sep 29 14:40/)).toBeTruthy();
+    expect(screen.getByText(/Sep 30 04:45/)).toBeTruthy();
   });
 
   it("accepting an immigration proposal sends the typed-in reference", async () => {

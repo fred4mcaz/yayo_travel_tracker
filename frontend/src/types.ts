@@ -315,6 +315,16 @@ export interface ReviewBooking {
   hotel_name: string | null;
   carrier: string | null;
   confirmation_code: string | null;
+  /** Leg detail (booking_detail plan). Absent on proposals extracted before
+   *  the schema was widened, so every field is optional as well as nullable. */
+  flight_numbers?: string[];
+  from_place?: string | null;
+  from_iata?: string | null;
+  to_place?: string | null;
+  to_iata?: string | null;
+  depart_at?: string | null;
+  arrive_at?: string | null;
+  seat?: string | null;
 }
 
 export type ExtractionKind = "booking" | "immigration";
