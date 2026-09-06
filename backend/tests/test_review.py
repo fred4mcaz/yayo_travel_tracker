@@ -74,6 +74,16 @@ def _booking(**kw):
         "hotel_name": kw.get("hotel_name", "Sofitel Legend"),
         "carrier": kw.get("carrier"),
         "confirmation_code": kw.get("confirmation_code", "4471"),
+        # Leg detail (booking_detail plan P2) -- None/absent for the hotel
+        # default, so existing callers are unaffected.
+        "flight_numbers": kw.get("flight_numbers"),
+        "from_place": kw.get("from_place"),
+        "from_iata": kw.get("from_iata"),
+        "to_place": kw.get("to_place"),
+        "to_iata": kw.get("to_iata"),
+        "depart_at": kw.get("depart_at"),
+        "arrive_at": kw.get("arrive_at"),
+        "seat": kw.get("seat"),
     }
     return validate_booking(payload)
 
@@ -310,6 +320,77 @@ def test_accept_a_leg_creates_a_leg_not_a_stay(session: Session):
     leg = session.get(Leg, result.leg_id)
     assert leg.carrier == "Vietnam Airlines"
     assert leg.depart_at == datetime(2026, 8, 30, 0, 0)
+
+
+# --------------------------------------------------------------------------
+# Leg detail on accept (booking_detail plan P2)
+# --------------------------------------------------------------------------
+
+
+def test_accept_a_leg_captures_full_detail(session: Session):
+    """The connecting Pegasus ticket: one arrival into KZ, both segment numbers,
+    true origin/destination, timed departure and arrival, seat."""
+    ext = _extraction(
+        session,
+        kind="flight",
+        country_code="KZ",
+        city="Astana",
+        carrier="Pegasus",
+        start_date="2026-09-29",
+        end_date=None,
+        hotel_name=None,
+        flight_numbers=["PC1162", "PC228"],
+        from_place="London-Stansted",
+        from_iata="STN",
+        to_place="Astana",
+        to_iata="NQZ",
+        depart_at="2026-09-29T14:40",
+        arrive_at="2026-09-30T04:45",
+        seat="10A, 11A",
+    )
+
+    result = accept_extraction(session, ext)
+
+    leg = session.get(Leg, result.leg_id)
+    assert leg.number == "PC1162, PC228"  # both segments, collapsed to one leg
+    assert leg.from_iata == "STN"
+    assert leg.to_iata == "NQZ"
+    assert leg.from_place == "London-Stansted"
+    assert leg.to_place == "Astana"
+    assert leg.depart_at == datetime(2026, 9, 29, 14, 40)  # timed, not midnight
+    assert leg.arrive_at == datetime(2026, 9, 30, 4, 45)
+    assert leg.seat == "10A, 11A"
+
+
+def test_leg_to_place_falls_back_to_city(session: Session):
+    """When the model gives only the destination city, the arrival place still
+    shows rather than landing empty."""
+    ext = _extraction(
+        session, kind="flight", country_code="TH", city="Bangkok",
+        start_date="2026-08-30", end_date=None, hotel_name=None, to_place=None,
+    )
+    result = accept_extraction(session, ext)
+    leg = session.get(Leg, result.leg_id)
+    assert leg.to_place == "Bangkok"
+
+
+def test_leg_detail_is_overridable_before_accept(session: Session):
+    """A reviewer can correct leg detail the model got wrong; the correction
+    lands on the Leg. Fields outside ALLOWED_OVERRIDES are ignored."""
+    ext = _extraction(
+        session, kind="flight", country_code="VN", city="Hanoi",
+        start_date="2026-08-30", end_date=None, hotel_name=None,
+        flight_numbers=["VN100"], from_iata="SGN",
+    )
+    result = accept_extraction(
+        session,
+        ext,
+        {"flight_numbers": ["VN100", "VN101"], "from_iata": "hAn", "seat": "3C"},
+    )
+    leg = session.get(Leg, result.leg_id)
+    assert leg.number == "VN100, VN101"
+    assert leg.from_iata == "HAN"  # validated + upper-cased through the override
+    assert leg.seat == "3C"
 
 
 def test_accept_records_what_it_applied(session: Session):

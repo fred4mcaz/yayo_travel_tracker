@@ -225,7 +225,19 @@ def _apply_leg(session: Session, trip_id: int, booking: Booking) -> Leg:
         country_code=booking.country_code or "",
         carrier=booking.carrier or "",
         confirmation_code=booking.confirmation_code or "",
-        depart_at=_at(booking.start_date),
+        # A connecting ticket collapses to one arrival (a trip is one arrival
+        # into one country), but every operating segment number is kept.
+        number=", ".join(booking.flight_numbers),
+        from_place=booking.from_place or "",
+        from_iata=booking.from_iata or "",
+        # Fall back to the destination city when the model gave only that -- the
+        # arrival place should show even without an explicit airport name.
+        to_place=booking.to_place or booking.city or "",
+        to_iata=booking.to_iata or "",
+        # Prefer the timed departure; fall back to midnight of the start date.
+        depart_at=_at(booking.depart_at) or _at(booking.start_date),
+        arrive_at=_at(booking.arrive_at),
+        seat=booking.seat or "",
     )
     session.add(leg)
     session.commit()
@@ -243,6 +255,17 @@ ALLOWED_OVERRIDES = frozenset(
         "hotel_name",
         "carrier",
         "confirmation_code",
+        # Leg detail (booking_detail plan P2) -- correctable in the Review form,
+        # same as the fields above. Everything else stays un-overridable so the
+        # form cannot smuggle in a trip id.
+        "flight_numbers",
+        "from_place",
+        "from_iata",
+        "to_place",
+        "to_iata",
+        "depart_at",
+        "arrive_at",
+        "seat",
     }
 )
 

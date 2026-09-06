@@ -116,7 +116,7 @@ returning full detail round-trips through `validate_bookings` intact.
 - [x] Existing `test_extraction.py` suite still green (no regressions).
       **356 backend tests pass (+9 new), ruff clean.**
 
-**Commit:** `PENDING`
+**Commit:** `fd7f8c3`
 
 ---
 
@@ -126,10 +126,12 @@ returning full detail round-trips through `validate_bookings` intact.
 airports, times, and seat onto the real `Leg`. This is the phase the user sees.
 
 **Assumptions to validate first:**
-- [ ] `_apply_leg` is the only place a booking becomes a `Leg`
-      (grep `Leg(` in services).
-- [ ] `ALLOWED_OVERRIDES` gates what a reviewer may correct in the Review form;
-      a field not listed there cannot be edited before accept.
+- [x] `_apply_leg` is the only place a booking becomes a `Leg`
+      (grep `Leg(` in services). — confirmed.
+- [x] `ALLOWED_OVERRIDES` gates what a reviewer may correct in the Review form;
+      a field not listed there cannot be edited before accept. — confirmed, AND
+      found a second gate: `AcceptPayload` in `api/review.py` must also declare
+      the field or pydantic drops it before it ever reaches ALLOWED_OVERRIDES.
 
 **Common problems to prepare for:**
 - If a new field is written by `_apply_leg` but missing from
@@ -141,21 +143,26 @@ airports, times, and seat onto the real `Leg`. This is the phase the user sees.
   `""` (the column default), never the string `"None"`.
 
 **Tasks:**
-- [ ] `_apply_leg`: set `number` (joined `flight_numbers`), `from_place`,
-      `from_iata`, `to_place`, `to_iata`, `arrive_at`, `seat`; `depart_at` =
-      `booking.depart_at or _at(booking.start_date)`.
-- [ ] Add the new booking fields to `ALLOWED_OVERRIDES`.
-- [ ] Leave `_apply_hotel` unchanged (hotel address/cost out of scope).
+- [x] `_apply_leg`: set `number` (joined `flight_numbers`), `from_place`,
+      `from_iata`, `to_place` (falls back to `city`), `to_iata`, `arrive_at`,
+      `seat`; `depart_at` = `_at(booking.depart_at) or _at(booking.start_date)`.
+- [x] Add the new booking fields to `ALLOWED_OVERRIDES`.
+- [x] Add the new fields to `AcceptPayload` (the API override schema) — the
+      second gate found above; `flight_numbers` typed as `Optional[list[str]]`.
+- [x] Leave `_apply_hotel` unchanged (hotel address/cost out of scope).
 
 **Tests that must pass to proceed:**
-- [ ] Accepting a full-detail flight extraction produces a `Leg` with number,
+- [x] Accepting a full-detail flight extraction produces a `Leg` with number,
       both IATAs, both datetimes, and seat populated.
-- [ ] A booking with only `start_date` (no `depart_at`) still sets `depart_at`
-      to midnight of that date (back-compat).
-- [ ] Override of `from_iata` before accept lands on the `Leg`.
-- [ ] Row-count boundary test still holds: nothing writes without accept.
+- [x] A booking with only `start_date` (no `depart_at`) still sets `depart_at`
+      to midnight of that date (back-compat — existing test still green).
+- [x] Override of leg detail (incl. the `flight_numbers` list) before accept
+      lands on the `Leg`, via both the service and the HTTP API.
+- [x] `to_place` falls back to `city` when the model gave only the city.
+- [x] Row-count boundary test still holds: nothing writes without accept.
+      **360 backend tests pass (+4 new), ruff clean.**
 
-**Commit:** _(hash TBD)_
+**Commit:** `PENDING`
 
 ---
 
@@ -262,4 +269,11 @@ card, and an accepted leg shows its number/seat/airports in `LegForm`'s folded
   is the "not missed" principle in code. `flight_numbers` is a tuple on the
   dataclass (frozen-safe) and a JSON array on the wire. Times are stored naive:
   `_clean_datetime` strips any timezone offset to keep the printed wall-clock.
-- _(Phase 2)_ …
+- _(Phase 2)_ The override path has **two gates**, not one: `AcceptPayload`
+  (pydantic model in `api/review.py`) drops any field it doesn't declare *before*
+  `ALLOWED_OVERRIDES` (in `services/review.py`) is ever consulted — both must
+  list a field for a reviewer to correct it. `_serialise` spreads `{**payload}`,
+  so newly-extracted proposals already expose the detail over the API for free
+  (a head start for Phase 4). `_at()` handles the timed-vs-date fallback with no
+  new code (`_at(depart_at) or _at(start_date)`). `to_place` falls back to `city`
+  so the arrival place never lands empty when only the city was read.

@@ -16,6 +16,7 @@ from app.models import (
     Extraction,
     ExtractionStatus,
     LearnedRule,
+    Leg,
     Requirement,
     RequirementKind,
     RequirementStatus,
@@ -166,6 +167,30 @@ def test_accept_with_overrides_fixes_a_missing_field(client, session: Session):
     assert body["accepted"] is True
     stay = session.exec(select(Stay)).first()
     assert stay.city == "Bangkok"
+
+
+def test_accept_leg_detail_overrides_flow_through_the_api(client, session: Session):
+    """AcceptPayload must carry the leg-detail fields (incl. the flight_numbers
+    list) end to end, or ALLOWED_OVERRIDES can never see them."""
+    ext = _seed_extraction(session, kind="flight", country_code="KZ", city="Astana",
+                           start_date="2026-09-29", end_date=None, hotel_name=None)
+
+    body = client.post(
+        f"/api/review/{ext.id}/accept",
+        json={
+            "flight_numbers": ["PC1162", "PC228"],
+            "from_iata": "STN",
+            "depart_at": "2026-09-29T14:40",
+            "seat": "10A, 11A",
+        },
+    ).json()
+
+    assert body["accepted"] is True
+    leg = session.exec(select(Leg)).one()
+    assert leg.number == "PC1162, PC228"
+    assert leg.from_iata == "STN"
+    assert leg.depart_at == datetime(2026, 9, 29, 14, 40)
+    assert leg.seat == "10A, 11A"
 
 
 def test_accept_an_incomplete_hotel_without_a_fix_is_422(client, session: Session):

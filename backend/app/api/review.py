@@ -52,6 +52,16 @@ class AcceptPayload(BaseModel):
     hotel_name: Optional[str] = None
     carrier: Optional[str] = None
     confirmation_code: Optional[str] = None
+    # Leg detail (booking_detail plan P2): correctable before accept, gated by
+    # ALLOWED_OVERRIDES in services.review just like the fields above.
+    flight_numbers: Optional[list[str]] = None
+    from_place: Optional[str] = None
+    from_iata: Optional[str] = None
+    to_place: Optional[str] = None
+    to_iata: Optional[str] = None
+    depart_at: Optional[str] = None
+    arrive_at: Optional[str] = None
+    seat: Optional[str] = None
     # Immigration proposals only: the arrival-card number, typed in at accept
     # time -- Phase 4's local matcher never reads the email body for one.
     reference: Optional[str] = None
