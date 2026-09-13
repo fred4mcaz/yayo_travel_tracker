@@ -479,6 +479,11 @@ h3 {
 .entry-main span {
   font-size: 13px;
 }
+/* A full street address can be long and unbroken (Japanese block numbers,
+   hyphenated districts); wrap it rather than widen the row. */
+.entry-main .stay-address {
+  overflow-wrap: anywhere;
+}
 .item-actions {
   display: flex;
   gap: 2px;

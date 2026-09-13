@@ -10,7 +10,7 @@ import {
 
 import { TripDetailPanel } from "./TripDetail";
 import { api } from "../lib/api";
-import type { Leg, MergeCandidate, TripCountry, TripDetail } from "../types";
+import type { Leg, MergeCandidate, Stay, TripCountry, TripDetail } from "../types";
 
 // Keep the real module (ApiError, every other call) and stub only the one
 // network call the keep-separate tests drive.
@@ -164,6 +164,45 @@ function leg(over: Partial<Leg> = {}): Leg {
     ...over,
   };
 }
+
+function stay(over: Partial<Stay> = {}): Stay {
+  return {
+    id: 1,
+    trip_id: 7,
+    country_code: "JP",
+    city: "Tokyo",
+    lat: null,
+    lon: null,
+    hotel_name: "Quiet Loft 5 min to Station",
+    address: "",
+    check_in: "2026-10-03",
+    check_out: "2026-10-07",
+    confirmation_code: "HMX4Q2",
+    booking_source: "email",
+    cost: null,
+    currency: "",
+    notes: "",
+    nights: 4,
+    ...over,
+  };
+}
+
+describe("TripDetailPanel stay address", () => {
+  it("shows the exact address recorded for a stay", () => {
+    const address = "4-12 Sakuragaoka-cho 502, Shibuya-ku, Tokyo 150-0031, Japan";
+    const { getByText } = renderPanel({
+      trip: { ...TRIP, country: tripCountry({ stays: [stay({ address })] }) },
+    });
+    expect(getByText(address)).toBeTruthy();
+  });
+
+  it("renders no address line when none is recorded", () => {
+    const { container } = renderPanel({
+      trip: { ...TRIP, country: tripCountry({ stays: [stay()] }) },
+    });
+    expect(container.querySelector(".stay-address")).toBeNull();
+  });
+});
 
 describe("TripDetailPanel missing-travel banner", () => {
   const hasBanner = (c: HTMLElement) =>

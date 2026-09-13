@@ -162,7 +162,7 @@ accept.
       `POST /api/review/{id}/accept`.
 - [x] Full backend suite green (**383 passed**), `ruff check app tests` clean.
 
-**Commit:** _(pending)_
+**Commit:** `63b74ca`
 
 ---
 
@@ -176,11 +176,12 @@ proposals; the stay form has an Address field (in its folded "Hotel details"
 section); the trip's hotel row shows the address.
 
 **Assumptions to validate first:**
-- [ ] `Stay` in `types.ts` already has `address: string`.
-- [ ] `draftToPayload` spreads the whole draft, so adding `address` to
-      `StayDraft` is enough for create/update to send it.
-- [ ] The calendar's trip-list payload deliberately omits address
-      (`api/trips.py`) — leave that alone; the trip detail fetch has it.
+- [x] `Stay` in `types.ts` already has `address: string`. — confirmed.
+- [x] `draftToPayload` spreads the whole draft, so adding `address` to
+      `StayDraft` is enough for create/update to send it. — confirmed live:
+      the PATCH carried it and the Stay stored it.
+- [x] The calendar's trip-list payload deliberately omits address
+      (`api/trips.py`) — left alone; the trip detail fetch has it.
 
 **Common problems to prepare for:**
 - `ReviewBooking.address` must be optional + nullable (old proposals).
@@ -189,17 +190,24 @@ section); the trip's hotel row shows the address.
 - Long addresses must wrap, not stretch the row.
 
 **Tasks:**
-- [ ] `types.ts`: `ReviewBooking.address?: string | null`.
-- [ ] `Review.tsx`: wide `Address` text field under `Hotel` for hotel cards.
-- [ ] `StayForm.tsx`: `address` in `StayDraft`, `emptyStay`, `stayToDraft`;
-      `Address` field in the folded section (open it when address is set);
-      fix the header comment that says address is absent from the form.
-- [ ] `TripDetail.tsx` `StayRow`: show the address when present.
+- [x] `types.ts`: `ReviewBooking.address?: string | null`.
+- [x] `Review.tsx`: wide `Address` text field under `Hotel` for hotel cards.
+- [x] `StayForm.tsx`: `address` in `StayDraft`, `emptyStay`, `stayToDraft`;
+      `Address` field in the folded section (opens when address is set);
+      header comment fixed; the Hotel field hints "For an Airbnb, the listing
+      title".
+- [x] `TripDetail.tsx` `StayRow`: show the address when present
+      (`.stay-address`, `overflow-wrap: anywhere` in `styles.css`).
 
 **Tests that must pass to proceed:**
-- [ ] `Review.test.tsx`: a hotel proposal renders its address in the field.
-- [ ] `TripDetail.test.tsx`: a stay with an address shows it.
-- [ ] `npm test` and `npm run build` (tsc + vite) green.
+- [x] `Review.test.tsx`: an Airbnb proposal renders its address, and an edited
+      address is sent as the `address` override on accept; an old proposal
+      with no `address` key shows an empty field.
+- [x] `TripDetail.test.tsx`: a stay with an address shows it; none → no line.
+- [x] `npm test` (**62 passed**) and `npm run build` (tsc + vite) green.
+- [x] Live check in the local dev app (prod mirror DB): typed an address in
+      the stay form → PATCH 200 → the hotel row shows it, wrapped. Test value
+      cleared afterward.
 
 **Commit:** _(pending)_
 

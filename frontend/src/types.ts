@@ -316,6 +316,9 @@ export interface ReviewBooking {
   start_date: string | null;
   end_date: string | null;
   hotel_name: string | null;
+  /** The stay's exact street address (airbnb_address_extraction plan). Absent
+   *  on proposals extracted before the field existed. */
+  address?: string | null;
   carrier: string | null;
   confirmation_code: string | null;
   /** Leg detail (booking_detail plan). Absent on proposals extracted before

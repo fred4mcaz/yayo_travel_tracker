@@ -137,6 +137,60 @@ describe("ReviewQueue", () => {
     expect(screen.getByText(/Sep 30 04:45/)).toBeTruthy();
   });
 
+  it("shows an Airbnb stay's exact address and sends a corrected one on accept", async () => {
+    const airbnb: ReviewItem = {
+      ...BOOKING_ITEM,
+      id: 4,
+      email: {
+        ...BOOKING_ITEM.email,
+        from_addr: "automated@airbnb.com",
+        subject: "Reservation confirmed - Quiet Loft in Tokyo",
+      },
+      booking: {
+        ...BOOKING_ITEM.booking!,
+        country_code: "JP",
+        country_name: "Japan",
+        city: "Tokyo",
+        hotel_name: "Quiet Loft 5 min to Station",
+        address: "4-12 Sakuragaoka-cho 502, Shibuya-ku, Tokyo 150-0031, Japan",
+      },
+    };
+    vi.mocked(api.review.list).mockResolvedValue([airbnb]);
+    vi.mocked(api.review.accept).mockResolvedValue({
+      accepted: true,
+      trip_id: 9,
+      created_new_trip: true,
+      stay_id: 1,
+      leg_id: null,
+      learned_domain: null,
+    });
+
+    render(<ReviewQueue onReviewed={vi.fn()} />);
+
+    const field = await screen.findByDisplayValue(
+      "4-12 Sakuragaoka-cho 502, Shibuya-ku, Tokyo 150-0031, Japan",
+    );
+    fireEvent.change(field, { target: { value: "4-12 Sakuragaoka-cho 503, Tokyo" } });
+    fireEvent.click(screen.getByText("Accept"));
+
+    await waitFor(() =>
+      expect(api.review.accept).toHaveBeenCalledWith(4, {
+        address: "4-12 Sakuragaoka-cho 503, Tokyo",
+      }),
+    );
+  });
+
+  it("shows an empty address field on a hotel proposal that predates the field", async () => {
+    vi.mocked(api.review.list).mockResolvedValue([BOOKING_ITEM]);
+
+    render(<ReviewQueue onReviewed={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByDisplayValue("Sofitel Legend")).toBeTruthy());
+    expect(
+      (screen.getByPlaceholderText("Street, city, postal code") as HTMLInputElement).value,
+    ).toBe("");
+  });
+
   it("accepting an immigration proposal sends the typed-in reference", async () => {
     vi.mocked(api.review.list).mockResolvedValue([IMMIGRATION_ITEM]);
     vi.mocked(api.review.accept).mockResolvedValue({

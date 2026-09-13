@@ -464,9 +464,18 @@ function ReviewCard({
           )}
         </Row>
         {isHotel ? (
-          <Field label="Hotel" wide>
-            <Text value={val("hotel_name")} onChange={(v) => set("hotel_name", v)} />
-          </Field>
+          <>
+            <Field label="Hotel" wide>
+              <Text value={val("hotel_name")} onChange={(v) => set("hotel_name", v)} />
+            </Field>
+            <Field label="Address" wide>
+              <Text
+                value={val("address")}
+                onChange={(v) => set("address", v)}
+                placeholder="Street, city, postal code"
+              />
+            </Field>
+          </>
         ) : (
           <Field label="Carrier" wide>
             <Text value={val("carrier")} onChange={(v) => set("carrier", v)} />

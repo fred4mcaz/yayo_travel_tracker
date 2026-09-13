@@ -6,13 +6,15 @@ import { countryName } from "../lib/countries";
 import { addDays, countryFlag, nightsBetween, toISODate, today } from "../lib/format";
 import type { Stay } from "../types";
 
-/** Draft mirrors the API shape. Address and cost are still columns -- the Gmail
- *  extractor fills them when a confirmation email has them -- but they are not
- *  worth typing by hand, so they are absent from this form entirely. */
+/** Draft mirrors the API shape. The address is normally filled by the Gmail
+ *  extractor from the confirmation email, and sits in the folded hotel section
+ *  so a misread can be fixed. Cost is still a column but not worth typing by
+ *  hand, so it is absent from this form entirely. */
 export interface StayDraft {
   country_code: string;
   city: string;
   hotel_name: string;
+  address: string;
   check_in: string;
   check_out: string;
   confirmation_code: string;
@@ -28,6 +30,7 @@ export function emptyStay(checkIn = "", checkOut = ""): StayDraft {
     country_code: "",
     city: "",
     hotel_name: "",
+    address: "",
     check_in: start,
     check_out: checkOut || addDays(start, 1),
     confirmation_code: "",
@@ -40,6 +43,7 @@ export function stayToDraft(stay: Stay): StayDraft {
     country_code: stay.country_code,
     city: stay.city,
     hotel_name: stay.hotel_name,
+    address: stay.address,
     check_in: stay.check_in,
     check_out: stay.check_out,
     confirmation_code: stay.confirmation_code,
@@ -146,13 +150,23 @@ export function StayForm({
       {/* Hotel and reference normally arrive from a confirmation email. Kept
           reachable for the times you want to fill them in yourself, but folded
           away so the common case is four fields and a note. */}
-      <details className="more" open={Boolean(draft.hotel_name || draft.confirmation_code)}>
+      <details
+        className="more"
+        open={Boolean(draft.hotel_name || draft.address || draft.confirmation_code)}
+      >
         <summary>Hotel details — usually filled in from your email</summary>
-        <Field label="Hotel" wide>
+        <Field label="Hotel" hint="For an Airbnb, the listing title" wide>
           <Text
             value={draft.hotel_name}
             onChange={(v) => set("hotel_name", v)}
             placeholder="Sofitel Legend Metropole"
+          />
+        </Field>
+        <Field label="Address" wide>
+          <Text
+            value={draft.address}
+            onChange={(v) => set("address", v)}
+            placeholder="15 Ngo Quyen, Hoan Kiem, Hanoi"
           />
         </Field>
         <Field

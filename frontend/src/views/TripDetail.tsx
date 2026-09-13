@@ -808,6 +808,7 @@ function StayRow({
         <strong>
           {stay.hotel_name || "No hotel yet"} · {stay.city}
         </strong>
+        {stay.address && <span className="muted stay-address">{stay.address}</span>}
         <span className="muted">
           {formatRange(stay.check_in, stay.check_out)} · {stay.nights} night
           {stay.nights === 1 ? "" : "s"}
