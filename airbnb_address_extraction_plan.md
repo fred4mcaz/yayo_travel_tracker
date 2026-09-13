@@ -221,8 +221,12 @@ invitations. There is no OpenRouter key on the dev machine, so this runs
 inside the deployed container, read-only.
 
 **Assumptions to validate first:**
-- [ ] The user has pushed `main` (pushing is the user's call).
-- [ ] The container can run a one-off Python snippet with the prod key.
+- [x] The user has pushed `main` (pushing is the user's call). — user
+      approved; pushed `c0aa020..fa8f003` on 2026-09-13.
+- [x] The container can run a one-off Python snippet with the prod key. —
+      yes: `docker exec -i -w /srv/backend yayo-travel python - < script.py`
+      (container `yayo-travel`, app code at `/srv/backend`, bundle at
+      `/srv/frontend/dist`).
 
 **Common problems to prepare for:**
 - `data/` and code are baked into the image — `git pull` alone does nothing;
@@ -231,16 +235,31 @@ inside the deployed container, read-only.
   `model.extract(...)` call on synthetic emails and print the result.
 
 **Tasks:**
-- [ ] Deploy with `./deploy/deploy.sh`; confirm healthy.
-- [ ] Read-only run on a synthetic Airbnb confirmation (with a footer corporate
+- [x] Deploy with `./deploy/deploy.sh`; confirm healthy. — **healthy after
+      4s**; server at `fa8f003`; `stay-address` present in the shipped JS and
+      the footer guidance present in the container's `extraction.py`.
+- [x] Read-only run on a synthetic Airbnb confirmation (with a footer corporate
       address and a host-notes address block): `address` is the listing
-      address, not 888 Brannan St.
-- [ ] Read-only triage on a synthetic "Invitation to book" → `is_booking=false`.
+      address, not 888 Brannan St. — **3/3 runs**: triage `true` (0.99),
+      `address = "4-12 Sakuragaoka-cho 502, Shibuya-ku, Tokyo 150-0031, Japan"`,
+      `hotel_name` = the listing title, confirmation code read, no lockbox PIN
+      or Wi-Fi captured, no footer or host-notes address.
+- [x] Read-only triage on a synthetic "Invitation to book" → `is_booking=false`.
+      — **3/3 runs** false (0.95–0.98), reason: "invitation to book with an
+      expiration deadline, not a confirmed reservation".
 - [x] Update README §5 with the address field and the Airbnb notes; record
       lessons learned here. — done ahead of the deploy so the docs ship with
-      the code.
+      the code. Docs commit: `fa8f003`.
 
-**Commit:** _(pending)_
+**Caveat surfaced by the live run:** the model sets `city` to the Airbnb's ward
+("Shibuya-ku"), which `geocode.locate` does not know (`"Shibuya"` and
+`"Tokyo"` both resolve). The stay would show "Not on the map" until the city
+is edited. Pre-existing geocoding behavior, outside this plan — candidate
+follow-up: strip Japanese ward/city suffixes (`-ku`, `-shi`) in `locate`, or
+have the extractor prefer the metropolitan city.
+
+**Commit:** this plan update (hash in the commit that follows `fa8f003`;
+docs only, no redeploy needed).
 
 ---
 
@@ -285,3 +304,9 @@ inside the deployed container, read-only.
   because the page loaded before `dev_backend.py` finished pulling the DB (the
   first `/api/auth/status` 500'd). A reload fixed it — no passkey needed
   locally. The address field plumbs through `draftToPayload` for free.
+- _(Phase 4)_ A stdin-piped script (`docker exec -i … python - < file`) is the
+  cleanest read-only probe of the real model: no file copied onto the server,
+  no DB session opened. Repeat the run — this model has been intermittently
+  wrong before — and 3/3 agreement is cheap insurance. The live run is also
+  what exposed the ward-name geocoding gap no unit test would. **Plan
+  complete.**
