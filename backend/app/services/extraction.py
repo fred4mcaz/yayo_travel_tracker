@@ -69,8 +69,14 @@ TRIAGE_TOOL = {
                 "type": "boolean",
                 "description": (
                     "True only for a confirmed reservation the traveller holds "
-                    "-- a hotel stay, a flight, a train. False for marketing, "
-                    "receipts for other things, or a booking that was cancelled."
+                    "-- a hotel stay, a vacation rental (Airbnb, Vrbo), a "
+                    "flight, a train, including an itinerary a co-traveller "
+                    "shared after booking. False for marketing, receipts for "
+                    "other things, or a booking that was cancelled. Also False "
+                    "for anything not yet booked: an inquiry to a host, a "
+                    "host's message, an invitation or pre-approval to book, a "
+                    "reminder to finish booking, or a booking request still "
+                    "awaiting the host's approval."
                 ),
             },
             "confidence": {
@@ -97,6 +103,7 @@ BOOKING_ITEM_SCHEMA = {
         "start_date",
         "end_date",
         "hotel_name",
+        "address",
         "carrier",
         "flight_numbers",
         "from_place",
@@ -113,7 +120,10 @@ BOOKING_ITEM_SCHEMA = {
         "kind": {
             "type": "string",
             "enum": list(BOOKING_KINDS),
-            "description": "hotel for a stay; the mode for an arrival journey.",
+            "description": (
+                "hotel for any stay -- a hotel, hostel, or vacation rental "
+                "such as an Airbnb or Vrbo; the mode for an arrival journey."
+            ),
         },
         "country_code": {
             "type": ["string", "null"],
@@ -145,7 +155,33 @@ BOOKING_ITEM_SCHEMA = {
             "type": ["string", "null"],
             "description": "YYYY-MM-DD. Check-out for a hotel; null for a leg.",
         },
-        "hotel_name": {"type": ["string", "null"]},
+        "hotel_name": {
+            "type": ["string", "null"],
+            "description": (
+                "The property's name. For a vacation rental (Airbnb, Vrbo) "
+                "use the listing title as printed, e.g. 'Central of Shibuya "
+                "5 min/Cozy Room'. Null for a leg."
+            ),
+        },
+        # The exact street address of the stay (airbnb_address_extraction
+        # plan). Verbatim, and never a platform's footer address -- Airbnb's
+        # own 888 Brannan St sits at the bottom of every one of its emails.
+        "address": {
+            "type": ["string", "null"],
+            "description": (
+                "The exact street address of the hotel or rental, copied "
+                "verbatim from the booking/itinerary section -- street, "
+                "unit or room number, district, city, postal code, country "
+                "-- with line breaks joined by ', '. Do not reformat, "
+                "shorten, or translate it. If it is printed in more than one "
+                "form, take the one shown with the reservation details, not "
+                "copies in the host's directions. NEVER use a company "
+                "address from the footer (e.g. Airbnb, Inc., 888 Brannan "
+                "St, San Francisco; Airbnb Ireland, Dublin; Booking.com, "
+                "Amsterdam) -- if that is the only address, use null. Null "
+                "for a leg or if no address is given."
+            ),
+        },
         "carrier": {
             "type": ["string", "null"],
             "description": "Airline or operator, for a leg.",
@@ -400,6 +436,9 @@ class Booking:
     depart_at: Optional[str] = None
     arrive_at: Optional[str] = None
     seat: Optional[str] = None
+    # Stay detail (airbnb_address_extraction plan P1): the verbatim street
+    # address of a hotel or rental. Detail, not load-bearing -- never rejects.
+    address: Optional[str] = None
 
     def payload(self) -> dict:
         d = self.__dict__.copy()
@@ -456,6 +495,19 @@ def _clean_datetime(value) -> Optional[str]:
     except ValueError:
         return None
     return parsed.replace(tzinfo=None).isoformat()
+
+
+def _clean_address(value) -> Optional[str]:
+    """A street address, trimmed with its internal whitespace collapsed, or None.
+
+    The text is otherwise kept verbatim -- the point is the *exact* address.
+    Only a non-string (which `_clean_str` would raise on) is nulled, so a
+    malformed address never sinks the booking.
+    """
+    if not isinstance(value, str):
+        return None
+    value = " ".join(value.split())
+    return value or None
 
 
 def _clean_str_tuple(value) -> tuple[str, ...]:
@@ -519,6 +571,7 @@ def validate_booking(payload) -> Optional[Booking]:
             depart_at=_clean_datetime(payload.get("depart_at")),
             arrive_at=_clean_datetime(payload.get("arrive_at")),
             seat=_clean_str(payload.get("seat")),
+            address=_clean_address(payload.get("address")),
         )
     except (KeyError, TypeError, ValueError):
         return None

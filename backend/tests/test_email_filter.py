@@ -202,6 +202,27 @@ def test_a_real_looking_booking_passes_the_shipped_rules():
     assert v
 
 
+@pytest.mark.parametrize(
+    "from_addr, subject",
+    [
+        # The current confirmation template.
+        ("Airbnb <automated@airbnb.com>", "Reservation confirmed - Cozy loft in Da Nang"),
+        # A co-traveller's shared itinerary comes from a different local part.
+        ("Airbnb <invitation@airbnb.com>", "Reservation Itinerary from Sam"),
+    ],
+)
+def test_an_airbnb_confirmation_passes_the_shipped_rules(from_addr, subject):
+    """Airbnb stays reach the extractor (airbnb_address_extraction plan P1).
+    Telling a real reservation from an invitation-to-book is triage's job --
+    both carry 'reservation', so the keyword filter cannot and should not."""
+    load_rules.cache_clear()
+    assert classify(
+        from_addr,
+        subject,
+        "Confirmation code HMX4Q2. Check-in Oct 3, 2026. Checkout Oct 7, 2026.",
+    )
+
+
 def test_a_personal_email_fails_the_shipped_rules():
     load_rules.cache_clear()
     assert not classify(

@@ -329,6 +329,90 @@ def test_a_hotel_keeps_empty_leg_detail():
     assert b.flight_numbers == ()
     assert b.from_iata is None
     assert b.depart_at is None
+    assert b.address is None
+
+
+# --------------------------------------------------------------------------
+# Stay address and vacation rentals (airbnb_address_extraction plan P1)
+# --------------------------------------------------------------------------
+
+# Synthetic, modeled on the structure of a real Airbnb itinerary: the listing
+# title stands in for a hotel name and the address is the rental's own.
+AIRBNB_STAY = {
+    "kind": "hotel",
+    "country_code": "JP",
+    "city": "Tokyo",
+    "start_date": "2026-10-03",
+    "end_date": "2026-10-07",
+    "hotel_name": "Quiet Loft 5 min to Station/Cozy Room",
+    "address": "4-12 Sakuragaoka-cho 502, Shibuya-ku, Tokyo 150-0031, Japan",
+    "carrier": None,
+    "confirmation_code": "HMX4Q2",
+    "confidence": 0.93,
+}
+
+
+def test_an_airbnb_stay_keeps_its_listing_title_and_exact_address():
+    b = validate_booking(AIRBNB_STAY)
+    assert b is not None
+    assert b.kind == "hotel"
+    assert b.hotel_name == "Quiet Loft 5 min to Station/Cozy Room"
+    assert b.address == "4-12 Sakuragaoka-cho 502, Shibuya-ku, Tokyo 150-0031, Japan"
+    assert b.payload()["address"] == AIRBNB_STAY["address"]
+
+
+def test_an_address_survives_into_the_stored_proposal(session: Session):
+    _candidate(session, from_addr="automated@airbnb.com", subject="Reservation confirmed")
+    model = FakeModel(TriageResult(True, 0.9, "airbnb reservation"), AIRBNB_STAY)
+
+    run_extractions(session, model)
+
+    payload = json.loads(_extractions(session)[0].payload_json)
+    assert payload["address"] == AIRBNB_STAY["address"]
+    assert payload["hotel_name"] == AIRBNB_STAY["hotel_name"]
+
+
+def test_a_proposal_stored_before_the_address_field_still_validates():
+    """Old payload_json rows have no `address` key at all."""
+    b = validate_booking(VALID_BOOKING)
+    assert b is not None
+    assert b.address is None
+
+
+@pytest.mark.parametrize("bad", ["", "   \n ", 42, ["street"]])
+def test_a_blank_or_malformed_address_nulls_only_the_address(bad):
+    b = validate_booking({**AIRBNB_STAY, "address": bad})
+    assert b is not None
+    assert b.address is None
+    assert b.hotel_name == AIRBNB_STAY["hotel_name"]
+
+
+def test_an_address_keeps_its_text_but_not_stray_line_breaks():
+    b = validate_booking(
+        {**AIRBNB_STAY, "address": "  4-12 Sakuragaoka-cho 502,\n  Shibuya-ku,  Tokyo  "}
+    )
+    assert b.address == "4-12 Sakuragaoka-cho 502, Shibuya-ku, Tokyo"
+
+
+def test_booking_schema_is_strict_compatible():
+    """Strict tool use: every property required, nothing extra allowed."""
+    from app.services.extraction import BOOKING_ITEM_SCHEMA
+
+    assert set(BOOKING_ITEM_SCHEMA["required"]) == set(BOOKING_ITEM_SCHEMA["properties"])
+    assert BOOKING_ITEM_SCHEMA["additionalProperties"] is False
+    assert "address" in BOOKING_ITEM_SCHEMA["required"]
+
+
+def test_prompts_steer_away_from_footer_addresses_and_unbooked_rentals():
+    """The guidance that makes Airbnb mail work lives in prompt text; guard it
+    against a careless edit."""
+    from app.services.extraction import BOOKING_ITEM_SCHEMA, TRIAGE_TOOL
+
+    address_hint = BOOKING_ITEM_SCHEMA["properties"]["address"]["description"]
+    assert "888 Brannan" in address_hint and "footer" in address_hint
+    triage_hint = TRIAGE_TOOL["input_schema"]["properties"]["is_booking"]["description"]
+    assert "Airbnb" in triage_hint
+    assert "invitation" in triage_hint and "inquiry" in triage_hint
 
 
 # --------------------------------------------------------------------------
