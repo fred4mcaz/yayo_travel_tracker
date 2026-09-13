@@ -524,8 +524,21 @@ the Gmail app password and OpenRouter key in place.
    its destination country but keeps all its numbers), origin/destination place
    and IATA, `depart_at`/`arrive_at` (naive local wall-clock, offset stripped),
    and seat. Each detail field validates independently and nulls out on its own
-   if malformed, so a stray value never sinks the booking; cost, currency and
-   hotel address are still extractor-only columns left unfilled by choice. Two
+   if malformed, so a stray value never sinks the booking; cost and currency
+   are still columns left unfilled by choice.
+   **Stays and Airbnb** (`airbnb_address_extraction_plan.md`): a vacation
+   rental (Airbnb, Vrbo) is `kind: "hotel"`, its listing title is the
+   `hotel_name`, and every stay captures its **exact street `address`**,
+   verbatim from the reservation section, onto `Stay.address` (editable on the
+   Review card and in the stay form's folded hotel section, shown on the trip's
+   hotel row). The prompt explicitly forbids platform footer addresses —
+   every Airbnb email ends with *Airbnb, Inc., 888 Brannan St, San Francisco* —
+   and host-note copies of the address; door codes and Wi-Fi passwords in host
+   notes are never captured. Triage rejects Airbnb mail that is not yet a
+   booking (inquiries, host messages, "Invitation to book", reminders, pending
+   requests) — those all contain "reservation", so the keyword filter lets them
+   through and triage is the gate. The address is not geocoded; pins still come
+   from the city. Two
    parsing hazards are handled explicitly: a `bookings` array the model returns
    *as a JSON string* is decoded rather than dropped (this was the "found nothing
    to extract" bug), and the automatic path re-fetches the **full** body (over

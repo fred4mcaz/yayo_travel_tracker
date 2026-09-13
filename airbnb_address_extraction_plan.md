@@ -209,7 +209,7 @@ section); the trip's hotel row shows the address.
       the stay form → PATCH 200 → the hotel row shows it, wrapped. Test value
       cleared afterward.
 
-**Commit:** _(pending)_
+**Commit:** `c15cce3`
 
 ---
 
@@ -236,8 +236,9 @@ inside the deployed container, read-only.
       address and a host-notes address block): `address` is the listing
       address, not 888 Brannan St.
 - [ ] Read-only triage on a synthetic "Invitation to book" → `is_booking=false`.
-- [ ] Update README §5 with the address field and the Airbnb notes; record
-      lessons learned here.
+- [x] Update README §5 with the address field and the Airbnb notes; record
+      lessons learned here. — done ahead of the deploy so the docs ship with
+      the code.
 
 **Commit:** _(pending)_
 
@@ -245,8 +246,42 @@ inside the deployed container, read-only.
 
 ## Notes for future engineers
 
-_(filled in as phases complete)_
+- **Where Airbnb correctness lives:** almost entirely in prompt text — the
+  `address`/`hotel_name`/`kind` descriptions in `BOOKING_ITEM_SCHEMA` and the
+  `is_booking` description in `TRIAGE_TOOL`. A test
+  (`test_prompts_steer_away_from_footer_addresses_and_unbooked_rentals`) guards
+  the key phrases; if you reword the prompts, keep the footer warning and the
+  not-yet-booked list.
+- **The keyword filter cannot tell an Airbnb invitation from a reservation.**
+  Both say "reservation" and "check in". Don't try to fix that with a subject
+  deny rule — "Reservation Itinerary from <name>" (a co-traveler's real
+  booking) looks just as marketing-ish. Triage is the right gate.
+- **Airbnb sender local parts vary** (`automated@`, `express@`,
+  `invitation@`); the `airbnb.com` domain rule covers all of them.
+- **Address cleaning is lenient on purpose.** `_clean_address` collapses
+  whitespace and nulls a non-string, but never raises — unlike `_clean_date`,
+  a bad address must not reject the booking.
+- **`Stay.address` had existed since the initial schema** — no migration was
+  needed. Old `payload_json` rows simply lack the key.
+- **The trip list payload (`GET /api/trips`) deliberately omits address**; the
+  trip detail fetch carries it. Keep the calendar payload small.
 
 ## Lessons learned
 
-_(filled in as phases complete)_
+- _(Phase 1)_ Sampling the real inbox before designing paid off: the two
+  hazards that matter (Airbnb's corporate footer address, and invitations that
+  pass the keyword filter) were visible in the first four Airbnb emails, and
+  neither is something a fake-model unit test would have surfaced. Fixtures
+  were written synthetically from that structure — the real email contained a
+  door code and Wi-Fi password, which must never land in the repo.
+- _(Phase 1)_ `_clean_str` *raises* on a non-string, which inside
+  `validate_booking` rejects the whole booking. That's right for
+  load-bearing fields, wrong for detail — so detail fields need their own
+  never-raise cleaner.
+- _(Phase 2)_ Pure plumbing: one line in `_apply_hotel`, one entry in each
+  override gate. Testing the override through HTTP, not just the service, is
+  what proves `AcceptPayload` declares the field.
+- _(Phase 3)_ The local dev app briefly showed the passkey *setup* screen
+  because the page loaded before `dev_backend.py` finished pulling the DB (the
+  first `/api/auth/status` 500'd). A reload fixed it — no passkey needed
+  locally. The address field plumbs through `draftToPayload` for free.
