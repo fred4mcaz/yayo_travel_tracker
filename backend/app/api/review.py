@@ -50,6 +50,8 @@ class AcceptPayload(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     hotel_name: Optional[str] = None
+    # The stay's street address (airbnb_address_extraction plan P2).
+    address: Optional[str] = None
     carrier: Optional[str] = None
     confirmation_code: Optional[str] = None
     # Leg detail (booking_detail plan P2): correctable before accept, gated by

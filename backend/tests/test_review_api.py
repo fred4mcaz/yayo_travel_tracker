@@ -169,6 +169,22 @@ def test_accept_with_overrides_fixes_a_missing_field(client, session: Session):
     assert stay.city == "Bangkok"
 
 
+def test_accept_address_override_flows_through_the_api(client, session: Session):
+    """AcceptPayload must declare `address`, or pydantic drops it before
+    ALLOWED_OVERRIDES is ever consulted (airbnb_address_extraction plan P2)."""
+    ext = _seed_extraction(session, country_code="JP", city="Tokyo",
+                           start_date="2026-10-03", end_date="2026-10-07")
+
+    body = client.post(
+        f"/api/review/{ext.id}/accept",
+        json={"address": "4-12 Sakuragaoka-cho 502, Shibuya-ku, Tokyo 150-0031, Japan"},
+    ).json()
+
+    assert body["accepted"] is True
+    stay = session.exec(select(Stay)).one()
+    assert stay.address == "4-12 Sakuragaoka-cho 502, Shibuya-ku, Tokyo 150-0031, Japan"
+
+
 def test_accept_leg_detail_overrides_flow_through_the_api(client, session: Session):
     """AcceptPayload must carry the leg-detail fields (incl. the flight_numbers
     list) end to end, or ALLOWED_OVERRIDES can never see them."""

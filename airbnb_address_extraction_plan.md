@@ -126,7 +126,7 @@ prompt text encodes Decisions 1–4.
       (`ruff check .` reports 2 pre-existing unused imports in alembic
       migrations — not touched here.)
 
-**Commit:** _(pending)_
+**Commit:** `1825bfa`
 
 ---
 
@@ -140,8 +140,10 @@ accept.
 `address` override from the Review form (service and HTTP) lands on the Stay.
 
 **Assumptions to validate first:**
-- [ ] `_apply_hotel` is the only place a booking becomes a `Stay`.
-- [ ] `Stay.address` is `str = ""` (non-null) — so `None` must become `""`.
+- [x] `_apply_hotel` is the only place a booking becomes a `Stay`. — confirmed.
+- [x] `Stay.address` is `str = ""` (non-null) — so `None` must become `""`.
+      — confirmed; no migration needed, the column has existed since the
+      initial schema.
 
 **Common problems to prepare for:**
 - Writing `None` into a non-null column → integrity error on commit. Use
@@ -150,14 +152,15 @@ accept.
   override silently vanishes. Test through the HTTP API, not just the service.
 
 **Tasks:**
-- [ ] `_apply_hotel`: `address=booking.address or ""`.
-- [ ] Add `address` to `ALLOWED_OVERRIDES` and `AcceptPayload`.
+- [x] `_apply_hotel`: `address=booking.address or ""`.
+- [x] Add `address` to `ALLOWED_OVERRIDES` and `AcceptPayload`.
 
 **Tests that must pass to proceed:**
-- [ ] Accepting a hotel with an address creates a Stay with that exact string.
-- [ ] Accepting a hotel without an address stores `""`.
-- [ ] An `address` override via `POST /api/review/{id}/accept` lands on the Stay.
-- [ ] Full backend suite green, `ruff check` clean.
+- [x] Accepting a hotel with an address creates a Stay with that exact string.
+- [x] Accepting a hotel without an address stores `""`.
+- [x] An `address` override lands on the Stay — via the service *and* via
+      `POST /api/review/{id}/accept`.
+- [x] Full backend suite green (**383 passed**), `ruff check app tests` clean.
 
 **Commit:** _(pending)_
 

@@ -84,6 +84,7 @@ def _booking(**kw):
         "depart_at": kw.get("depart_at"),
         "arrive_at": kw.get("arrive_at"),
         "seat": kw.get("seat"),
+        "address": kw.get("address"),
     }
     return validate_booking(payload)
 
@@ -252,6 +253,39 @@ def test_accept_without_a_suggestion_creates_a_new_trip(session: Session):
     trips, stays, _ = _counts(session)
     assert trips == before[0] + 1
     assert stays == before[1] + 1
+
+
+def test_accept_an_airbnb_stay_records_its_exact_address(session: Session):
+    """airbnb_address_extraction plan P2: the verbatim address lands on the Stay."""
+    address = "4-12 Sakuragaoka-cho 502, Shibuya-ku, Tokyo 150-0031, Japan"
+    ext = _extraction(session, country_code="JP", city="Tokyo",
+                      start_date="2026-10-03", end_date="2026-10-07",
+                      hotel_name="Quiet Loft 5 min to Station", address=address)
+
+    result = accept_extraction(session, ext)
+
+    stay = session.get(Stay, result.stay_id)
+    assert stay.address == address
+    assert stay.hotel_name == "Quiet Loft 5 min to Station"
+
+
+def test_accept_a_hotel_without_an_address_stores_empty(session: Session):
+    ext = _extraction(session, country_code="JP", city="Osaka",
+                      start_date="2026-10-01", end_date="2026-10-05")
+
+    result = accept_extraction(session, ext)
+
+    assert session.get(Stay, result.stay_id).address == ""
+
+
+def test_accept_an_address_override_lands_on_the_stay(session: Session):
+    ext = _extraction(session, country_code="JP", city="Osaka",
+                      start_date="2026-10-01", end_date="2026-10-05",
+                      address="Airbnb, Inc., 888 Brannan St, San Francisco")
+
+    result = accept_extraction(session, ext, {"address": "1-2-3 Namba, Osaka 542-0076"})
+
+    assert session.get(Stay, result.stay_id).address == "1-2-3 Namba, Osaka 542-0076"
 
 
 def test_different_country_booking_accepts_as_a_new_trip_without_error(
