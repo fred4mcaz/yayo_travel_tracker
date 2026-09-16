@@ -202,9 +202,9 @@ export function Settings({ passports, onPassportsChanged, onLoggedOut }: Props) 
       <section>
         <h3>Export</h3>
         <p className="muted small">
-          Download everything — trips, hotels, and travel. JSON keeps the full
+          Download everything — trips, lodging, and travel. JSON keeps the full
           detail and is the copy to keep. The CSV is a spreadsheet: a{" "}
-          <code>.zip</code> of trips, hotels, and legs.
+          <code>.zip</code> of trips, lodging, and legs.
         </p>
         <div className="export-buttons">
           {/* Same-origin GETs: the session cookie rides along, and

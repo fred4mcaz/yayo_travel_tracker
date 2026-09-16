@@ -398,7 +398,7 @@ function stayLabel(stay: StaySummary): string {
   const hotel = stay.hotel_name.trim();
   const city = stay.city.trim();
   if (city && hotel) return `${city} · ${hotel}`;
-  return city || hotel || "Hotel";
+  return city || hotel || "Lodging";
 }
 
 /** A distinct, stable hue per id. Golden-angle rotation keeps neighbours far

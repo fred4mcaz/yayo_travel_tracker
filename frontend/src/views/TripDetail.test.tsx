@@ -76,7 +76,7 @@ function renderPanel(props: Partial<Parameters<typeof TripDetailPanel>[0]> = {})
   );
   const sheetOpen = () =>
     Array.from(view.container.querySelectorAll("h2, h3")).some((h) =>
-      /Add a country|Add hotel/.test(h.textContent ?? ""),
+      /Add a country|Add lodging/.test(h.textContent ?? ""),
     );
   return { ...view, onStayOpened, sheetOpen };
 }
@@ -397,7 +397,7 @@ describe("returning to the Trips tab", () => {
     const { container, getByText } = render(<TabHarness createdId={TRIP.id} />);
     const open = () =>
       Array.from(container.querySelectorAll("h2, h3")).some((h) =>
-        /Add a country|Add hotel/.test(h.textContent ?? ""),
+        /Add a country|Add lodging/.test(h.textContent ?? ""),
       );
 
     // Created moments ago: the form is meant to be up on this first mount.
@@ -419,7 +419,7 @@ describe("returning to the Trips tab", () => {
     const { container, getByText } = render(<TabHarness createdId={null} />);
     const open = () =>
       Array.from(container.querySelectorAll("h2, h3")).some((h) =>
-        /Add a country|Add hotel/.test(h.textContent ?? ""),
+        /Add a country|Add lodging/.test(h.textContent ?? ""),
       );
 
     expect(open()).toBe(false);

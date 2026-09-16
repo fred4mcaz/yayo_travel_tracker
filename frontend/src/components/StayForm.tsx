@@ -7,9 +7,9 @@ import { addDays, countryFlag, nightsBetween, toISODate, today } from "../lib/fo
 import type { Stay } from "../types";
 
 /** Draft mirrors the API shape. The address is normally filled by the Gmail
- *  extractor from the confirmation email, and sits in the folded hotel section
- *  so a misread can be fixed. Cost is still a column but not worth typing by
- *  hand, so it is absent from this form entirely. */
+ *  extractor from the confirmation email, and can be corrected here if it is
+ *  misread. Cost is still a column but not worth typing by hand, so it is
+ *  absent from this form entirely. */
 export interface StayDraft {
   country_code: string;
   city: string;
@@ -64,9 +64,9 @@ export function StayForm({
   draft: StayDraft;
   onChange: (d: StayDraft) => void;
   recentCountries?: string[];
-  /** Adding a hotel inside a country that is already part of the journey. The
+  /** Adding lodging inside a country that is already part of the journey. The
    *  country is settled, so showing a 249-item picker would only invite a
-   *  mistake that silently moves the hotel to another country. */
+   *  mistake that silently moves the lodging to another country. */
   lockCountry?: boolean;
 }) {
   const set = <K extends keyof StayDraft>(key: K, value: StayDraft[K]) =>
@@ -139,6 +139,35 @@ export function StayForm({
         </Field>
       </Row>
 
+      {/* Lodging and reference normally arrive from a confirmation email, but
+          are always shown so you can fill or correct them by hand. */}
+      <Field label="Lodging" hint="For an Airbnb, the listing title" wide>
+        <Text
+          value={draft.hotel_name}
+          onChange={(v) => set("hotel_name", v)}
+          placeholder="Sofitel Legend Metropole"
+        />
+      </Field>
+      <Field label="Address" wide>
+        <Text
+          value={draft.address}
+          onChange={(v) => set("address", v)}
+          placeholder="15 Ngo Quyen, Hoan Kiem, Hanoi"
+        />
+      </Field>
+      <Field
+        label="Confirmation"
+        hint="A stay with no reference counts as unconfirmed"
+        wide
+      >
+        <Text
+          value={draft.confirmation_code}
+          onChange={(v) => set("confirmation_code", v)}
+          placeholder="4417-88213"
+        />
+      </Field>
+
+      {/* Notes sit last: a free-text catch-all after the structured fields. */}
       <Field label="Notes" wide>
         <TextArea
           value={draft.notes}
@@ -146,41 +175,6 @@ export function StayForm({
           placeholder="Anything worth remembering about this stop"
         />
       </Field>
-
-      {/* Hotel and reference normally arrive from a confirmation email. Kept
-          reachable for the times you want to fill them in yourself, but folded
-          away so the common case is four fields and a note. */}
-      <details
-        className="more"
-        open={Boolean(draft.hotel_name || draft.address || draft.confirmation_code)}
-      >
-        <summary>Hotel details — usually filled in from your email</summary>
-        <Field label="Hotel" hint="For an Airbnb, the listing title" wide>
-          <Text
-            value={draft.hotel_name}
-            onChange={(v) => set("hotel_name", v)}
-            placeholder="Sofitel Legend Metropole"
-          />
-        </Field>
-        <Field label="Address" wide>
-          <Text
-            value={draft.address}
-            onChange={(v) => set("address", v)}
-            placeholder="15 Ngo Quyen, Hoan Kiem, Hanoi"
-          />
-        </Field>
-        <Field
-          label="Confirmation"
-          hint="A stay with no reference counts as unconfirmed"
-          wide
-        >
-          <Text
-            value={draft.confirmation_code}
-            onChange={(v) => set("confirmation_code", v)}
-            placeholder="4417-88213"
-          />
-        </Field>
-      </details>
     </>
   );
 }

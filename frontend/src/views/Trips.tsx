@@ -109,7 +109,7 @@ export function TripList({ trips, selectedId, onSelect, onCreated }: Props) {
                   {trip.unbooked_nights > 0 && (
                     <div className="trip-card-gap">
                       {trip.unbooked_nights} night
-                      {trip.unbooked_nights === 1 ? "" : "s"} with no hotel
+                      {trip.unbooked_nights === 1 ? "" : "s"} with no lodging
                     </div>
                   )}
                   {badge && (

@@ -120,7 +120,7 @@ export function TripDetailPanel({
 
   return (
     <div className="detail">
-      {/* No title block here: the trip list already shows the country, hotel,
+      {/* No title block here: the trip list already shows the country, lodging,
           dates, and how soon, so repeating them wastes the panel's top. Only
           the actions remain. */}
       <header className="detail-head">
@@ -136,7 +136,7 @@ export function TripDetailPanel({
       {error && <p className="alert alert-danger">{error}</p>}
 
       {country === null && (
-        <p className="empty">Nothing recorded yet. Add your first hotel.</p>
+        <p className="empty">Nothing recorded yet. Add your first lodging.</p>
       )}
 
       {/* Every Leg is an arrival, so no legs means nothing records how you got
@@ -207,8 +207,8 @@ export function TripDetailPanel({
               kind: "stay",
               draft: stayToDraft(stay),
               id: stay.id,
-              // Changing one hotel's country would split the trip across two
-              // countries. Only the trip's sole hotel may still move, since
+              // Changing one lodging's country would split the trip across two
+              // countries. Only the trip's sole lodging may still move, since
               // that is just correcting which country the trip is in.
               lockCountry: (country?.stays.length ?? 0) > 1,
             })
@@ -248,7 +248,7 @@ export function TripDetailPanel({
           <p className="muted">
             {trip.mergeable.length === 1 ? "This trip is" : "These trips are"} in{" "}
             {country?.country_name ?? "the same country"} around the same dates.
-            Merge to keep one stay with every hotel — any nights with nowhere to
+            Merge to keep one stay with every lodging — any nights with nowhere to
             sleep will then show up.
           </p>
           {trip.mergeable.map((cand) => (
@@ -359,9 +359,9 @@ export function TripDetailPanel({
         <Sheet
           title={
             editing.id
-              ? "Edit hotel"
+              ? "Edit lodging"
               : editing.lockCountry
-                ? "Add hotel"
+                ? "Add lodging"
                 : "Add a country"
           }
           onClose={() => setEditing({ kind: "none" })}
@@ -652,7 +652,7 @@ function OnwardTicketRow({
   );
 }
 
-/** One country: passport at the top, then how you got in, then every hotel. */
+/** One country: passport at the top, then how you got in, then every lodging. */
 function CountryBlock({
   segment,
   passports,
@@ -728,7 +728,7 @@ function CountryBlock({
           <strong>
             {segment.unbooked.reduce((n, g) => n + g.nights, 0)} night
             {segment.unbooked.reduce((n, g) => n + g.nights, 0) === 1 ? "" : "s"} with
-            no hotel booked
+            no lodging booked
           </strong>
           {segment.unbooked.map((gap) => (
             <span key={gap.from}>
@@ -761,12 +761,12 @@ function CountryBlock({
       ))}
 
       {segment.stays.length === 0 && (
-        <p className="empty">No hotels here yet.</p>
+        <p className="empty">No lodging here yet.</p>
       )}
 
       <div className="country-actions">
         <button className="btn btn-sm" onClick={onAddHotel}>
-          + Add hotel
+          + Add lodging
         </button>
         {/* No "+ How you get there" here any more: a trip missing its arrival
             journey is called out by the banner at the top of the panel, which
@@ -806,7 +806,7 @@ function StayRow({
       <span className="row-icon">🏨</span>
       <div className="entry-main">
         <strong>
-          {stay.hotel_name || "No hotel yet"} · {stay.city}
+          {stay.hotel_name || "No lodging yet"} · {stay.city}
         </strong>
         {stay.address && <span className="muted stay-address">{stay.address}</span>}
         <span className="muted">
@@ -826,10 +826,10 @@ function StayRow({
         )}
       </div>
       <div className="item-actions">
-        <button className="icon-btn" onClick={onEdit} aria-label="Edit hotel">
+        <button className="icon-btn" onClick={onEdit} aria-label="Edit lodging">
           ✎
         </button>
-        <button className="icon-btn" onClick={onDelete} aria-label="Delete hotel">
+        <button className="icon-btn" onClick={onDelete} aria-label="Delete lodging">
           🗑
         </button>
       </div>

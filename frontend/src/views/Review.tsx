@@ -257,7 +257,7 @@ function RecentEmailsPanel({ onExtracted }: { onExtracted: () => void }) {
 }
 
 const KIND_LABEL: Record<string, string> = {
-  hotel: "Hotel",
+  hotel: "Lodging",
   flight: "Flight",
   train: "Train",
   bus: "Bus",
@@ -465,7 +465,7 @@ function ReviewCard({
         </Row>
         {isHotel ? (
           <>
-            <Field label="Hotel" wide>
+            <Field label="Lodging" wide>
               <Text value={val("hotel_name")} onChange={(v) => set("hotel_name", v)} />
             </Field>
             <Field label="Address" wide>
