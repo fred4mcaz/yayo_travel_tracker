@@ -184,23 +184,40 @@ locally — Kazakhstan flips to Oct 1 and the band shows
 Kazakhstan trip.
 
 **Steps**
-1. [ ] Ask the user to `git push` (push is normally blocked for the agent; this
-       session may be able to push — try, else ask).
-2. [ ] `ssh yayokun@5.78.184.240 'cd /srv/yayo_travel_tracker && ./deploy/deploy.sh'`
-3. [ ] Verify the shipped bundle contains a new marker string (grep the built
-       `/assets/index-*.js`, per README §4).
-4. [ ] Visually confirm: KZ band starts Oct 1 and the London→Astana band bridges
-       the seam with times.
-5. [ ] README §5 (or the calendar section): document the band, the arrival-date
-       fix, and the `is_connection` heuristic. Record all phase hashes here.
+1. [x] Pushed (the agent could push in this session).
+2. [x] `deploy.sh` ran — image rebuilt, healthy after 4s. The entrypoint's
+       `alembic upgrade head` ran the backfill on the box.
+3. [x] Bundle check: `/assets/index-2lrHFK9b.js` contains `cal-flight`.
+4. [x] Prod DB confirms trip 7 (Astana) `start_date = 2026-10-01` (was Sep 30);
+       inbound leg STN→NQZ departs Sep 30 14:40, arrives Oct 1 04:45.
+5. [x] README updated: §1 (flight band, arrival-span rule), §2 (payload +
+       feature row), §7 (limitation + test count).
 
-- [ ] **Committed** — hash: `________`
+- [x] **Committed** — hash: `(Phase 4 docs commit)`
 
 ---
 
-## Lessons learned (fill in as you go)
+## Phase hashes
 
-- _(Phase 1)_ …
-- _(Phase 2)_ …
-- _(Phase 3)_ …
-- _(Phase 4)_ …
+- P1 (arrival span fix + tests): `0d250ce`
+- P2 (payload + `legs`): `3ee7d7f`
+- P3 (flight band render + backfill migration `a1c7e9f2b3d4`): `41d3817`
+- Plan hash record: `2caccd2`
+
+---
+
+## Lessons learned
+
+- **P1:** the pre-existing test `test_leg_extends_the_span_before_the_first_checkin`
+  encoded the bug; rewrote it rather than adding beside, so the suite stops
+  pinning the wrong behavior.
+- **P3 (biggest):** the "bridge the seam" placement fails when two trips are
+  back-to-back (no seam). Reserving each inbound flight its **own slim strip**
+  above the destination block guarantees the band room for its times. Worth
+  remembering for any future band-in-a-gap idea.
+- **P3:** a denormalised column fixed in code stays stale on existing rows until
+  a write. Any such fix needs a backfill migration — the entrypoint runs
+  `alembic upgrade head` on every deploy, so a data migration is the vehicle.
+- **P3:** codes-vs-times width tiers — real flight durations are short, so bands
+  are usually in the "times only" tier and codes rarely show. That matches the
+  user's stated priority (times first); codes live in the hover tooltip anyway.

@@ -65,16 +65,30 @@ wrapper, so nothing disappears from the grid. `layoutWeek` therefore returns
 reserving only the top row let the next trip's bars land inside the previous
 trip's box.
 
-**Two consecutive stays share a row, with a travel hop in the gap.** When one
-country stay ends the very day the next begins they have no night in common, so
-they sit side by side on one row rather than stacking; the wrappers are shaved
-apart at the boundary and a small mode glyph (✈ 🚆 🚌 ⛴ 🚗) floats in the gap,
-showing how you travelled *into the later country* — its arrival leg. A faint
-arrow stands in when that journey isn't recorded, the calendar's echo of the
-missing-travel banner on the trip itself. The glyph is a marker only; it never
-eats a click meant for a wrapper. The hop is drawn only for a pair on the **same
-row in the same week** — cross-week and cross-lane pairs are left unconnected
-(see §7).
+**A journey is a slim flight band spanning its departure → arrival.** Each `Leg`
+that has a time is drawn as a dashed pill from the departure instant to the
+arrival instant (time-of-day aware, so a 10pm departure sits near the right of
+its column), on a slim strip reserved at the **top of its destination block**
+(`flightLanes`). Reserving that strip is deliberate: a back-to-back pair (London
+ends the day Kazakhstan begins) leaves no seam, so a band squeezed between the
+two blocks could never show its times — its own strip always has room. The band
+docks its arrival edge into the country wrapper so it reads as arriving *into*
+that country. The label prioritises **times over airport codes** (times when
+width is tight, codes added only when the band is wide), carries a small
+connection marker (`⇢`) on a multi-segment ticket, and a `⁺1` when arrival is the
+next day; full detail — carrier, every segment number, both timed places — is on
+hover. Modes swap the glyph (✈ 🚆 🚌 ⛴ 🚗). This replaced the earlier lone
+glyph-in-the-gap "hop"; unlike it, a band spans any gap and crosses week
+boundaries. See `flightGeom` and the `FlightBar` layout in `Calendar.tsx`.
+
+**A trip's date span starts when you *arrive*, not when you departed the last
+country.** Every leg is an arrival into this country, so its `depart_at` happens
+in the *previous* one. `refresh_trip_dates` collapses each leg to a single day —
+`arrive_at` when known, else `depart_at` — so an inbound red-eye that leaves the
+night before never drags the band back into the country you left (this was the
+Kazakhstan-started-on-the-London-departure-day bug). The denormalised span only
+recomputes on a write, so a one-time backfill migration (`a1c7e9f2b3d4`) fixed
+existing trips.
 
 **Dragging across calendar days creates a trip.** The dragged span maps
 straight to check-in/check-out (`rangeFromDrag` in `lib/calendarRange.ts`), so
@@ -109,8 +123,7 @@ flight not yet booked. A future or ongoing trip in that state shows a warn
 banner at the top of its detail panel, with a shortcut into the "How you get
 there" form. **Past trips stay quiet** — old flights routinely go
 un-backfilled, so a banner there is noise, not signal. Undated trips are silent
-too. The same emptiness shows on the calendar as the faint-arrow hop between
-this trip and the previous one.
+too. On the calendar, a trip with no recorded travel simply has no flight band.
 
 ### Merging two trips into one
 
@@ -236,8 +249,9 @@ backend/app/
   api/trips.py         Trips, hotels, travel, paperwork, passport-used,
                        immigration readiness (compact on GET /api/trips, full
                        on trip detail — see §1). GET /api/trips carries a
-                       compact stay per hotel, because the calendar draws a
-                       bar for each and only ever sees the list payload
+                       compact stay per hotel and a compact leg per journey,
+                       because the calendar draws a bar and a flight band for
+                       each and only ever sees the list payload
   api/{auth,passports,notes,geo,review,export}.py
   services/trips.py    All derived state: label, status, country, unbooked
                        gaps, sync_requirements/trip_readiness (§1)
@@ -271,7 +285,7 @@ data/geo/              GENERATED — run scripts/build_geo.py
 | Missing travel | Warn banner on the trip detail when a future/ongoing trip has a country but no arrival leg, with a shortcut to the leg form. Silent on past and undated trips. See §1 |
 | Trips list | Grouped Ongoing / Upcoming / No dates yet / Past; Upcoming ordered soonest-first, the rest most-recent-first. See §1 |
 | Merge trips | See §1. Detail panel offers a merge for a same-country, near-dated trip; folds it in and deletes it. Refused across countries. "Keep separate" persistently dismisses a suggestion (`merge_dismissal` table) |
-| Calendar | Sunday-to-Saturday month grid; one distinctly-coloured bar per hotel, offset to start mid-check-in-day and end mid-checkout-day, inside an outlined wrapper for the country stay; notes as dots. Consecutive stays share a row with a travel-mode hop in the gap (§1). Drag across days to start a new trip with those dates pre-filled |
+| Calendar | Sunday-to-Saturday month grid; one distinctly-coloured bar per hotel, offset to start mid-check-in-day and end mid-checkout-day, inside an outlined wrapper for the country stay; notes as dots. Each journey is a slim flight band spanning departure → arrival on a reserved strip above its country block, labelled with times (codes when wide), a connection marker and a ⁺1 next-day mark (§1). Drag across days to start a new trip with those dates pre-filled |
 | Map | Canvas world map, country fill, city pins, route arcs. No tile server |
 | Passports | Two passports (MX, US), last-4 only |
 | Immigration readiness | Live — per-trip visa/arrival-card/ETA status from a cached LLM policy lookup, confirmed via Gmail, with a loud passport-mismatch flag. See §1 and §5 |
@@ -667,16 +681,17 @@ one accept boundary.
   phone — where the calendar is most used. Needs `touchmove` +
   `document.elementFromPoint`, since touch events stay targeted at the element
   the gesture started on and never fire `mouseover` on the ones it crosses.
-- **Travel hops connect only same-row, same-week pairs.** The mode glyph between
-  two consecutive trips (§1) is drawn only when both wrappers share a row within
-  one week and sit within `CONNECTOR_MAX_GAP` (1) days. A hop across a week
-  boundary, or between trips the layout stacked onto different rows, is left
-  undrawn — the horizontal-gap anchor has nowhere to go in those cases.
-- **The frontend suite covers the calendar (drag, week layout, hotel bars), the
-  stay-form-on-mount lifecycle, the Trips-list ordering, the merge card's
-  keep-separate flow, the readiness badge / discrepancy copy (incl. the
-  automated arrival-card `state` and onward-ticket notes), and the Review
-  queue's two card kinds** (56 tests). Everything else in the SPA is still
+- **A flight band is anchored to its destination block's week.** Bands are laid
+  out per group, so a band only appears in weeks where its destination country
+  block is present. A cross-week red-eye that *departs* in an earlier week than
+  its arrival (the country block starts the next week) drops that earlier-week
+  departure sliver — a rare edge case. Same-week red-eyes (the common shape,
+  including London → Astana) render fully, docking into the block.
+- **The frontend suite covers the calendar (drag, week layout, hotel bars,
+  flight bands), the stay-form-on-mount lifecycle, the Trips-list ordering, the
+  merge card's keep-separate flow, the readiness badge / discrepancy copy (incl.
+  the automated arrival-card `state` and onward-ticket notes), and the Review
+  queue's two card kinds** (65 tests). Everything else in the SPA is still
   untested; there is no `App`-level test, because that needs the `api` module
   mocked (though `TripDetail.test.tsx` and `Review.test.tsx` mock individual
   `api` calls, which is the pattern an `App`-level test would extend).
