@@ -221,3 +221,18 @@ Kazakhstan trip.
 - **P3:** codes-vs-times width tiers — real flight durations are short, so bands
   are usually in the "times only" tier and codes rarely show. That matches the
   user's stated priority (times first); codes live in the hover tooltip anyway.
+
+## Post-ship fix (`d58f6ba`)
+
+The leftward min-width widening pushed a short flight's band across midnight into
+the previous day — Singapore → London (departs the 21st 3:15a) rendered starting
+on the 20th. Fix: clamp the widening at the start of the **departure day**
+(`Math.floor(startPos)`) in `flightGeom`, so a band never reads as leaving a day
+early. A same-day morning flight can then only widen back to its own midnight
+(~half a day), so the times threshold `FLIGHT_TIMES_SPAN` dropped 0.7 → 0.45 to
+keep the times showing. Regression test added; verified live (band now on the
+21st at index 1.00, still labelled `3:15a ✈⇢ 1:15p`).
+
+**Lesson:** a band's fabricated width (padding a short event for legibility) must
+never change which day/time it appears to start — clamp any such widening to the
+real event's own day.
