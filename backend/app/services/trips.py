@@ -87,6 +87,17 @@ def trip_country_code(session: Session, trip_id: int) -> Optional[str]:
     return leg.country_code.upper() if leg else None
 
 
+def leg_is_connection(leg: Leg) -> bool:
+    """Whether this leg is a connecting journey rather than a single hop.
+
+    A connecting ticket collapses to one arrival (a trip is one arrival into one
+    country) but keeps every operating segment number, comma-joined by
+    `_apply_leg`. More than one number therefore means a connection -- the
+    calendar marks it with a small icon.
+    """
+    return "," in leg.number
+
+
 def trip_arrival_mode(session: Session, trip_id: int) -> Optional[str]:
     """How you got into the country: the mode of the earliest-arriving leg.
 

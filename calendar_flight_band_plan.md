@@ -85,14 +85,16 @@ contribution.
   ends.append(when.date())`. Mirror the wording already used in `trip_country`.
 
 **Tests (must pass to proceed)**
-- [ ] New: a trip whose only leg departs Sep 30 23:00 and arrives Oct 1 06:30,
-      with an Oct 1 check-in, has `start_date == Oct 1` (regression for the KZ
-      bug).
-- [ ] New: a leg with only `depart_at` still sets `start_date` to that date
-      (fallback preserved).
-- [ ] Existing `backend/tests/test_trips.py` all green.
+- [x] `test_leg_span_starts_on_arrival_not_departure`: arrival (day 10) drives
+      the start, not the day-9 departure, even with check-in on day 12.
+- [x] `test_leg_with_only_departure_falls_back_to_departure_date`.
+- [x] Existing `backend/tests/test_trips.py` all green (51). Full suite: 384.
 
-- [ ] **Committed** — hash: `________`
+- [x] **Committed** — hash: `0d250ce`
+
+**Lesson:** the old test `test_leg_extends_the_span_before_the_first_checkin`
+encoded the bug (asserted the departure day). Rewrote it rather than adding
+alongside, so the suite no longer pins the wrong behavior.
 
 ---
 

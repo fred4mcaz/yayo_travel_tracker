@@ -32,6 +32,7 @@ from app.services.entry_policy import policy_model_or_none
 from app.services.geocode import fill_coordinates
 from app.services.trips import (
     keep_trips_separate,
+    leg_is_connection,
     merge_trips,
     refresh_trip_dates,
     sync_country_entries,
@@ -78,6 +79,9 @@ def list_trips(session: Session = Depends(get_session)) -> list[dict]:
     out = []
     for trip in session.exec(select(Trip)).all():
         stays = session.exec(select(Stay).where(Stay.trip_id == trip.id)).all()
+        legs = session.exec(
+            select(Leg).where(Leg.trip_id == trip.id).order_by(Leg.depart_at)
+        ).all()
         country = trip_country(session, trip)
         out.append(
             {
@@ -110,6 +114,28 @@ def list_trips(session: Session = Depends(get_session)) -> list[dict]:
                 # between this trip and the previous one with how you travelled
                 # into it. None when nothing records how you got here.
                 "arrival_mode": trip_arrival_mode(session, trip.id),
+                # Every journey into this country, so the calendar can draw a
+                # flight band spanning departure -> arrival. Only what a band
+                # needs; times are naive-local ISO strings (see Leg's note on
+                # keeping times as printed). is_connection drives the small
+                # connection icon.
+                "legs": [
+                    {
+                        "id": leg.id,
+                        "mode": leg.mode.value,
+                        "country_code": leg.country_code,
+                        "carrier": leg.carrier,
+                        "number": leg.number,
+                        "from_place": leg.from_place,
+                        "from_iata": leg.from_iata,
+                        "to_place": leg.to_place,
+                        "to_iata": leg.to_iata,
+                        "depart_at": leg.depart_at.isoformat() if leg.depart_at else None,
+                        "arrive_at": leg.arrive_at.isoformat() if leg.arrive_at else None,
+                        "is_connection": leg_is_connection(leg),
+                    }
+                    for leg in legs
+                ],
                 # Surfaced on the card so a forgotten hotel is visible without
                 # opening the trip -- the thing most worth noticing at a glance.
                 "unbooked_nights": sum(

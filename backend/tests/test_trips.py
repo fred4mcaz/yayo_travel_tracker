@@ -140,6 +140,46 @@ def test_the_arrival_mode_is_the_earliest_arriving_leg(client):
     assert _row(client, trip_id)["arrival_mode"] == "ferry"
 
 
+def test_the_trip_list_carries_legs_for_the_flight_band(client):
+    """The calendar draws a flight band spanning departure -> arrival, so the
+    list must hand over each leg's route and times."""
+    trip_id = _mk_trip(client)
+    _mk_stay(client, trip_id)
+    client.post(
+        f"/api/trips/{trip_id}/legs",
+        json={
+            "mode": "flight",
+            "carrier": "British Airways",
+            "number": "BA6331",
+            "from_place": "London Heathrow",
+            "from_iata": "lhr",
+            "to_place": "Astana",
+            "to_iata": "nqz",
+            "depart_at": f"{TODAY + timedelta(days=9)}T22:05:00",
+            "arrive_at": f"{TODAY + timedelta(days=10)}T06:30:00",
+        },
+    )
+    leg = _row(client, trip_id)["legs"][0]
+    assert leg["mode"] == "flight"
+    assert leg["from_iata"] == "LHR"  # normalised
+    assert leg["to_iata"] == "NQZ"
+    assert leg["depart_at"] == f"{TODAY + timedelta(days=9)}T22:05:00"
+    assert leg["arrive_at"] == f"{TODAY + timedelta(days=10)}T06:30:00"
+    assert leg["is_connection"] is False
+
+
+def test_a_connecting_leg_is_flagged(client):
+    """Multiple segment numbers on one leg = a connection; the calendar marks
+    it with a small icon."""
+    trip_id = _mk_trip(client)
+    _mk_stay(client, trip_id)
+    client.post(
+        f"/api/trips/{trip_id}/legs",
+        json={"mode": "flight", "number": "BA6331, QR981"},
+    )
+    assert _row(client, trip_id)["legs"][0]["is_connection"] is True
+
+
 def test_leg_span_starts_on_arrival_not_departure(client):
     """An inbound red-eye extends the span to when it *lands*, never to the day
     it left the previous country. The destination band must not claim the
