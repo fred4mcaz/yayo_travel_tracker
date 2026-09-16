@@ -140,10 +140,17 @@ def test_the_arrival_mode_is_the_earliest_arriving_leg(client):
     assert _row(client, trip_id)["arrival_mode"] == "ferry"
 
 
-def test_leg_extends_the_span_before_the_first_checkin(client):
-    """A red-eye departing the night before still belongs to the trip."""
+def test_leg_span_starts_on_arrival_not_departure(client):
+    """An inbound red-eye extends the span to when it *lands*, never to the day
+    it left the previous country. The destination band must not claim the
+    departure day (calendar_flight_band plan P1)."""
     trip_id = _mk_trip(client)
-    _mk_stay(client, trip_id)
+    # Check-in is day 12; the inbound flight leaves day 9 at night, lands day 10.
+    _mk_stay(
+        client, trip_id,
+        check_in=str(TODAY + timedelta(days=12)),
+        check_out=str(TODAY + timedelta(days=15)),
+    )
     detail = client.post(
         f"/api/trips/{trip_id}/legs",
         json={
@@ -153,10 +160,28 @@ def test_leg_extends_the_span_before_the_first_checkin(client):
             "to_iata": "han",
         },
     ).json()
-    assert detail["start_date"] == str(TODAY + timedelta(days=9))
+    # Lands day 10: the span reaches back to arrival (earlier than check-in),
+    # but not to the day-9 departure in the country you left.
+    assert detail["start_date"] == str(TODAY + timedelta(days=10))
     assert detail["country"]["legs"][0]["from_iata"] == "BKK"  # normalised
     # The journey inherits the trip's country without being told.
     assert detail["country"]["legs"][0]["country_code"] == "VN"
+
+
+def test_leg_with_only_departure_falls_back_to_departure_date(client):
+    """No arrival time recorded (a common email gap): the departure date is the
+    best available guess for when you got in, so the span still reaches it."""
+    trip_id = _mk_trip(client)
+    _mk_stay(
+        client, trip_id,
+        check_in=str(TODAY + timedelta(days=12)),
+        check_out=str(TODAY + timedelta(days=15)),
+    )
+    detail = client.post(
+        f"/api/trips/{trip_id}/legs",
+        json={"depart_at": f"{TODAY + timedelta(days=10)}T22:30:00"},
+    ).json()
+    assert detail["start_date"] == str(TODAY + timedelta(days=10))
 
 
 def test_country_and_entry_come_from_the_first_hotel(client):

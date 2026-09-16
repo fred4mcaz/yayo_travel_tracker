@@ -43,10 +43,10 @@ from app.services.entry_policy import (
 def refresh_trip_dates(session: Session, trip: Trip) -> Trip:
     """Recompute the denormalised start/end span from the trip's contents.
 
-    Must be called after any change. Legs count because a red-eye departing the
-    night before the first check-in still belongs to the trip, and the leaving
-    date counts because the stay is not over when the last hotel ends -- that
-    is precisely the gap worth seeing.
+    Must be called after any change. A leg counts as the day you *arrive* in
+    this country (not the day you left the last one -- see the loop below), and
+    the leaving date counts because the stay is not over when the last hotel
+    ends -- that is precisely the gap worth seeing.
     """
     stays = session.exec(select(Stay).where(Stay.trip_id == trip.id)).all()
     legs = session.exec(select(Leg).where(Leg.trip_id == trip.id)).all()
@@ -57,12 +57,15 @@ def refresh_trip_dates(session: Session, trip: Trip) -> Trip:
     starts: list[date] = [s.check_in for s in stays]
     ends: list[date] = [s.check_out for s in stays]
     for leg in legs:
-        if leg.depart_at:
-            starts.append(leg.depart_at.date())
-            ends.append(leg.depart_at.date())
-        if leg.arrive_at:
-            starts.append(leg.arrive_at.date())
-            ends.append(leg.arrive_at.date())
+        # Every leg is an arrival into *this* country; its departure happens in
+        # the previous one, so the day you are in this country is the landing.
+        # Collapse to one instant -- arrival when known, else departure -- so an
+        # inbound red-eye that leaves the night before never drags the band back
+        # into the country you left. Mirrors trip_country's starts_on.
+        when = leg.arrive_at or leg.depart_at
+        if when:
+            starts.append(when.date())
+            ends.append(when.date())
     if entry and entry.exited_on:
         ends.append(entry.exited_on)
 
