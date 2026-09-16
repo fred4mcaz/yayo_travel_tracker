@@ -162,7 +162,7 @@ width drives what shows.
       otherwise; a depart-only leg still renders; no `.cal-hop` remains.
 - [x] `npm run lint` clean; full `npm test` green (65).
 
-- [x] **Committed** — hash: `(this commit)`
+- [x] **Committed** — hash: `41d3817`
 
 **Design change during build:** the seam between two back-to-back trips (London
 ends the day Kazakhstan starts) is too narrow to hold a readable band. So each
