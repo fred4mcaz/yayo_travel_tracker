@@ -835,6 +835,11 @@ textarea {
   overflow: hidden;
   white-space: nowrap;
   z-index: 1;
+  /* Both times must always show. When the timed span is too narrow for the
+     label, the band grows to fit it rather than clipping -- it extends
+     rightward (the departure edge stays put, so it never reads as leaving a
+     different day). */
+  min-width: max-content;
 }
 .cal-flight-inner {
   display: flex;

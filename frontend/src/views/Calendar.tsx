@@ -96,14 +96,13 @@ const LANE = 22;
 const FLIGHT_H = 15;
 /** Smallest flight band, in day-fractions. A short hop is widened to at least
  *  this so its times stay readable; growth is always leftward, and capped at
- *  the start of the departure day so the band never reads as leaving early. */
+ *  the start of the departure day so the band never reads as leaving early.
+ *  (Both times show regardless -- the band also grows via CSS min-width to fit
+ *  its label -- but this keeps a lone-time band a sensible size.) */
 const FLIGHT_MIN_SPAN = 1.1;
-/** At or above this width (days) the band has room for airport codes as well as
- *  times; below it, times only; below TIMES_SPAN, just the glyph. TIMES_SPAN is
- *  low because a same-day morning flight can only widen back to midnight of its
- *  own day (~half a day), and its times must still show. */
+/** At or above this width (days) the band also has room for airport codes
+ *  alongside the two times; below it, just the times. */
 const FLIGHT_FULL_SPAN = 1.9;
-const FLIGHT_TIMES_SPAN = 0.45;
 
 export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
   const now = today();
@@ -320,18 +319,14 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
               })}
 
               {/* A flight band spans one journey's departure → arrival, sitting
-                  in the approach space to the left of its country wrapper.
-                  Times over airport codes when width is tight; full detail on
-                  hover. */}
+                  in the approach space to the left of its country wrapper. Both
+                  times always show (the band grows to fit via min-width rather
+                  than dropping them); airport codes are added only when wide.
+                  Full detail on hover. */}
               {flights.map((f) => {
                 const span = f.right - f.left;
                 const info = MODE_GLYPH[f.leg.mode] ?? MODE_GLYPH.flight;
-                const tier =
-                  span >= FLIGHT_FULL_SPAN
-                    ? "full"
-                    : span >= FLIGHT_TIMES_SPAN
-                      ? "times"
-                      : "min";
+                const wide = span >= FLIGHT_FULL_SPAN;
                 const dep = clockShort(f.leg.depart_at);
                 const arr = clockShort(f.leg.arrive_at);
                 const plus = dayOffset(f.leg.depart_at, f.leg.arrive_at);
@@ -352,10 +347,8 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
                     onClick={() => onSelect(f.tripId)}
                   >
                     <span className="cal-flight-inner">
-                      {tier !== "min" && dep && (
-                        <span className="cal-flight-t">{dep}</span>
-                      )}
-                      {tier === "full" && f.leg.from_iata && (
+                      {dep && <span className="cal-flight-t">{dep}</span>}
+                      {wide && f.leg.from_iata && (
                         <span className="cal-flight-code">{f.leg.from_iata}</span>
                       )}
                       <span className="cal-flight-g" aria-hidden="true">
@@ -364,12 +357,10 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
                           <sup className="cal-flight-conn">{CONNECTION_GLYPH}</sup>
                         )}
                       </span>
-                      {tier === "full" && f.leg.to_iata && (
+                      {wide && f.leg.to_iata && (
                         <span className="cal-flight-code">{f.leg.to_iata}</span>
                       )}
-                      {tier !== "min" && arrLabel && (
-                        <span className="cal-flight-t">{arrLabel}</span>
-                      )}
+                      {arrLabel && <span className="cal-flight-t">{arrLabel}</span>}
                     </span>
                   </button>
                 );
