@@ -73,6 +73,27 @@ export function formatTime(iso: string | null): string {
   return timePart.slice(0, 5);
 }
 
+/** The naive-local date half of an ISO datetime, zone marker stripped. */
+export function isoDatePart(iso: string | null): string {
+  if (!iso) return "";
+  return iso.replace(/(Z|[+-]\d{2}:\d{2})$/, "").split("T")[0];
+}
+
+/** American short wall-clock: "6:30a", "10:05p", "12p" (noon), "12:30a".
+ *  On-the-hour drops the minutes so a flight band label stays compact. Empty
+ *  when the datetime carries no time part. */
+export function clockShort(iso: string | null): string {
+  if (!iso) return "";
+  const clean = iso.replace(/(Z|[+-]\d{2}:\d{2})$/, "");
+  const timePart = clean.split("T")[1];
+  if (!timePart) return "";
+  const [hh, mm] = timePart.split(":").map(Number);
+  if (Number.isNaN(hh)) return "";
+  const suffix = hh < 12 ? "a" : "p";
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return mm ? `${h12}:${String(mm).padStart(2, "0")}${suffix}` : `${h12}${suffix}`;
+}
+
 /** Whole days from today. Negative means in the past. */
 export function daysFromToday(iso: string | null): number | null {
   if (!iso) return null;

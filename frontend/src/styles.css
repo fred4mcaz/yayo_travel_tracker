@@ -725,7 +725,8 @@ textarea {
   pointer-events: none;
 }
 .cal-bars .cal-bar,
-.cal-bars .cal-country {
+.cal-bars .cal-country,
+.cal-bars .cal-flight {
   pointer-events: auto;
 }
 /* The country stay: an outlined box wrapping the hotels booked inside it. Any
@@ -813,26 +814,59 @@ textarea {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
 }
-/* The travel hop between two consecutive trips: a mode glyph floated in the gap
-   where one country ends and the next begins. A marker, never a control -- it
-   must not intercept clicks meant for the wrappers, so it stays pointer-inert
-   (the .cal-bars default) rather than opting back in like bars and wrappers. */
-.cal-hop {
+/* The flight band: one journey drawn as a slim dashed pill spanning departure
+   to arrival, sitting in the approach space left of its country wrapper. Dashed
+   and lighter than a stay bar so movement never reads as a night booked. The
+   route/times sit at the two ends with the mode glyph between them. */
+.cal-flight {
   position: absolute;
-  transform: translateX(-50%);
-  height: 20px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 12px;
+  padding: 0 5px;
+  border: 1px dashed var(--warn);
+  border-radius: 8px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  font: inherit;
+  font-size: 9.5px;
   line-height: 1;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
   z-index: 1;
 }
-/* No mode recorded: a faint arrow that quietly echoes the missing-travel
-   banner on the trip itself, rather than claiming a flight that isn't known. */
-.cal-hop.unknown {
-  color: var(--text-muted);
-  opacity: 0.75;
+.cal-flight-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+}
+.cal-flight-g {
+  flex: 0 0 auto;
+}
+.cal-flight-t {
+  font-weight: 500;
+}
+.cal-flight-code {
+  opacity: 0.85;
+}
+.cal-flight-conn {
+  font-size: 8px;
+  margin-left: 1px;
+}
+/* Square off the edge where a band runs into the next or previous week, so a
+   red-eye crossing the seam reads as one journey. */
+.cal-flight.cont-l {
+  border-left: none;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.cal-flight.cont-r {
+  border-right: none;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 /* --- map ---------------------------------------------------------------- */

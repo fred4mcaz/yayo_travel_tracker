@@ -3,13 +3,21 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { rangeFromDrag } from "../lib/calendarRange";
 import type { StayDates } from "../lib/calendarRange";
 import {
+  clockShort,
   countryFlag,
   formatRange,
+  isoDatePart,
   parseDate,
   toISODate,
   today,
 } from "../lib/format";
-import type { Note, StaySummary, TravelMode, TripSummary } from "../types";
+import type {
+  LegSummary,
+  Note,
+  StaySummary,
+  TravelMode,
+  TripSummary,
+} from "../types";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -17,7 +25,7 @@ const MONTHS = [
 ];
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
-/** The glyph and label for a hop's mode, shown in the gap between two trips. */
+/** The glyph and label for a journey's mode, shown on its flight band. */
 const MODE_GLYPH: Record<TravelMode, { glyph: string; label: string }> = {
   flight: { glyph: "✈", label: "Flight" },
   train: { glyph: "🚆", label: "Train" },
@@ -25,6 +33,10 @@ const MODE_GLYPH: Record<TravelMode, { glyph: string; label: string }> = {
   ferry: { glyph: "⛴", label: "Ferry" },
   car: { glyph: "🚗", label: "Car" },
 };
+
+/** Marks a connecting journey (more than one segment) on the band. No segment
+ *  detail -- just a signal that there is a stop along the way. */
+const CONNECTION_GLYPH = "⇢";
 
 interface Props {
   trips: TripSummary[];
@@ -50,37 +62,46 @@ interface StayBar extends Span {
 }
 
 /** One country stay clipped to this week, wrapping the hotels booked inside it.
- *  `lane` is the wrapper's own row; the hotel bars sit on the rows below, and
- *  `lanes` counts the pair so the next trip stacks clear of the whole block.
- *  `trimRight`/`trimLeft` shave a wrapper edge that abuts the next trip on the
- *  same row, so a hop marker has room to sit in the gap (see `layoutWeek`). */
+ *  `lane` is the block's top row. When the trip has an inbound journey in this
+ *  week, `flightLanes` is 1 and that top row is a slim strip reserved for the
+ *  flight band; the wrapper sits on the next row down, with the hotel bars below
+ *  it. `lanes` counts the whole block so the next trip stacks clear of it. */
 interface Group extends Span {
   trip: TripSummary;
   lane: number;
   lanes: number;
+  flightLanes: number;
   bars: StayBar[];
-  trimLeft: number;
-  trimRight: number;
 }
 
-/** A travel hop drawn in the gap between two consecutive trips that share a row
- *  in one week: how you travelled into `into`, centred at `at` (a fraction of
- *  the week, 0..7) on row `lane`. */
-interface Connector {
-  at: number;
+/** One journey drawn as a slim band spanning departure → arrival, clipped to
+ *  this week. It sits on its destination group's label row, in the approach
+ *  space to the left of the wrapper, docking into the wrapper's left edge.
+ *  `left`/`right` are day positions (0..7) already time-of-day aware. */
+interface FlightBar {
+  leg: LegSummary;
+  tripId: number;
   lane: number;
-  into: TripSummary;
+  left: number;
+  right: number;
+  continuesLeft: boolean;
+  continuesRight: boolean;
 }
 
 /** Row height in px, and how much of one a bar occupies. */
 const LANE = 22;
 
-/** How many days apart two same-row trips may sit and still get a hop marker
- *  between them. Beyond a day the gap is real empty time, not a connection. */
-const CONNECTOR_MAX_GAP = 1;
-/** Day-fraction shaved off each wrapper edge where two trips share a boundary
- *  day, so the wrappers separate and the marker has somewhere to sit. */
-const BOUNDARY_TRIM = 0.3;
+/** Flight band height in px -- slimmer than a LANE so it reads as movement,
+ *  not a night booked somewhere. */
+const FLIGHT_H = 15;
+/** Smallest flight band, in day-fractions. A short hop is widened to at least
+ *  this so its times stay readable; growth is always leftward (back into the
+ *  approach seam) so the band never intrudes into the country block. */
+const FLIGHT_MIN_SPAN = 1.1;
+/** At or above this width (days) the band has room for airport codes as well as
+ *  times; below it, times only; below TIMES_SPAN, just the glyph. */
+const FLIGHT_FULL_SPAN = 1.9;
+const FLIGHT_TIMES_SPAN = 0.7;
 
 export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
   const now = today();
@@ -179,7 +200,7 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
       <p className="cal-hint">Drag across days to start a trip on those dates.</p>
 
       {weeks.map((week, wi) => {
-        const { groups, connectors } = layoutWeek(week, dated);
+        const { groups, flights } = layoutWeek(week, dated);
         const laneCount = groups.reduce((m, g) => Math.max(m, g.lane + g.lanes), 0);
         return (
           <div className="cal-week" key={wi}>
@@ -227,7 +248,7 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
             <div className="cal-bars">
               {groups.map((group) => {
                 const { trip } = group;
-                const box = place(group, group.trimLeft, group.trimRight);
+                const box = place(group);
                 return (
                   <Fragment key={trip.id}>
                     {/* The country stay. It wraps its hotels rather than
@@ -240,11 +261,12 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
                       style={{
                         left: box.left,
                         width: box.width,
-                        top: group.lane * LANE,
+                        // Sits below the flight strip (if any) reserved on top.
+                        top: (group.lane + group.flightLanes) * LANE,
                         // Clear the last hotel bar by a couple of pixels, or
                         // the bar lands exactly on the wrapper's bottom border
                         // and the box loses its floor.
-                        height: group.lanes * LANE - 1,
+                        height: (group.lanes - group.flightLanes) * LANE - 1,
                         borderColor: countryEdge(trip.id),
                         background: countryFill(trip.id),
                       }}
@@ -276,7 +298,7 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
                           style={{
                             left: b.left,
                             width: b.width,
-                            top: (group.lane + 1 + bar.lane) * LANE,
+                            top: (group.lane + group.flightLanes + 1 + bar.lane) * LANE,
                             backgroundColor: barColor(bar.stay.id),
                           }}
                           title={`${stayLabel(bar.stay)}\n${formatRange(
@@ -295,27 +317,59 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
                 );
               })}
 
-              {/* A travel hop sits in the gap between two consecutive trips,
-                  showing how you got into the later country. Purely a marker --
-                  it never eats a click meant for a wrapper behind it. */}
-              {connectors.map((c) => {
-                const info = c.into.arrival_mode
-                  ? MODE_GLYPH[c.into.arrival_mode]
-                  : null;
-                const where = c.into.country_name || c.into.label;
+              {/* A flight band spans one journey's departure → arrival, sitting
+                  in the approach space to the left of its country wrapper.
+                  Times over airport codes when width is tight; full detail on
+                  hover. */}
+              {flights.map((f) => {
+                const span = f.right - f.left;
+                const info = MODE_GLYPH[f.leg.mode] ?? MODE_GLYPH.flight;
+                const tier =
+                  span >= FLIGHT_FULL_SPAN
+                    ? "full"
+                    : span >= FLIGHT_TIMES_SPAN
+                      ? "times"
+                      : "min";
+                const dep = clockShort(f.leg.depart_at);
+                const arr = clockShort(f.leg.arrive_at);
+                const plus = dayOffset(f.leg.depart_at, f.leg.arrive_at);
+                const arrLabel = arr ? `${arr}${plus > 0 ? `⁺${plus}` : ""}` : "";
                 return (
-                  <span
-                    key={`hop-${c.into.id}`}
-                    className={"cal-hop" + (info ? "" : " unknown")}
-                    style={{ left: `${(c.at / 7) * 100}%`, top: c.lane * LANE }}
-                    title={
-                      info
-                        ? `${info.label} into ${where}`
-                        : `Travel into ${where} not recorded`
-                    }
+                  <button
+                    key={`flight-${f.leg.id}`}
+                    className={`cal-flight${f.continuesLeft ? " cont-l" : ""}${
+                      f.continuesRight ? " cont-r" : ""
+                    }`}
+                    style={{
+                      left: `${(f.left / 7) * 100}%`,
+                      width: `${(span / 7) * 100}%`,
+                      top: f.lane * LANE + (LANE - FLIGHT_H) / 2,
+                      height: FLIGHT_H,
+                    }}
+                    title={flightTooltip(f.leg, info.label)}
+                    onClick={() => onSelect(f.tripId)}
                   >
-                    {info ? info.glyph : "→"}
-                  </span>
+                    <span className="cal-flight-inner">
+                      {tier !== "min" && dep && (
+                        <span className="cal-flight-t">{dep}</span>
+                      )}
+                      {tier === "full" && f.leg.from_iata && (
+                        <span className="cal-flight-code">{f.leg.from_iata}</span>
+                      )}
+                      <span className="cal-flight-g" aria-hidden="true">
+                        {info.glyph}
+                        {f.leg.is_connection && (
+                          <sup className="cal-flight-conn">{CONNECTION_GLYPH}</sup>
+                        )}
+                      </span>
+                      {tier === "full" && f.leg.to_iata && (
+                        <span className="cal-flight-code">{f.leg.to_iata}</span>
+                      )}
+                      {tier !== "min" && arrLabel && (
+                        <span className="cal-flight-t">{arrLabel}</span>
+                      )}
+                    </span>
+                  </button>
                 );
               })}
             </div>
@@ -374,7 +428,7 @@ function place(
  *  reaches the outline or spills past a trimmed edge; a run continuing into the
  *  next week stays flush there so it still reads as one bar across the seam. */
 function placeBar(group: Group, bar: StayBar): { left: string; width: string } {
-  const wrap = bounds(group, group.trimLeft, group.trimRight);
+  const wrap = bounds(group);
   const lo = wrap.start + (group.continuesLeft ? 0 : BAR_INSET);
   const hi = wrap.end - (group.continuesRight ? 0 : BAR_INSET);
   const b = bounds(bar);
@@ -444,13 +498,13 @@ function buildWeeks(cursor: Date): Date[][] {
 }
 
 /** Clip each country stay to this week, lay its hotels out inside it, and stack
- *  overlapping trips so no two blocks ever share a row. Two trips that only meet
- *  at a boundary day (one ends the day the next begins) do share a row -- they
- *  have no night in common -- and get a trimmed gap with a travel hop between. */
+ *  overlapping trips so no two blocks ever share a row. Then lay each trip's
+ *  journeys out as flight bands sitting in the approach space to the left of
+ *  their wrapper. */
 function layoutWeek(
   week: Date[],
   trips: TripSummary[],
-): { groups: Group[]; connectors: Connector[] } {
+): { groups: Group[]; flights: FlightBar[] } {
   const weekStart = week[0];
   const weekEnd = week[6];
   const groups: Group[] = [];
@@ -471,6 +525,8 @@ function layoutWeek(
         a.from.getTime() - b.from.getTime() ||
         b.to.getTime() - b.from.getTime() - (a.to.getTime() - a.from.getTime()),
     );
+
+  const flights: FlightBar[] = [];
 
   for (const { trip, from, to } of candidates) {
     const outer = clip(weekStart, weekEnd, from, to);
@@ -494,57 +550,117 @@ function layoutWeek(
       bars.push({ ...inner, stay, lane });
     }
 
-    // The wrapper's own label row, then one row per lane of hotels. The whole
-    // block is reserved at once -- reserving only the top row would let the
-    // next trip's bars land inside this one's box.
-    const lanes = 1 + innerEnds.length;
+    // Journeys into this country that touch this week, each becoming a band on a
+    // slim strip reserved above the wrapper. Reserving that strip is what keeps
+    // the band readable (times and all) even when the trip butts right up
+    // against the previous one -- the band never has to fight for the seam.
+    const wrapLeft = bounds(outer).start;
+    const geoms = (trip.legs ?? [])
+      .map((leg) => flightGeom(weekStart, leg, wrapLeft))
+      .filter((g): g is FlightGeom => g !== null);
+    const flightLanes = geoms.length > 0 ? 1 : 0;
+
+    // A slim top strip (if any flights), the wrapper's own row, then one row per
+    // lane of hotels. The whole block is reserved at once -- reserving only the
+    // top row would let the next trip's bars land inside this one's box. The
+    // reservation reaches back to the earliest band edge so nothing lands where
+    // a band pokes into the approach before the country begins.
+    const lanes = flightLanes + 1 + innerEnds.length;
     const end = outer.start + outer.span - 1;
+    const leftExtent = geoms.reduce((m, g) => Math.min(m, g.left), outer.start);
     let lane = 0;
-    while (!rowsFree(rowEnds, lane, lanes, outer.start)) lane++;
+    while (!rowsFree(rowEnds, lane, lanes, leftExtent)) lane++;
     for (let i = 0; i < lanes; i++) rowEnds[lane + i] = end;
 
-    groups.push({ ...outer, trip, lane, lanes, bars, trimLeft: 0, trimRight: 0 });
+    groups.push({ ...outer, trip, lane, lanes, flightLanes, bars });
+    for (const g of geoms) flights.push({ ...g, tripId: trip.id, lane });
   }
 
-  return { groups, connectors: connectBoundaries(groups) };
+  return { groups, flights };
 }
 
-/** Mark the gap between consecutive trips that share a row this week with a
- *  travel hop, and shave the wrappers apart where they meet on a boundary day
- *  so the marker has room. The hop shows how you got into the *later* trip. */
-function connectBoundaries(groups: Group[]): Connector[] {
-  const byLane = new Map<number, Group[]>();
-  for (const g of groups) {
-    const list = byLane.get(g.lane) ?? [];
-    list.push(g);
-    byLane.set(g.lane, list);
-  }
+/** The geometry (without its row) of one leg's band in this week, or null if it
+ *  carries no time or does not touch the week. */
+interface FlightGeom {
+  leg: LegSummary;
+  left: number;
+  right: number;
+  continuesLeft: boolean;
+  continuesRight: boolean;
+}
 
-  const connectors: Connector[] = [];
-  for (const list of byLane.values()) {
-    list.sort((a, b) => a.start - b.start);
-    for (let i = 1; i < list.length; i++) {
-      const prev = list[i - 1];
-      const next = list[i];
-      // A wrapper spilling into an adjacent week has no edge here to anchor to.
-      if (prev.continuesRight || next.continuesLeft) continue;
-      // Same row means they never overlap, so this is >= 0.
-      const gap = next.start - (prev.start + prev.span - 1);
-      if (gap > CONNECTOR_MAX_GAP) continue;
-      if (gap === 0) {
-        prev.trimRight = BOUNDARY_TRIM;
-        next.trimLeft = BOUNDARY_TRIM;
-      }
-      const prevEdge = prev.start + prev.span - 0.5 - prev.trimRight;
-      const nextEdge = next.start + 0.5 + next.trimLeft;
-      connectors.push({
-        at: (prevEdge + nextEdge) / 2,
-        lane: next.lane,
-        into: next.trip,
-      });
-    }
-  }
-  return connectors;
+/** Place one leg's band across this week. The arrival end docks into the
+ *  wrapper's left edge so the band reads as arriving into the country; a short
+ *  hop is widened leftward to stay readable, never rightward into the block. */
+function flightGeom(
+  weekStart: Date,
+  leg: LegSummary,
+  wrapLeft: number,
+): FlightGeom | null {
+  if (!leg.depart_at && !leg.arrive_at) return null;
+  const depPos = leg.depart_at ? instantPos(weekStart, leg.depart_at) : null;
+  const arrPos = leg.arrive_at ? instantPos(weekStart, leg.arrive_at) : null;
+  const startPos = depPos ?? arrPos!; // departure instant (fallback: arrival)
+  const arrivePos = arrPos ?? depPos!; // arrival instant (fallback: departure)
+  // Dock the arrival into the wrapper's left edge, never past it into the block.
+  const endPos = Math.min(arrivePos, wrapLeft);
+  if (endPos < 0 || startPos > 7) return null;
+
+  const continuesLeft = startPos < 0;
+  const continuesRight = arrivePos > 7;
+  let left = Math.max(0, startPos);
+  const right = Math.min(7, Math.max(endPos, left));
+  // Widen a sliver leftward for readability (the strip above is ours, so there
+  // is room); the arrival edge stays docked to the block.
+  if (right - left < FLIGHT_MIN_SPAN) left = Math.max(0, right - FLIGHT_MIN_SPAN);
+
+  return { leg, left, right, continuesLeft, continuesRight };
+}
+
+/** A datetime's position across the week, in days from `weekStart`, carrying
+ *  its time of day (so a 10pm departure sits near the right of its column). */
+function instantPos(weekStart: Date, iso: string): number {
+  const day = parseDate(isoDatePart(iso));
+  const dayIdx = Math.round((day.getTime() - weekStart.getTime()) / 86_400_000);
+  const timePart = iso.replace(/(Z|[+-]\d{2}:\d{2})$/, "").split("T")[1] ?? "00:00";
+  const [hh, mm] = timePart.split(":").map(Number);
+  const frac = ((Number.isNaN(hh) ? 0 : hh) + (mm || 0) / 60) / 24;
+  return dayIdx + frac;
+}
+
+/** Whole calendar days from departure to arrival, for the "⁺1" next-day mark.
+ *  Zero when either time is missing or they land the same day. */
+function dayOffset(depart: string | null, arrive: string | null): number {
+  if (!depart || !arrive) return 0;
+  const d0 = parseDate(isoDatePart(depart)).getTime();
+  const d1 = parseDate(isoDatePart(arrive)).getTime();
+  return Math.max(0, Math.round((d1 - d0) / 86_400_000));
+}
+
+/** The hover text for a flight band: mode (and whether it connects), carrier
+ *  and segment numbers, then the timed route. */
+function flightTooltip(leg: LegSummary, modeLabel: string): string {
+  const dep = clockShort(leg.depart_at);
+  const arr = clockShort(leg.arrive_at);
+  const plus = dayOffset(leg.depart_at, leg.arrive_at);
+  const arrLabel = arr ? `${arr}${plus > 0 ? `⁺${plus}` : ""}` : "";
+  const from = leg.from_place || leg.from_iata;
+  const to = leg.to_place || leg.to_iata;
+  const route = [
+    from && `${from}${dep ? ` ${dep}` : ""}`,
+    to && `${to}${arrLabel ? ` ${arrLabel}` : ""}`,
+  ]
+    .filter(Boolean)
+    .join(" → ");
+  const head = [
+    modeLabel,
+    leg.is_connection ? "(connection)" : "",
+    leg.carrier,
+    leg.number,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return [head, route].filter(Boolean).join("\n");
 }
 
 /** Where `from`–`to` falls inside this week, or null if it misses it entirely. */

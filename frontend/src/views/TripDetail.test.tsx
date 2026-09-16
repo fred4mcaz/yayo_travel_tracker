@@ -38,6 +38,7 @@ const TRIP: TripDetail = {
   country_name: "",
   cities: [],
   stays: [],
+  legs: [],
   nights: 0,
   arrival_mode: null,
   unbooked_nights: 0,

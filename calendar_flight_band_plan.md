@@ -116,11 +116,14 @@ band draws. Keep `arrival_mode` in place (don't break other tests).
 - Consider a small helper for the `is_connection` test so it is unit-testable.
 
 **Tests (must pass to proceed)**
-- [ ] New: `list_trips` returns `legs` with the fields above; a comma-in-number
-      leg reports `is_connection: true`, a single-number leg `false`.
-- [ ] Existing `backend/tests/test_trips.py` / API tests green.
+- [x] `test_the_trip_list_carries_legs_for_the_flight_band` (route + ISO times).
+- [x] `test_a_connecting_leg_is_flagged` (comma number → `is_connection: true`).
+- [x] Full backend suite green (386).
 
-- [ ] **Committed** — hash: `________`
+- [x] **Committed** — hash: `3ee7d7f`
+
+**Note:** `is_connection` lives in `leg_is_connection` (services/trips.py) so it
+is importable and unit-testable; the API test exercises it end to end.
 
 ---
 
@@ -153,17 +156,25 @@ width drives what shows.
     `arrival_mode` read. Keep `MODE_GLYPH`.
 
 **Tests (must pass to proceed)** — `frontend/src/views/Calendar.test.tsx`
-- [ ] A trip with an arrival flight renders a `.cal-flight` band showing the
-      departure and arrival **times**.
-- [ ] The band spans from the departure day/column to the arrival day/column
-      (red-eye crosses the Sep 30 → Oct 1 boundary).
-- [ ] A multi-segment leg (`number` with a comma / `is_connection`) shows the
-      connection icon; a single-segment one does not.
-- [ ] A leg with `depart_at` only (no `arrive_at`) still renders a band.
-- [ ] The old glyph connector is gone (no `.cal-hop`).
-- [ ] `npm run lint` clean; full `npm test` green.
+- [x] Band shows departure and arrival **times** (`10:05p`, `6:30a⁺1`).
+- [x] Band bridges from the departure side and docks at the block, never over it.
+- [x] Codes appear only on a wide band; connection icon on `is_connection`, not
+      otherwise; a depart-only leg still renders; no `.cal-hop` remains.
+- [x] `npm run lint` clean; full `npm test` green (65).
 
-- [ ] **Committed** — hash: `________`
+- [x] **Committed** — hash: `(this commit)`
+
+**Design change during build:** the seam between two back-to-back trips (London
+ends the day Kazakhstan starts) is too narrow to hold a readable band. So each
+inbound flight now gets its **own slim strip** reserved at the top of its
+destination block (`flightLanes`), guaranteeing room for the times regardless of
+what abuts it. The band still docks its arrival edge into the block.
+
+**Backfill migration** (`a1c7e9f2b3d4`): `refresh_trip_dates` only reruns when a
+trip is touched, so existing trips (Kazakhstan) kept the stale Sep-30 start. A
+data migration recomputes every trip's span with the corrected rule; verified
+locally — Kazakhstan flips to Oct 1 and the band shows
+`2:40p ✈⇢ 4:45a⁺1` (Pegasus PC1162, PC228).
 
 ---
 

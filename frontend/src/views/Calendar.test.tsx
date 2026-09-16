@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import { Calendar } from "./Calendar";
-import type { StaySummary, TripSummary } from "../types";
+import type { LegSummary, StaySummary, TripSummary } from "../types";
 
 function trip(over: Partial<TripSummary> = {}): TripSummary {
   return {
@@ -16,6 +16,7 @@ function trip(over: Partial<TripSummary> = {}): TripSummary {
     country_name: "Vietnam",
     cities: ["Hanoi"],
     stays: [],
+    legs: [],
     nights: 4,
     arrival_mode: null,
     unbooked_nights: 0,
@@ -41,6 +42,24 @@ function stay(over: Partial<StaySummary> = {}): StaySummary {
     check_out: "2026-08-12",
     nights: 2,
     confirmed: true,
+    ...over,
+  };
+}
+
+function leg(over: Partial<LegSummary> = {}): LegSummary {
+  return {
+    id: 1,
+    mode: "flight",
+    country_code: "VN",
+    carrier: "British Airways",
+    number: "BA6331",
+    from_place: "London Heathrow",
+    from_iata: "LHR",
+    to_place: "Hanoi",
+    to_iata: "HAN",
+    depart_at: "2026-08-10T22:05:00",
+    arrive_at: "2026-08-11T06:30:00",
+    is_connection: false,
     ...over,
   };
 }
@@ -289,9 +308,9 @@ describe("Calendar hotel bars", () => {
     expect(container.querySelectorAll(".cal-bar")).toHaveLength(0);
   });
 
-  it("shares a row but leaves a gap between trips that meet on a boundary day", () => {
+  it("shares a row for trips that meet on a boundary day", () => {
     // Vietnam ends Aug 12, Thailand begins Aug 12: no night in common, so they
-    // sit on one row -- but a visible gap opens between them for the hop marker.
+    // sit on one row, touching at the boundary but never overlapping.
     const { container } = renderCalendar({
       trips: [
         trip({
@@ -315,69 +334,17 @@ describe("Calendar hotel bars", () => {
     );
     expect(wraps).toHaveLength(2);
     const [vn, th] = wraps;
-    // Same row...
+    // Same row, and the earlier trip never spills over the later one's start.
     expect(vn.style.top).toBe(th.style.top);
-    // ...with clear air between the end of one and the start of the next.
     const vnRight = parseFloat(vn.style.left) + parseFloat(vn.style.width);
     const thLeft = parseFloat(th.style.left);
-    expect(vnRight).toBeLessThan(thLeft);
+    expect(vnRight).toBeLessThanOrEqual(thLeft + 0.01);
   });
 
-  it("marks the gap with the arrival mode of the trip you travel into", () => {
-    const { container } = renderCalendar({
-      trips: [
-        trip({
-          id: 1,
-          country_code: "VN",
-          country_name: "Vietnam",
-          start_date: "2026-08-10",
-          end_date: "2026-08-12",
-        }),
-        trip({
-          id: 2,
-          country_code: "TH",
-          country_name: "Thailand",
-          start_date: "2026-08-12",
-          end_date: "2026-08-14",
-          arrival_mode: "flight",
-        }),
-      ],
-    });
-    const hops = Array.from(container.querySelectorAll<HTMLElement>(".cal-hop"));
-    expect(hops).toHaveLength(1);
-    expect(hops[0].textContent).toBe("✈");
-    // The hop reads as the journey into the *later* country.
-    expect(hops[0].title).toBe("Flight into Thailand");
-  });
-
-  it("falls back to a neutral marker when no travel is recorded", () => {
-    const { container } = renderCalendar({
-      trips: [
-        trip({
-          id: 1,
-          country_code: "VN",
-          country_name: "Vietnam",
-          start_date: "2026-08-10",
-          end_date: "2026-08-12",
-        }),
-        trip({
-          id: 2,
-          country_code: "TH",
-          country_name: "Thailand",
-          start_date: "2026-08-12",
-          end_date: "2026-08-14",
-          arrival_mode: null,
-        }),
-      ],
-    });
-    const hop = container.querySelector<HTMLElement>(".cal-hop")!;
-    expect(hop.className).toContain("unknown");
-    expect(hop.textContent).toBe("→");
-    expect(hop.title).toBe("Travel into Thailand not recorded");
-  });
-
-  it("draws no hop for a lone trip", () => {
+  it("draws no flight band, nor any old glyph, for a trip with no journeys", () => {
     const { container } = renderCalendar({ trips: [trip()] });
+    expect(container.querySelectorAll(".cal-flight")).toHaveLength(0);
+    // The old hop connector is gone entirely.
     expect(container.querySelectorAll(".cal-hop")).toHaveLength(0);
   });
 
@@ -404,5 +371,81 @@ describe("Calendar hotel bars", () => {
     // below the first one's bar, never inside it.
     expect(tops).toEqual([...new Set(tops)]);
     expect(tops[2]).toBeGreaterThan(tops[1]);
+  });
+});
+
+describe("Calendar flight bands", () => {
+  const kzTrip = (legs: ReturnType<typeof leg>[], over = {}) =>
+    trip({
+      id: 5,
+      country_code: "KZ",
+      country_name: "Kazakhstan",
+      start_date: "2026-08-11",
+      end_date: "2026-08-14",
+      legs,
+      ...over,
+    });
+
+  it("draws a band showing the departure and arrival times", () => {
+    const { container } = renderCalendar({ trips: [kzTrip([leg()])] });
+    const band = container.querySelector<HTMLElement>(".cal-flight")!;
+    expect(band).not.toBeNull();
+    // Departs 22:05 the night before, lands 06:30 the next day (⁺1).
+    expect(band.textContent).toContain("10:05p");
+    expect(band.textContent).toContain("6:30a⁺1");
+    // Full route and carrier live in the hover text, not the cramped band.
+    expect(band.title).toContain("British Airways");
+    expect(band.title).toContain("London Heathrow");
+  });
+
+  it("bridges from the departure side into the block without covering it", () => {
+    const { container } = renderCalendar({ trips: [kzTrip([leg()])] });
+    const band = container.querySelector<HTMLElement>(".cal-flight")!;
+    const wrap = container.querySelector<HTMLElement>(".cal-country")!;
+    const bandLeft = parseFloat(band.style.left);
+    const bandRight = bandLeft + parseFloat(band.style.width);
+    const wrapLeft = parseFloat(wrap.style.left);
+    // Reaches back into the approach, left of the country block ...
+    expect(bandLeft).toBeLessThan(wrapLeft);
+    // ... and docks at the block's edge rather than overlapping it.
+    expect(bandRight).toBeLessThanOrEqual(wrapLeft + 0.01);
+    // On its own slim strip reserved just above the wrapper.
+    expect(parseInt(band.style.top, 10)).toBeLessThan(
+      parseInt(wrap.style.top, 10),
+    );
+  });
+
+  it("shows airport codes only when the band is wide enough", () => {
+    const { container } = renderCalendar({
+      trips: [
+        kzTrip(
+          [leg({ depart_at: "2026-08-11T06:00:00", arrive_at: "2026-08-13T06:00:00" })],
+          { start_date: "2026-08-13", end_date: "2026-08-16" },
+        ),
+      ],
+    });
+    const band = container.querySelector<HTMLElement>(".cal-flight")!;
+    expect(band.querySelectorAll(".cal-flight-code").length).toBeGreaterThan(0);
+    expect(band.textContent).toContain("LHR");
+  });
+
+  it("marks a connecting journey and leaves a direct one unmarked", () => {
+    const { container } = renderCalendar({
+      trips: [kzTrip([leg({ id: 1, is_connection: true, number: "BA1, KC2" })])],
+    });
+    expect(container.querySelector(".cal-flight-conn")).not.toBeNull();
+
+    cleanup();
+    const { container: c2 } = renderCalendar({
+      trips: [kzTrip([leg({ id: 2, is_connection: false })])],
+    });
+    expect(c2.querySelector(".cal-flight-conn")).toBeNull();
+  });
+
+  it("still draws a band when only the departure time is known", () => {
+    const { container } = renderCalendar({
+      trips: [kzTrip([leg({ arrive_at: null })])],
+    });
+    expect(container.querySelectorAll(".cal-flight")).toHaveLength(1);
   });
 });

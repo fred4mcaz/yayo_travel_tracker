@@ -123,6 +123,24 @@ export interface Note {
   done: boolean;
 }
 
+/** Just enough of a journey to draw a flight band on the calendar: its route,
+ *  its departure and arrival instants (naive-local ISO, may be null), and
+ *  whether it is a connecting ticket (more than one segment). */
+export interface LegSummary {
+  id: number;
+  mode: TravelMode;
+  country_code: string;
+  carrier: string;
+  number: string;
+  from_place: string;
+  from_iata: string;
+  to_place: string;
+  to_iata: string;
+  depart_at: string | null;
+  arrive_at: string | null;
+  is_connection: boolean;
+}
+
 /** Just enough of a hotel booking to draw it on the calendar. */
 export interface StaySummary {
   id: number;
@@ -228,9 +246,13 @@ export interface TripSummary {
   cities: string[];
   /** The hotels booked inside this country stay, earliest check-in first. */
   stays: StaySummary[];
+  /** Every journey into this country, earliest departure first. The calendar
+   *  draws a flight band per leg, spanning departure → arrival. */
+  legs: LegSummary[];
   nights: number;
   /** The mode of the arrival journey (earliest leg), or null if none is
-   *  recorded. The calendar labels the gap to the next trip with it. */
+   *  recorded. Superseded on the calendar by `legs` (which the flight band
+   *  reads); kept for any other consumer. */
   arrival_mode: TravelMode | null;
   /** Nights inside this stay with no hotel booked. */
   unbooked_nights: number;
