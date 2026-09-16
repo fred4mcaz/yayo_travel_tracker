@@ -448,4 +448,24 @@ describe("Calendar flight bands", () => {
     });
     expect(container.querySelectorAll(".cal-flight")).toHaveLength(1);
   });
+
+  it("keeps a same-day flight's band on its departure day, not the day before", () => {
+    // Aug 17 2026 is a Monday (index 1 of its Sun–Sat week). A short morning
+    // flight must not have its band widened back into Sunday the 16th.
+    const { container } = renderCalendar({
+      trips: [
+        kzTrip(
+          [leg({ depart_at: "2026-08-17T03:15:00", arrive_at: "2026-08-17T13:15:00" })],
+          { start_date: "2026-08-17", end_date: "2026-08-20" },
+        ),
+      ],
+    });
+    const band = container.querySelector<HTMLElement>(".cal-flight")!;
+    const leftFrac = (parseFloat(band.style.left) / 100) * 7;
+    expect(leftFrac).toBeGreaterThanOrEqual(1 - 1e-6); // Monday, not Sunday
+    expect(leftFrac).toBeLessThan(2);
+    // ...and the times still show.
+    expect(band.textContent).toContain("3:15a");
+    expect(band.textContent).toContain("1:15p");
+  });
 });

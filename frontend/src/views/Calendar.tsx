@@ -95,13 +95,15 @@ const LANE = 22;
  *  not a night booked somewhere. */
 const FLIGHT_H = 15;
 /** Smallest flight band, in day-fractions. A short hop is widened to at least
- *  this so its times stay readable; growth is always leftward (back into the
- *  approach seam) so the band never intrudes into the country block. */
+ *  this so its times stay readable; growth is always leftward, and capped at
+ *  the start of the departure day so the band never reads as leaving early. */
 const FLIGHT_MIN_SPAN = 1.1;
 /** At or above this width (days) the band has room for airport codes as well as
- *  times; below it, times only; below TIMES_SPAN, just the glyph. */
+ *  times; below it, times only; below TIMES_SPAN, just the glyph. TIMES_SPAN is
+ *  low because a same-day morning flight can only widen back to midnight of its
+ *  own day (~half a day), and its times must still show. */
 const FLIGHT_FULL_SPAN = 1.9;
-const FLIGHT_TIMES_SPAN = 0.7;
+const FLIGHT_TIMES_SPAN = 0.45;
 
 export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
   const now = today();
@@ -611,8 +613,12 @@ function flightGeom(
   let left = Math.max(0, startPos);
   const right = Math.min(7, Math.max(endPos, left));
   // Widen a sliver leftward for readability (the strip above is ours, so there
-  // is room); the arrival edge stays docked to the block.
-  if (right - left < FLIGHT_MIN_SPAN) left = Math.max(0, right - FLIGHT_MIN_SPAN);
+  // is room), but never earlier than the start of the departure day -- crossing
+  // into the day before would make the band read as leaving a day too early.
+  if (right - left < FLIGHT_MIN_SPAN) {
+    const departFloor = Math.max(0, Math.floor(startPos));
+    left = Math.max(departFloor, right - FLIGHT_MIN_SPAN);
+  }
 
   return { leg, left, right, continuesLeft, continuesRight };
 }
