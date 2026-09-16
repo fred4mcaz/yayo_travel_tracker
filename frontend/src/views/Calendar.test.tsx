@@ -449,6 +449,49 @@ describe("Calendar flight bands", () => {
     expect(container.querySelectorAll(".cal-flight")).toHaveLength(1);
   });
 
+  it("keeps every band above the lodging bars, even one leaving a prior country", () => {
+    // London stay ends Aug 13; the inbound flight to Kazakhstan departs London
+    // on the 12th (mid-UK-stay) and lands the 13th. The band must sit above the
+    // UK block it departs from, not overlap it.
+    const { container } = renderCalendar({
+      trips: [
+        trip({
+          id: 1,
+          country_code: "GB",
+          country_name: "United Kingdom",
+          start_date: "2026-08-10",
+          end_date: "2026-08-13",
+          stays: [
+            stay({ id: 1, city: "London", check_in: "2026-08-10", check_out: "2026-08-13" }),
+          ],
+        }),
+        trip({
+          id: 2,
+          country_code: "KZ",
+          country_name: "Kazakhstan",
+          start_date: "2026-08-13",
+          end_date: "2026-08-16",
+          stays: [
+            stay({ id: 2, city: "Astana", check_in: "2026-08-13", check_out: "2026-08-16" }),
+          ],
+          legs: [leg({ id: 5, depart_at: "2026-08-12T14:00:00", arrive_at: "2026-08-13T04:00:00" })],
+        }),
+      ],
+    });
+    // Tops are relative to each week's own bar layer, so compare within the
+    // week that holds the band.
+    const week = [...container.querySelectorAll(".cal-week")].find((w) =>
+      w.querySelector(".cal-flight"),
+    )!;
+    const bands = [...week.querySelectorAll<HTMLElement>(".cal-flight")];
+    expect(bands.length).toBeGreaterThan(0);
+    const bandTop = Math.min(...bands.map((f) => parseInt(f.style.top, 10)));
+    const blockTops = [
+      ...week.querySelectorAll<HTMLElement>(".cal-bar, .cal-country"),
+    ].map((e) => parseInt(e.style.top, 10));
+    for (const t of blockTops) expect(bandTop).toBeLessThan(t);
+  });
+
   it("keeps a same-day flight's band on its departure day, not the day before", () => {
     // Aug 17 2026 is a Monday (index 1 of its Sun–Sat week). A short morning
     // flight must not have its band widened back into Sunday the 16th.

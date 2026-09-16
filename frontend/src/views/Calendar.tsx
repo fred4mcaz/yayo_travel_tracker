@@ -62,21 +62,20 @@ interface StayBar extends Span {
 }
 
 /** One country stay clipped to this week, wrapping the hotels booked inside it.
- *  `lane` is the block's top row. When the trip has an inbound journey in this
- *  week, `flightLanes` is 1 and that top row is a slim strip reserved for the
- *  flight band; the wrapper sits on the next row down, with the hotel bars below
- *  it. `lanes` counts the whole block so the next trip stacks clear of it. */
+ *  `lane` is the wrapper's own row (already offset below the week's flight
+ *  strip); the hotel bars sit on the rows below, and `lanes` counts the block
+ *  so the next trip stacks clear of it. */
 interface Group extends Span {
   trip: TripSummary;
   lane: number;
   lanes: number;
-  flightLanes: number;
   bars: StayBar[];
 }
 
 /** One journey drawn as a slim band spanning departure → arrival, clipped to
- *  this week. It sits on its destination group's label row, in the approach
- *  space to the left of the wrapper, docking into the wrapper's left edge.
+ *  this week. Flight bands live on their own lane strip at the *top* of the
+ *  week, above every country/lodging block, so a band never overlaps a stay
+ *  bar. It docks its arrival edge into its destination wrapper's left edge.
  *  `left`/`right` are day positions (0..7) already time-of-day aware. */
 interface FlightBar {
   leg: LegSummary;
@@ -262,12 +261,12 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
                       style={{
                         left: box.left,
                         width: box.width,
-                        // Sits below the flight strip (if any) reserved on top.
-                        top: (group.lane + group.flightLanes) * LANE,
+                        // group.lane already sits below the week's flight strip.
+                        top: group.lane * LANE,
                         // Clear the last hotel bar by a couple of pixels, or
                         // the bar lands exactly on the wrapper's bottom border
                         // and the box loses its floor.
-                        height: (group.lanes - group.flightLanes) * LANE - 1,
+                        height: group.lanes * LANE - 1,
                         borderColor: countryEdge(trip.id),
                         background: countryFill(trip.id),
                       }}
@@ -299,7 +298,7 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
                           style={{
                             left: b.left,
                             width: b.width,
-                            top: (group.lane + group.flightLanes + 1 + bar.lane) * LANE,
+                            top: (group.lane + 1 + bar.lane) * LANE,
                             backgroundColor: barColor(bar.stay.id),
                           }}
                           title={`${stayLabel(bar.stay)}\n${formatRange(
@@ -318,11 +317,11 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
                 );
               })}
 
-              {/* A flight band spans one journey's departure → arrival, sitting
-                  in the approach space to the left of its country wrapper. Both
-                  times always show (the band grows to fit via min-width rather
-                  than dropping them); airport codes are added only when wide.
-                  Full detail on hover. */}
+              {/* A flight band spans one journey's departure → arrival, on the
+                  strip above every block so it never overlaps a lodging bar.
+                  Both times always show (the band grows to fit via min-width
+                  rather than dropping them); airport codes are added only when
+                  wide. Full detail on hover. */}
               {flights.map((f) => {
                 const span = f.right - f.left;
                 const info = MODE_GLYPH[f.leg.mode] ?? MODE_GLYPH.flight;
@@ -490,10 +489,9 @@ function buildWeeks(cursor: Date): Date[][] {
   return weeks;
 }
 
-/** Clip each country stay to this week, lay its hotels out inside it, and stack
- *  overlapping trips so no two blocks ever share a row. Then lay each trip's
- *  journeys out as flight bands sitting in the approach space to the left of
- *  their wrapper. */
+/** Lay the week out top-down: first the flight bands on a strip of their own at
+ *  the very top, then every country stay (with its hotels) stacked below that
+ *  strip so no block ever shares a row with -- or is overlapped by -- a band. */
 function layoutWeek(
   week: Date[],
   trips: TripSummary[],
@@ -519,7 +517,27 @@ function layoutWeek(
         b.to.getTime() - b.from.getTime() - (a.to.getTime() - a.from.getTime()),
     );
 
+  // Flight bands live above every block, on a strip at the top of the week.
+  // Gathering them first (across all trips) lets the country blocks stack
+  // below, so a band -- which can poke back into the country you departed --
+  // never lands on top of a lodging bar. Bands that overlap in time stack onto
+  // extra strips of their own.
   const flights: FlightBar[] = [];
+  const flightEnds: number[] = [];
+  for (const { trip, from, to } of candidates) {
+    const outer = clip(weekStart, weekEnd, from, to);
+    if (!outer) continue;
+    const wrapLeft = bounds(outer).start;
+    for (const leg of trip.legs ?? []) {
+      const g = flightGeom(weekStart, leg, wrapLeft);
+      if (!g) continue;
+      let lane = 0;
+      while (flightEnds[lane] !== undefined && flightEnds[lane] > g.left) lane++;
+      flightEnds[lane] = g.right;
+      flights.push({ ...g, tripId: trip.id, lane });
+    }
+  }
+  const flightLanes = flightEnds.length;
 
   for (const { trip, from, to } of candidates) {
     const outer = clip(weekStart, weekEnd, from, to);
@@ -543,30 +561,16 @@ function layoutWeek(
       bars.push({ ...inner, stay, lane });
     }
 
-    // Journeys into this country that touch this week, each becoming a band on a
-    // slim strip reserved above the wrapper. Reserving that strip is what keeps
-    // the band readable (times and all) even when the trip butts right up
-    // against the previous one -- the band never has to fight for the seam.
-    const wrapLeft = bounds(outer).start;
-    const geoms = (trip.legs ?? [])
-      .map((leg) => flightGeom(weekStart, leg, wrapLeft))
-      .filter((g): g is FlightGeom => g !== null);
-    const flightLanes = geoms.length > 0 ? 1 : 0;
-
-    // A slim top strip (if any flights), the wrapper's own row, then one row per
-    // lane of hotels. The whole block is reserved at once -- reserving only the
-    // top row would let the next trip's bars land inside this one's box. The
-    // reservation reaches back to the earliest band edge so nothing lands where
-    // a band pokes into the approach before the country begins.
-    const lanes = flightLanes + 1 + innerEnds.length;
+    // The wrapper's own row, then one row per lane of hotels. The whole block is
+    // reserved at once -- reserving only the top row would let the next trip's
+    // bars land inside this one's box. Blocks stack below the flight strip.
+    const lanes = 1 + innerEnds.length;
     const end = outer.start + outer.span - 1;
-    const leftExtent = geoms.reduce((m, g) => Math.min(m, g.left), outer.start);
     let lane = 0;
-    while (!rowsFree(rowEnds, lane, lanes, leftExtent)) lane++;
+    while (!rowsFree(rowEnds, lane, lanes, outer.start)) lane++;
     for (let i = 0; i < lanes; i++) rowEnds[lane + i] = end;
 
-    groups.push({ ...outer, trip, lane, lanes, flightLanes, bars });
-    for (const g of geoms) flights.push({ ...g, tripId: trip.id, lane });
+    groups.push({ ...outer, trip, lane: flightLanes + lane, lanes, bars });
   }
 
   return { groups, flights };
@@ -582,9 +586,10 @@ interface FlightGeom {
   continuesRight: boolean;
 }
 
-/** Place one leg's band across this week. The arrival end docks into the
- *  wrapper's left edge so the band reads as arriving into the country; a short
- *  hop is widened leftward to stay readable, never rightward into the block. */
+/** Place one leg's band across this week. The arrival end docks into its
+ *  destination wrapper's left edge so the band reads as arriving into that
+ *  country; a short hop is widened leftward (into the departure day) to stay
+ *  readable, never rightward. */
 function flightGeom(
   weekStart: Date,
   leg: LegSummary,

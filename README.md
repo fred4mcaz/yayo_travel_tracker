@@ -68,18 +68,21 @@ trip's box.
 **A journey is a slim flight band spanning its departure → arrival.** Each `Leg`
 that has a time is drawn as a dashed pill from the departure instant to the
 arrival instant (time-of-day aware, so a 10pm departure sits near the right of
-its column), on a slim strip reserved at the **top of its destination block**
-(`flightLanes`). Reserving that strip is deliberate: a back-to-back pair (London
-ends the day Kazakhstan begins) leaves no seam, so a band squeezed between the
-two blocks could never show its times — its own strip always has room. The band
-docks its arrival edge into the country wrapper so it reads as arriving *into*
-that country. The label prioritises **times over airport codes** (times when
-width is tight, codes added only when the band is wide), carries a small
-connection marker (`⇢`) on a multi-segment ticket, and a `⁺1` when arrival is the
-next day; full detail — carrier, every segment number, both timed places — is on
-hover. Modes swap the glyph (✈ 🚆 🚌 ⛴ 🚗). This replaced the earlier lone
-glyph-in-the-gap "hop"; unlike it, a band spans any gap and crosses week
-boundaries. See `flightGeom` and the `FlightBar` layout in `Calendar.tsx`.
+its column). Bands live on **their own lane strip at the top of the week**,
+above every country/lodging block — `layoutWeek` places all of a week's flight
+bands first, then stacks the blocks below them. That is what keeps a band from
+overlapping a stay: a band can poke back into the country you *departed* from
+(the Astana flight leaves London mid-stay), and on a per-block strip it would
+have landed on London's lodging bar. The band docks its arrival edge into its
+destination wrapper's left edge so it still reads as arriving *into* that
+country. **Both times always show** — when the timed span is too narrow the band
+grows to fit the label (`min-width: max-content`) rather than dropping the times,
+growing rightward so the departure edge stays on its correct day. Airport codes
+are added only when the band is wide; a `⇢` marks a multi-segment ticket and a
+`⁺1` a next-day arrival; full detail — carrier, every segment number, both timed
+places — is on hover. Modes swap the glyph (✈ 🚆 🚌 ⛴ 🚗). This replaced the
+earlier lone glyph-in-the-gap "hop"; unlike it, a band spans any gap and crosses
+week boundaries. See `flightGeom` and the `FlightBar` layout in `Calendar.tsx`.
 
 **A trip's date span starts when you *arrive*, not when you departed the last
 country.** Every leg is an arrival into this country, so its `depart_at` happens
@@ -285,7 +288,7 @@ data/geo/              GENERATED — run scripts/build_geo.py
 | Missing travel | Warn banner on the trip detail when a future/ongoing trip has a country but no arrival leg, with a shortcut to the leg form. Silent on past and undated trips. See §1 |
 | Trips list | Grouped Ongoing / Upcoming / No dates yet / Past; Upcoming ordered soonest-first, the rest most-recent-first. See §1 |
 | Merge trips | See §1. Detail panel offers a merge for a same-country, near-dated trip; folds it in and deletes it. Refused across countries. "Keep separate" persistently dismisses a suggestion (`merge_dismissal` table) |
-| Calendar | Sunday-to-Saturday month grid; one distinctly-coloured bar per hotel, offset to start mid-check-in-day and end mid-checkout-day, inside an outlined wrapper for the country stay; notes as dots. Each journey is a slim flight band spanning departure → arrival on a reserved strip above its country block, labelled with times (codes when wide), a connection marker and a ⁺1 next-day mark (§1). Drag across days to start a new trip with those dates pre-filled |
+| Calendar | Sunday-to-Saturday month grid; one distinctly-coloured bar per hotel, offset to start mid-check-in-day and end mid-checkout-day, inside an outlined wrapper for the country stay; notes as dots. Each journey is a slim flight band spanning departure → arrival on a strip above every block that week, always showing both times (codes too when wide), a connection marker and a ⁺1 next-day mark (§1). Drag across days to start a new trip with those dates pre-filled |
 | Map | Canvas world map, country fill, city pins, route arcs. No tile server |
 | Passports | Two passports (MX, US), last-4 only |
 | Immigration readiness | Live — per-trip visa/arrival-card/ETA status from a cached LLM policy lookup, confirmed via Gmail, with a loud passport-mismatch flag. See §1 and §5 |
