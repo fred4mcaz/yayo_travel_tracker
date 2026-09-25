@@ -154,20 +154,54 @@ you merge them.
 
 ### Immigration readiness
 
-Answers, per trip: are you eligible to enter on the passport you're carrying,
-do you need a visa (or e-visa / visa-on-arrival / ETA), and do you need to
-submit an arrival card? Shown as a compact badge (✅ ready / ⚠️ action /
-❔ unknown) on the trip card and a full "Immigration readiness" section on the
-trip detail, and confirmed via Gmail like everything else in §5.
+Answers, per trip, one question: **do you need to do anything to enter, or
+not?** If yes, it **names the documents/authorizations required** (a visa, an
+ETA, an arrival card, insurance, a vaccination, an onward ticket). If no, it
+shows the **default allowance** ("Visa-free · 90 days"). Shown as a compact
+card badge and a full "Immigration readiness" section on the trip detail, and
+confirmed via Gmail like everything else in §5.
+
+**The badge names the documents, loudly.** An `action` trip shows a **filled red
+chip** naming what's owed — "⚠️ Need: ETA" — never a vague permit summary. (An
+earlier version showed "E-visa required" and hid the ETA; that let a UK trip
+board with no ETA, the failure this whole feature exists to prevent.) A `ready`
+trip shows "✅ Ready · Visa-free · 90 days". The list-badge source of truth is
+`readiness.outstanding` — the required documents not yet settled, computed
+backend-side (`trip_readiness`) with the same rule that decides ready/action, so
+the badge can never disagree with the state. Short names on the card
+(`OUTSTANDING_SHORT`, e.g. `ETA`), full names in the detail.
+
+**An imminent, unverified trip is itself a warning.** Because `trip_readiness`
+only reads the cache and never fetches, a trip can sit at `unknown`. Within
+`IMMINENT_DAYS` (30) of departure that is no longer a quiet "not checked yet" —
+it becomes a loud "Entry rules not verified — check before you fly." The silent
+hole is closed with no extra LLM cost.
+
+**Readiness is read-only — no status dropdowns.** The section tells you what you
+need; it is not a checklist you tick. Required items settle only automatically
+(an arrival card via an accepted immigration email, an onward ticket via a
+booked leg); everything else simply reads "Required — obtain before you travel"
+until an email confirms it. Over-warning is deliberate: a document you hold but
+never emailed a confirmation for still shows as required, which is safer than a
+false "all clear."
 
 **The policy source is the LLM, at runtime, cached forever.**
-`services/entry_policy.py#get_policy` asks a strict tool "what does a
-US/MX passport holder need to enter country X" once per `(country_code,
-nationality)` and caches the answer in `EntryPolicy` — there is **no refresh
-path at all**, by design; border rules change without notice, and every
-reading shows a "checked \<date\>" line so the staleness risk stays visible
-rather than hidden. An unconfigured box (`YAYO_OPENROUTER_API_KEY` unset)
-reads `unknown`, never errors.
+`services/entry_policy.py#get_policy` asks a strict, **documents-first** tool —
+"which documents/authorizations must a US/MX holder obtain to enter country X" —
+once per `(country_code, nationality)` and caches the answer in `EntryPolicy`.
+There is **no refresh path at all**, by design; border rules change without
+notice, and every reading shows a "checked \<date\>" line so the staleness risk
+stays visible rather than hidden. An unconfigured box (`YAYO_OPENROUTER_API_KEY`
+unset) reads `unknown`, never errors.
+
+**`permit_type` is descriptive, not load-bearing.** The `*_required` booleans
+are the real output (they drive the checklist rows); `permit_type` only phrases
+the summary. The tool is explicit that an ETA/ESTA/ETIAS is **not** a visa, and
+`validate_policy` forces `visa_required=false` whenever the permit is
+`visa_free`/`residency`/`citizen` — it only ever *removes* a false visa, never
+adds one. This corrects the exact muddle that mislabelled the UK as `evisa` +
+`visa_required` (which spawned a spurious "Visa" row on the London trip); the UK
+is visa-free + ETA.
 
 **Curated overrides win over the model.** Because that call is LLM factual
 recall, it can be confidently wrong (it once told a Mexican passport holder
@@ -177,7 +211,16 @@ Indonesia was visa-free), and `validate_policy` only checks *shape*, not
 already cached — `cached_policy` checks the file before the DB, so an override
 corrects a stale/wrong row, and an overridden pair never triggers a model call.
 Editing that committed file is the correction path; the LLM only fills the
-pairs it doesn't cover.
+pairs it doesn't cover. The UK (`GB`/`US`, `GB`/`MX`) is pinned here as
+visa-free + ETA — the correction for the London near-miss.
+
+An override changes the *reading* immediately, but a trip's already-materialized
+`Requirement` rows only reconcile when `sync_requirements` next runs for it (its
+next edit). After shipping an override that adds or removes a requirement, run
+`scripts/resync_requirements.py` once to reconcile every trip at once — it is
+idempotent, cache-only (no LLM calls), and the image ships it to `/srv/scripts/`
+so it runs in the container: `docker compose -f deploy/docker-compose.yml exec -T
+app python /srv/scripts/resync_requirements.py`.
 
 **Readiness is computed for the trip's selected passport, defaulting to
 US.** Selecting the MX passport on a `CountryEntry` recomputes the whole
@@ -185,9 +228,14 @@ reading for that trip. `services/trips.py#sync_requirements` turns a cached
 policy into the trip's actual `Requirement` checklist rows (`source=system`),
 reconciling them on every hotel/leg/passport change — but it **never touches**
 a row a human added by hand or an email confirmed (`source=manual`/`email`),
-even if the policy would no longer require it. `trip_readiness` derives the
-compact/full reading purely from what's cached and what rows already exist;
-it never triggers a fetch itself.
+even if the policy would no longer require it. It also **never creates a second,
+system row for a kind a non-system row already covers** (`covered_by_other`):
+because an accepted email re-stamps its row `source=email`, that row drops out of
+the system-row lookup, and without this guard every later re-sync would spawn a
+duplicate system `entry_card(todo)` — invisible in the UI (deduped by kind) but
+real in the DB, and able to flip a confirmed reading back to `action`.
+`trip_readiness` derives the compact/full reading purely from what's cached and
+what rows already exist; it never triggers a fetch itself.
 
 **Confirmed via Gmail, two ways**, both landing as Review-queue proposals —
 nothing writes to a `Requirement` without an explicit accept, same boundary as
@@ -215,9 +263,11 @@ confirmed when a `Leg` departs the trip's country near its end date — which is
 exactly how an onward/return flight is already recorded, since every `Leg` is an
 *arrival into* a country and the journey out of trip X is a later trip's inbound
 leg. Both show only when the policy requires them, and neither is hand-settable
-(`services/trips.py#_arrival_card_reading` / `_onward_ticket_reading`); the other
-requirement kinds (visa, ETA, insurance, vaccination) keep their status
-dropdowns.
+(`services/trips.py#_arrival_card_reading` / `_onward_ticket_reading`). The other
+requirement kinds (visa, ETA, insurance, vaccination) are **also read-only** now
+— there are no status dropdowns anywhere (see "Readiness is read-only" above).
+They settle only via an accepted immigration email; until then they read
+"Required."
 
 **The loud discrepancy flag.** If a Phase-5 read names a nationality that
 differs from the trip's *currently* selected passport, `Requirement`'s

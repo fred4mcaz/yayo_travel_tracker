@@ -32,6 +32,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ /srv/backend/
 COPY data/ /srv/data/
+# Maintenance scripts (e.g. resync_requirements.py, run after shipping an
+# entry-policy override) need to run inside the container against the live DB.
+COPY scripts/ /srv/scripts/
 COPY deploy/entrypoint.sh /srv/entrypoint.sh
 COPY --from=frontend /build/dist /srv/frontend/dist
 RUN chmod +x /srv/entrypoint.sh

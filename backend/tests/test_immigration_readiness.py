@@ -14,6 +14,7 @@ from datetime import date, datetime, timedelta
 from sqlmodel import Session, select
 
 from app.models import (
+    Actor,
     EmailMessage,
     Extraction,
     ExtractionKind,
@@ -223,6 +224,42 @@ def test_eta_only_country_gets_an_eta_row_and_no_visa_row(session: Session, clie
     ready = trip_readiness(session, trip)
     assert ready["state"] == "ready"
     assert ready["outstanding"] == []
+
+
+def test_email_confirmed_row_is_not_duplicated_on_resync(session: Session, client):
+    # Regression: accept re-stamps a requirement source=email, so it drops out of
+    # the source=system lookup sync_requirements uses. Without the covered_by_other
+    # guard, the next sync re-adds a duplicate system row for the same kind --
+    # invisible in the UI (trip_readiness dedupes by kind) but real in the DB, and
+    # able to flip a confirmed reading back to action. Found running
+    # scripts/resync_requirements.py across the production trips.
+    trip_id = _mk_trip(client)
+    _mk_stay(client, trip_id, country_code="id")
+    trip = session.get(Trip, trip_id)
+    model = FakePolicyModel({("ID", "US"): VOA_INDONESIA})
+    sync_requirements(session, trip, model)
+
+    # Simulate accepting an immigration email confirming the arrival card.
+    entry_card = session.exec(
+        select(Requirement)
+        .where(Requirement.trip_id == trip_id)
+        .where(Requirement.kind == RequirementKind.entry_card)
+    ).one()
+    entry_card.status = RequirementStatus.approved
+    entry_card.source = Actor.email
+    session.add(entry_card)
+    session.commit()
+
+    # Re-sync (cache-only): must NOT create a second entry_card row.
+    sync_requirements(session, trip, model=None)
+    entry_cards = session.exec(
+        select(Requirement)
+        .where(Requirement.trip_id == trip_id)
+        .where(Requirement.kind == RequirementKind.entry_card)
+    ).all()
+    assert len(entry_cards) == 1
+    assert entry_cards[0].source == Actor.email
+    assert entry_cards[0].status == RequirementStatus.approved
 
 
 def test_undated_or_countryless_trip_reads_na_with_no_rows(session: Session, client):

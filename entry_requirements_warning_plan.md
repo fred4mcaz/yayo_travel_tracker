@@ -314,7 +314,7 @@ LLM cost.
       the default-allowance line, the imminent-verify box).
 
 **Phase gate:** `npx tsc --noEmit` clean; `npm test` green (71 passed). Commit.
-Record hash: `______` (this commit). Browser verification is Phase 5. ✅
+Hash: `d934943`. Browser verification is Phase 5. ✅
 
 **Lessons from Phase 4.** Making `outstanding` the badge's source (Phase 3) made
 this small: the badge is now a pure function of what's owed, so it can't drift
@@ -334,33 +334,49 @@ real UI (README §3, §8). The local dev server pulls the production DB, so the
 actual London trip is the test fixture.
 
 **Assumptions to validate first:**
-- [ ] Local backend started via `scripts/dev_backend.py` (pulls prod DB); local
-      frontend on :5173. No passkey needed on localhost.
+- [x] Ran the built SPA via the `backend` launch config (pulls prod DB) on :8000;
+      no passkey on localhost. The real London trip (14) was the fixture.
 
 **Gotchas / risks:**
-- After Phase 2's override, the London reading only corrects once
-  `sync_requirements` runs for that trip. Locally that happens on the next
-  mutation; to force it without editing data, confirm the readiness read applies
-  the override (`cached_policy` short-circuits to it) even before a re-sync — if
-  the stale `visa` row lingers in the pulled DB, note it and confirm it retires
-  on the next sync.
+- After Phase 2's override, the London reading corrects immediately (permit →
+  visa-free), **but** the stale system `visa` row lingered until re-sync, so the
+  card showed "Need: Visa, ETA". Confirmed and cleaned (see below).
 - **Do not skip the deploy** (README §4). The traveller pushes; then run
   `deploy.sh` over SSH, then grep the shipped bundle for a new string.
 - `data/` override changes need the image rebuild (`deploy.sh`), not just a pull.
 
 **Tasks:**
-- [ ] Drive the Trips list in the browser: London shows a loud badge naming
-      **ETA** (not "E-visa required"); screenshot it.
-- [ ] Confirm a visa-free-nothing-owed trip stays quiet, and an imminent
-      unchecked trip warns.
-- [ ] Ask the traveller to `git push` (you cannot push).
+- [x] Drove the Trips list in the browser: London shows a **red "Need: ETA"**
+      chip (not "E-visa required"); Astana shows "Ready · Visa-free · 30 days";
+      past trips stay quiet. Detail panel: "Action needed" + ETA "Required"
+      read-only, **no `<select>`**; visa-free trip shows "No action needed ·
+      Visa-free · 30 days". Screenshotted.
+- [x] **Bug found by verification + fixed:** the stale visa row needed a re-sync,
+      so I wrote `scripts/resync_requirements.py` (idempotent, cache-only). Bulk-
+      running it exposed a **latent `sync_requirements` bug**: it re-added a
+      *duplicate* system `entry_card` for any trip whose confirmed card is
+      `source=email` (drops out of the system-row lookup). Fixed with the
+      `covered_by_other` guard + a regression test. Re-verified: resync now
+      cleanly removes trip 14's stale visa and adds a genuinely-missing
+      Indonesia/MX visa to trip 1, with **no duplicates**.
+- [x] Ship the maintenance script in the image (`COPY scripts/` → `/srv/scripts/`).
+- [x] Updated README §1 (documents-first badge, imminent-unknown, no dropdowns,
+      the dedup guard, the override + resync correction path).
+- [ ] **Ask the traveller to `git push`** (cannot push from here).
 - [ ] After push: `ssh yayokun@5.78.184.240 'cd /srv/yayo_travel_tracker && ./deploy/deploy.sh'`
-- [ ] Verify the deployed bundle contains a new string from the badge change.
-- [ ] Update README §1 (immigration readiness) to describe the document-naming
-      badge, the imminent-unknown warning, and the documents-first policy call.
+- [ ] After deploy, reconcile the live trips once:
+      `ssh yayokun@5.78.184.240 'cd /srv/yayo_travel_tracker && docker compose -f deploy/docker-compose.yml exec -T app python /srv/scripts/resync_requirements.py'`
+- [ ] Verify the deployed bundle contains the new "Need: " badge string, and the
+      live London trip reads "Need: ETA".
 
-**Phase gate:** deployed, bundle verified, README updated. Commit.
-Record hash: `______`.
+**Phase gate:** code + README committed; deploy + prod resync + bundle check done
+after the push. Commit hash (code/docs): `______`.
+
+**Lessons from Phase 5.** "Verify in a browser" earned its keep again — driving
+the real London trip is what exposed both the lingering stale visa row *and*, via
+the resync tool built to clear it, a latent duplicate-row bug that had nothing to
+do with the badge work. Neither would have shown up in unit tests alone (the UI
+dedupes duplicate rows by kind, hiding them).
 
 ---
 

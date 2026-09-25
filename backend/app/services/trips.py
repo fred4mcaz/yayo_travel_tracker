@@ -385,6 +385,24 @@ def sync_requirements(
         session.commit()
         return []
 
+    # Kinds already represented by a NON-system row -- a hand-added requirement
+    # or, most often, an email-confirmed one (accept re-stamps the row
+    # source=email, so it drops out of system_rows above). sync must never add a
+    # *second*, system row for such a kind: the traveller's own row already
+    # covers it. Without this guard, every re-sync of a trip with an
+    # email-confirmed arrival card spawns a duplicate system entry_card(todo) --
+    # invisible in the UI (trip_readiness dedupes by kind) but real in the DB,
+    # and able to flip a confirmed reading back to "action" depending on row
+    # order. This surfaced running scripts/resync_requirements.py across trips.
+    covered_by_other = {
+        r.kind
+        for r in session.exec(
+            select(Requirement)
+            .where(Requirement.trip_id == trip.id)
+            .where(Requirement.source != Actor.system)
+        ).all()
+    }
+
     entry = _trip_entry(session, trip.id)
     nationality = readiness_passport(entry)
     policy = get_policy(session, code, nationality, model)
@@ -405,7 +423,7 @@ def sync_requirements(
     for kind in POLICY_REQUIREMENT_KINDS:
         existing = system_rows.get(kind)
         if kind in required_kinds:
-            if existing is None:
+            if existing is None and kind not in covered_by_other:
                 session.add(
                     Requirement(
                         trip_id=trip.id,
