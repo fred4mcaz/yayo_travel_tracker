@@ -370,7 +370,7 @@ actual London trip is the test fixture.
       live London trip reads "Need: ETA".
 
 **Phase gate:** code + README committed; deploy + prod resync + bundle check done
-after the push. Commit hash (code/docs): `______`.
+after the push. Commit hash (code/docs): `e63a763`.
 
 **Lessons from Phase 5.** "Verify in a browser" earned its keep again — driving
 the real London trip is what exposed both the lingering stale visa row *and*, via
