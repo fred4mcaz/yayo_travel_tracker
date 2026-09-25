@@ -210,7 +210,12 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
                 weeks instead of to the week above it. */}
             <div
               className="cal-days"
-              style={{ minHeight: 64 + laneCount * LANE }}
+              // The empty room a week reserves (--cal-week-base) is tuned per
+              // viewport in CSS so a phone's grid is denser; the lane stack on
+              // top of it stays fixed in px, matching the bars' JS-computed tops.
+              style={{
+                minHeight: `calc(var(--cal-week-base, 64px) + ${laneCount * LANE}px)`,
+              }}
             >
               {week.map((day) => {
                 const iso = toISODate(day);

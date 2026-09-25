@@ -645,10 +645,15 @@ textarea {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
+/* The month label frames the grid; it should not compete with it. Kept at a
+   quieter size and weight than a page heading. */
 .cal-head h2 {
-  min-width: 170px;
+  min-width: 150px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-muted);
 }
 .cal-weekdays {
   display: grid;
@@ -676,6 +681,9 @@ textarea {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 2px;
+  /* The empty vertical room each week reserves above its lane stack. Overridden
+     smaller on phones (see the mobile/landscape queries) to reclaim height. */
+  --cal-week-base: 64px;
 }
 .cal-day {
   position: relative;
@@ -872,6 +880,96 @@ textarea {
   border-right: none;
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
+}
+
+/* --- calendar on a phone ------------------------------------------------ */
+/* Portrait: the grid was spending too much height on chrome and slack. Trim the
+   page gutter, quiet the header, drop the mouse-only drag hint, and shrink the
+   per-week base so six weeks fit with far less scrolling. Bar/lane heights stay
+   put (their tops are computed in JS), so only the empty room shrinks. */
+@media (max-width: 560px) {
+  .pane.placeholder {
+    padding: 10px;
+  }
+  .cal-head {
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+  .cal-head h2 {
+    /* Let the title take the middle and keep the arrows/Today hugging the
+       edges, instead of reserving a fixed 150px slab. */
+    min-width: 0;
+    flex: 1;
+    text-align: center;
+    font-size: 15px;
+  }
+  .cal-weekdays {
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+  /* Drag-to-create is a mouse gesture (mousedown/enter/up); under a finger it
+     does nothing, so on a phone the hint only costs a line. */
+  .cal-hint {
+    display: none;
+  }
+  .cal-days {
+    gap: 1px;
+    --cal-week-base: 48px;
+  }
+  .cal-week {
+    margin-bottom: 1px;
+  }
+  .cal-day {
+    padding: 2px 5px;
+    /* Still a comfortable 44px touch target, down from the roomy desktop 64. */
+    min-height: 44px;
+  }
+  .cal-bars {
+    top: 22px;
+  }
+}
+
+/* Landscape phone: height is the scarce axis (a wide but ~380px-tall viewport
+   never trips the width query above), so squeeze the base further and thin the
+   app's own top/bottom chrome to hand the grid the room. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .pane.placeholder {
+    padding: 8px 12px;
+  }
+  .cal-head {
+    margin-bottom: 4px;
+  }
+  .cal-head h2 {
+    font-size: 15px;
+  }
+  .cal-weekdays {
+    margin-bottom: 2px;
+  }
+  .cal-hint {
+    display: none;
+  }
+  .cal-days {
+    gap: 1px;
+    --cal-week-base: 40px;
+  }
+  .cal-week {
+    margin-bottom: 1px;
+  }
+  .cal-day {
+    padding: 2px 5px;
+    min-height: 40px;
+  }
+  .cal-bars {
+    top: 20px;
+  }
+  /* Shorter bars of persistent chrome give the six week rows their height. */
+  .topbar {
+    height: calc(40px + env(safe-area-inset-top));
+  }
+  .btab {
+    padding: 6px 0;
+    min-height: 36px;
+  }
 }
 
 /* --- map ---------------------------------------------------------------- */
