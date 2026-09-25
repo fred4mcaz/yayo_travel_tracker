@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { api, ApiError } from "../lib/api";
-import { countryFlag, formatRange, relativeDays } from "../lib/format";
+import { countryFlag, daysFromToday, formatRange, relativeDays } from "../lib/format";
 import { discrepancyMessage, readinessBadge } from "../lib/immigration";
 import type { TripStatus, TripSummary } from "../types";
 
@@ -75,9 +75,12 @@ export function TripList({ trips, selectedId, onSelect, onCreated }: Props) {
             <h3 className="group-label">{label}</h3>
             {group.map((trip) => {
               // Quiet on the past, like everything else on this card -- a
-              // stale reading for a trip that's already over is noise.
+              // stale reading for a trip that's already over is noise. Days-to-
+              // departure lets an unverified imminent trip shout (see badge).
               const badge =
-                trip.status !== "past" ? readinessBadge(trip.readiness) : null;
+                trip.status !== "past"
+                  ? readinessBadge(trip.readiness, daysFromToday(trip.start_date))
+                  : null;
               return (
                 <button
                   key={trip.id}

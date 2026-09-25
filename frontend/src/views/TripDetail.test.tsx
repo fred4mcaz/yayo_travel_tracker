@@ -285,6 +285,70 @@ describe("TripDetailPanel discrepancy banner", () => {
   });
 });
 
+describe("TripDetailPanel immigration readiness (informational, no dropdowns)", () => {
+  const ukAction: TripDetail = {
+    ...TRIP,
+    status: "future",
+    start_date: "2026-12-01",
+    end_date: "2026-12-10",
+    country_code: "GB",
+    country_name: "United Kingdom",
+    readiness: {
+      ...TRIP.readiness,
+      state: "action",
+      passport: "US",
+      permit: "visa_free",
+      permitted_days: 180,
+      outstanding: [{ kind: "eta", label: "Electronic travel authorization" }],
+      checklist: [
+        { kind: "eta", label: "Electronic travel authorization", status: "todo" },
+      ],
+      advisory: "Advisory only.",
+      checked_on: "2026-09-25",
+    },
+  };
+
+  it("names the required document, read-only, with no dropdown to fill in", () => {
+    const { container, getByText } = renderPanel({ trip: ukAction });
+    expect(getByText("Action needed before you travel")).toBeTruthy();
+    expect(getByText("Electronic travel authorization")).toBeTruthy();
+    expect(getByText(/Required — obtain before you travel/)).toBeTruthy();
+    // The whole point of "no dropdowns": nothing to select anywhere on the panel.
+    expect(container.querySelector("select")).toBeNull();
+  });
+
+  it("shows the default allowance when no action is needed", () => {
+    const ready: TripDetail = {
+      ...ukAction,
+      readiness: {
+        ...ukAction.readiness,
+        state: "ready",
+        permit: "visa_free",
+        permitted_days: 90,
+        outstanding: [],
+        checklist: [],
+      },
+    };
+    const { getByText } = renderPanel({ trip: ready });
+    expect(getByText("No action needed · Visa-free · 90 days")).toBeTruthy();
+  });
+
+  it("shouts to verify an imminent trip whose rules were never checked", () => {
+    // Imminence is measured from the real "today", so build a near date rather
+    // than a fixed one -- five days out is well inside the threshold.
+    const soon = new Date();
+    soon.setDate(soon.getDate() + 5);
+    const iso = `${soon.getFullYear()}-${String(soon.getMonth() + 1).padStart(2, "0")}-${String(soon.getDate()).padStart(2, "0")}`;
+    const unknown: TripDetail = {
+      ...ukAction,
+      start_date: iso,
+      readiness: { ...TRIP.readiness, state: "unknown", passport: "US" },
+    };
+    const { getByText } = renderPanel({ trip: unknown });
+    expect(getByText("Entry rules not verified")).toBeTruthy();
+  });
+});
+
 function mergeCandidate(over: Partial<MergeCandidate> = {}): MergeCandidate {
   return {
     id: 99,

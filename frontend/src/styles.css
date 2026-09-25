@@ -1227,7 +1227,18 @@ textarea {
   color: var(--ongoing);
 }
 .trip-card-readiness.readiness-action {
-  color: var(--warn);
+  /* The near-miss fix: an outstanding entry document (or an unverified imminent
+     trip) must be impossible to miss, so this is a filled red chip, not the
+     faint amber line the other card warnings use. */
+  display: inline-block;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 600;
 }
 .trip-card-readiness.readiness-unknown {
   color: var(--text-muted);
@@ -1258,7 +1269,8 @@ textarea {
   border-color: var(--ongoing);
 }
 .readiness-summary.readiness-action {
-  border-color: var(--warn);
+  border-color: var(--danger);
+  background: var(--danger-bg);
 }
 .readiness-icon {
   font-size: 16px;
@@ -1304,7 +1316,8 @@ textarea {
   color: var(--ongoing);
 }
 .readiness-status.readiness-action {
-  color: var(--warn);
+  color: var(--danger);
+  font-weight: 600;
 }
 .readiness-status.readiness-unknown {
   color: var(--text-muted);

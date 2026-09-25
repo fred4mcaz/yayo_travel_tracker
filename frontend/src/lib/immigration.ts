@@ -5,6 +5,24 @@
 
 import type { Discrepancy, PermitType, ReadinessSummary, RequirementKind } from "../types";
 
+/** A trip within this many days of departure is "imminent" -- close enough that
+ *  an unverified entry policy is itself worth a loud warning ("check before you
+ *  fly"), not the quiet "not checked yet" a far-off trip gets. */
+export const IMMINENT_DAYS = 30;
+
+/** Short document names for the compact card badge, where "Electronic travel
+ *  authorization" would swamp the card. The full names live in
+ *  REQUIREMENT_KIND_LABEL and are used in the detail panel. */
+const OUTSTANDING_SHORT: Record<RequirementKind, string> = {
+  entry_card: "Arrival card",
+  visa: "Visa",
+  eta: "ETA",
+  insurance: "Insurance",
+  vaccination: "Vaccination",
+  onward_ticket: "Onward ticket",
+  custom: "Requirement",
+};
+
 export const PERMIT_LABEL: Record<PermitType, string> = {
   visa_free: "Visa-free",
   evisa: "E-visa required",
@@ -54,18 +72,36 @@ export interface ReadinessBadge {
   className: string;
 }
 
-/** null for `na`: a trip with no country recorded, or undated, has nothing
- *  worth badging -- the whole point of staying quiet until the trip is real. */
-export function readinessBadge(readiness: ReadinessSummary): ReadinessBadge | null {
+/** The card badge. `daysUntil` is days from today to departure (null when
+ *  undated or unknown), used only to decide whether an *unverified* policy on an
+ *  imminent trip should shout rather than whisper.
+ *
+ *  null for `na`: a trip with no country recorded, or undated, has nothing worth
+ *  badging -- the whole point of staying quiet until the trip is real. */
+export function readinessBadge(
+  readiness: ReadinessSummary,
+  daysUntil: number | null = null,
+): ReadinessBadge | null {
   if (readiness.state === "na") return null;
 
   if (readiness.state === "unknown") {
+    // The silent hole closed: an imminent trip whose entry rules were never
+    // checked is itself a warning -- the app never knows the documents, so it
+    // tells the traveller to verify rather than staying quiet.
+    if (daysUntil !== null && daysUntil <= IMMINENT_DAYS) {
+      return {
+        icon: "⚠️",
+        text: "Entry rules not verified — check before you fly",
+        className: "readiness-action",
+      };
+    }
     return { icon: "❔", text: "Not checked yet", className: "readiness-unknown" };
   }
 
-  const summary = permitSummary(readiness);
-
   if (readiness.state === "ready") {
+    // Nothing owed: show the default allowance, which is what the traveller
+    // actually wants to know ("Visa-free · 90 days").
+    const summary = permitSummary(readiness);
     return {
       icon: "✅",
       text: summary ? `Ready · ${summary}` : "Ready",
@@ -73,20 +109,15 @@ export function readinessBadge(readiness: ReadinessSummary): ReadinessBadge | nu
     };
   }
 
-  // action
-  const cardNote =
-    readiness.arrival_card && readiness.arrival_card.state !== "confirmed"
-      ? "arrival card not yet confirmed"
-      : null;
-  const onwardNote =
-    readiness.onward_ticket?.required && !readiness.onward_ticket.confirmed
-      ? "onward ticket not confirmed"
-      : null;
+  // action: name the documents/authorizations still required. This is the fix
+  // for the London near-miss -- the badge now says "Need: ETA", never a vague
+  // "E-visa required" that hid the actual action.
+  const names = readiness.outstanding.map(
+    (o) => OUTSTANDING_SHORT[o.kind] ?? o.label,
+  );
   return {
     icon: "⚠️",
-    text:
-      [summary, cardNote, onwardNote].filter(Boolean).join(" · ") ||
-      "Action needed",
+    text: names.length ? `Need: ${names.join(", ")}` : "Action needed",
     className: "readiness-action",
   };
 }

@@ -16,6 +16,7 @@ import type { StayDraft } from "../components/StayForm";
 import { api, ApiError } from "../lib/api";
 import {
   countryFlag,
+  daysFromToday,
   formatDate,
   formatDateShort,
   formatRange,
@@ -24,7 +25,7 @@ import {
   toISODate,
   today,
 } from "../lib/format";
-import { discrepancyMessage, permitSummary, readinessBadge } from "../lib/immigration";
+import { IMMINENT_DAYS, discrepancyMessage, permitSummary } from "../lib/immigration";
 import type {
   ArrivalCardReading,
   TripCountry,
@@ -33,7 +34,7 @@ import type {
   OnwardTicketReading,
   Passport,
   Readiness,
-  Requirement,
+  RequirementStatus,
   Stay,
   TripDetail as Detail,
 } from "../types";
@@ -232,14 +233,8 @@ export function TripDetailPanel({
 
       <ReadinessSection
         readiness={trip.readiness}
-        requirements={trip.requirements}
-        busy={busy}
         quiet={trip.status === "past"}
-        onUpdateStatus={(reqId, status) =>
-          void run(() =>
-            api.trips.updateRequirement(trip.id, reqId, { status }),
-          )
-        }
+        daysUntil={daysFromToday(trip.start_date)}
       />
 
       {trip.mergeable.length > 0 && (
@@ -449,16 +444,14 @@ export function TripDetailPanel({
  *  mismatch on an accepted confirmation stays worth surfacing regardless. */
 function ReadinessSection({
   readiness,
-  requirements,
-  busy,
   quiet,
-  onUpdateStatus,
+  daysUntil,
 }: {
   readiness: Readiness;
-  requirements: Requirement[];
-  busy: boolean;
   quiet: boolean;
-  onUpdateStatus: (reqId: number, status: string) => void;
+  /** Days from today to departure (null when undated), for the imminent-and-
+   *  unverified warning. */
+  daysUntil: number | null;
 }) {
   if (readiness.state === "na") return null;
 
@@ -473,37 +466,51 @@ function ReadinessSection({
   }
 
   if (readiness.state === "unknown") {
+    // The silent hole closed: an imminent trip whose rules were never checked
+    // gets a loud "verify" prompt, not a quiet note that reads as "all clear".
+    const imminent = daysUntil !== null && daysUntil <= IMMINENT_DAYS;
+    const passport = readiness.passport ?? "US";
     return (
       <section className="readiness-section">
         <h3>Immigration readiness</h3>
         {readiness.discrepancy && <DiscrepancyBanner discrepancy={readiness.discrepancy} />}
-        <p className="muted">
-          Not checked yet for a {readiness.passport ?? "US"} passport.
-        </p>
+        {imminent ? (
+          <div className="readiness-summary readiness-action">
+            <span className="readiness-icon">⚠️</span>
+            <div>
+              <strong>Entry rules not verified</strong>
+              <span className="muted">
+                Check what a {passport} passport needs to enter before you fly.
+              </span>
+            </div>
+          </div>
+        ) : (
+          <p className="muted">Not checked yet for a {passport} passport.</p>
+        )}
       </section>
     );
   }
 
-  const badge = readinessBadge(readiness);
-  const reqByKind = new Map(requirements.map((r) => [r.kind, r]));
-  // Visa-free entry can't block you at the border, so the summary box stays
-  // green even while checklist items (arrival card, onward ticket) are open —
-  // those rows carry their own warnings below.
-  const boxClass =
-    readiness.permit === "visa_free"
-      ? "readiness-ready"
-      : (badge?.className ?? "");
+  // ready / action -- purely informational, no dropdowns. Either "action needed"
+  // with the documents named below, or "no action needed" with the default
+  // allowance (e.g. "Visa-free · 90 days").
+  const action = readiness.outstanding.length > 0;
+  const summary = permitSummary(readiness);
 
   return (
     <section className="readiness-section">
       <h3>Immigration readiness</h3>
 
-      <div className={`readiness-summary ${boxClass}`}>
-        <span className="readiness-icon">
-          {boxClass === "readiness-ready" ? "✅" : badge?.icon}
-        </span>
+      <div className={`readiness-summary ${action ? "readiness-action" : "readiness-ready"}`}>
+        <span className="readiness-icon">{action ? "⚠️" : "✅"}</span>
         <div>
-          <strong>{permitSummary(readiness) ?? "Nothing required to enter"}</strong>
+          <strong>
+            {action
+              ? "Action needed before you travel"
+              : summary
+                ? `No action needed · ${summary}`
+                : "No action needed to enter"}
+          </strong>
           <span className="muted">
             {readiness.is_default_us
               ? "Assuming a US passport (none selected yet)"
@@ -520,7 +527,7 @@ function ReadinessSection({
 
       {readiness.checklist.map((item) => {
         // The arrival card and onward ticket are automated (decision 9/10):
-        // read-only indicators, no dropdown. Everything else stays hand-set.
+        // read-only indicators driven by the email pipeline / booked legs.
         if (item.kind === "entry_card") {
           return (
             <ArrivalCardRow
@@ -539,25 +546,9 @@ function ReadinessSection({
             />
           );
         }
-        const req = reqByKind.get(item.kind);
-        if (!req) return null;
-        return (
-          <div className="req-row" key={item.kind}>
-            <div className="entry-main">
-              <strong>{item.label}</strong>
-            </div>
-            <select
-              value={req.status}
-              disabled={busy}
-              onChange={(e) => onUpdateStatus(req.id, e.target.value)}
-            >
-              <option value="todo">To do</option>
-              <option value="submitted">Submitted</option>
-              <option value="approved">Approved</option>
-              <option value="not_required">Not required</option>
-            </select>
-          </div>
-        );
+        // Visa / ETA / insurance / vaccination: read-only (no dropdowns). Each
+        // is simply "required" until an accepted immigration email confirms it.
+        return <RequirementRow key={item.kind} label={item.label} status={item.status} />;
       })}
 
       <p className="readiness-advisory muted">
@@ -565,6 +556,32 @@ function ReadinessSection({
         {readiness.advisory}
       </p>
     </section>
+  );
+}
+
+/** A required document with no manual control (no dropdowns, by decision): it
+ *  reads "required" until an accepted immigration email confirms it. Over-
+ *  warning is the safe direction -- a document you hold but never emailed a
+ *  confirmation for still shows as required, which is better than a false clear. */
+function RequirementRow({
+  label,
+  status,
+}: {
+  label: string;
+  status: RequirementStatus;
+}) {
+  const settled = status === "approved" || status === "not_required";
+  return (
+    <div className="req-row">
+      <div className="entry-main">
+        <strong>{label}</strong>
+      </div>
+      <span
+        className={`readiness-status ${settled ? "readiness-ready" : "readiness-action"}`}
+      >
+        {settled ? "✅ Confirmed" : "⚠️ Required — obtain before you travel"}
+      </span>
+    </div>
   );
 }
 

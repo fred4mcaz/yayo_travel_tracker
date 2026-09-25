@@ -47,58 +47,53 @@ describe("readinessBadge", () => {
     expect(badge?.text).toBe("Ready");
   });
 
-  it("calls out an unconfirmed arrival card when action is needed", () => {
-    const badge = readinessBadge(
-      summary({
-        state: "action",
-        permit: "visa_on_arrival",
-        permitted_days: 30,
-        arrival_card: {
-          name: "Indonesia e-CD",
-          state: "none",
-          reference: "",
-        },
-      }),
-    );
+  it("shouts to verify when an imminent trip's rules were never checked", () => {
+    // The silent hole closed: unknown + imminent must warn, not whisper.
+    const badge = readinessBadge(summary({ state: "unknown" }), 10);
     expect(badge).toEqual({
       icon: "⚠️",
-      text: "Visa on arrival · 30 days · arrival card not yet confirmed",
+      text: "Entry rules not verified — check before you fly",
       className: "readiness-action",
     });
   });
 
-  it("still calls out the arrival card while a confirmation only sits in Review", () => {
-    const badge = readinessBadge(
-      summary({
-        state: "action",
-        permit: "visa_on_arrival",
-        arrival_card: { name: "Indonesia e-CD", state: "received", reference: "" },
-      }),
-    );
-    expect(badge?.text).toBe("Visa on arrival · arrival card not yet confirmed");
+  it("stays a quiet not-checked for a far-off unknown trip", () => {
+    const badge = readinessBadge(summary({ state: "unknown" }), 200);
+    expect(badge?.text).toBe("Not checked yet");
   });
 
-  it("drops the arrival-card note once it's confirmed", () => {
-    const badge = readinessBadge(
-      summary({
-        state: "action",
-        permit: "visa",
-        arrival_card: { name: "", state: "confirmed", reference: "" },
-      }),
-    );
-    expect(badge?.text).toBe("Visa required");
-  });
-
-  it("calls out an unconfirmed onward ticket when action is needed", () => {
+  it("names the document required (the London ETA fix)", () => {
     const badge = readinessBadge(
       summary({
         state: "action",
         permit: "visa_free",
-        permitted_days: 30,
-        onward_ticket: { required: true, confirmed: false, journey: null },
+        permitted_days: 180,
+        outstanding: [{ kind: "eta", label: "Electronic travel authorization" }],
       }),
     );
-    expect(badge?.text).toBe("Visa-free · 30 days · onward ticket not confirmed");
+    expect(badge).toEqual({
+      icon: "⚠️",
+      text: "Need: ETA",
+      className: "readiness-action",
+    });
+  });
+
+  it("lists every outstanding document, short-named for the card", () => {
+    const badge = readinessBadge(
+      summary({
+        state: "action",
+        outstanding: [
+          { kind: "eta", label: "Electronic travel authorization" },
+          { kind: "entry_card", label: "Arrival card" },
+        ],
+      }),
+    );
+    expect(badge?.text).toBe("Need: ETA, Arrival card");
+  });
+
+  it("falls back to a generic message if action has no named documents", () => {
+    const badge = readinessBadge(summary({ state: "action" }));
+    expect(badge?.text).toBe("Action needed");
   });
 
   it("drops the onward note once a journey confirms it", () => {

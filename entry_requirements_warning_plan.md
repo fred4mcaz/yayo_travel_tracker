@@ -248,7 +248,7 @@ outstanding set once in the backend and ship it. Single source of truth.
       is approved, `outstanding == []` and `state == ready`. `na` dict updated.
 
 **Phase gate:** `pytest backend/tests -q` green (390); `npx tsc --noEmit` clean;
-`npm test` green (67); ruff clean. Committed. Hash: `______` (this commit). ✅
+`npm test` green (67); ruff clean. Committed. Hash: `bb01168`. ✅
 
 **Lessons from Phase 3.** `outstanding` is derived with the exact `_settled` rule
 that decides `state`, so the badge can never contradict the state (e.g. show
@@ -272,14 +272,18 @@ required". Treating imminent + unknown as loud closes the silent hole with zero
 LLM cost.
 
 **Assumptions to validate first:**
-- [ ] `readinessBadge` (in `frontend/src/lib/immigration.ts`) is consumed by
-      both `Trips.tsx` (card) and `TripDetail.tsx` — changing its shape touches
-      both; check the call sites.
-- [ ] The trip card has `start_date` available (it does: `TripSummary.start_date`)
-      so imminence can be computed client-side. Pick a threshold — **≤ 30 days =
-      imminent** (loud); confirm this reads well against the current trips.
-- [ ] `REQUIREMENT_KIND_LABEL` already has friendly names for every kind — reuse
-      it so the badge and checklist word documents identically.
+- [x] `readinessBadge` was consumed by `Trips.tsx` only; `TripDetail.tsx` also
+      imported it but now computes `action` from `outstanding` directly, so the
+      import was dropped there. Signature gained an optional `daysUntil`.
+- [x] `TripSummary.start_date` is available; imminence uses `daysFromToday`
+      (already exported from `lib/format`). Threshold **≤ 30 days = imminent**
+      (`IMMINENT_DAYS`, exported from `immigration.ts`).
+- [x] Reused `REQUIREMENT_KIND_LABEL` full names in the detail; added a short
+      map (`OUTSTANDING_SHORT`, e.g. `ETA`) for the compact card badge.
+- [x] Removed the requirement status dropdowns (the "no dropdowns" decision).
+      `updateRequirement` was their only caller; `addRequirement`/`removeRequirement`
+      were already dead. Left the `api.ts` methods and backend endpoint in place
+      (still valid endpoints); only the UI dropdown is gone.
 
 **Gotchas / risks:**
 - Use `parseDate` from `lib/format.ts` for any date math — never `new Date("…")`
@@ -294,20 +298,29 @@ LLM cost.
   for "big and red"), don't invent new tokens without checking the CSS.
 
 **Tasks:**
-- [ ] Change `readinessBadge` to take what it needs to know imminence (e.g. pass
-      `daysUntil` or `startDate`), and to build `action` text from
-      `readiness.outstanding` names, falling back to "Action needed" only if the
-      list is somehow empty.
-- [ ] Handle `unknown`: if imminent → loud verify-manually badge; if not
-      imminent → keep the quiet "Not checked yet".
-- [ ] Update `Trips.tsx` to pass the date and to style the loud state.
-- [ ] In `TripDetail.tsx`'s `ReadinessSection`, lead with the outstanding
-      documents; move `permitSummary` to a muted descriptive line.
-- [ ] Update `frontend/src/lib/immigration.test.ts` (and any TripDetail test)
-      for the new badge text and the imminent-unknown case.
+- [x] `readinessBadge(readiness, daysUntil?)`: `action` text is built from
+      `readiness.outstanding` short names ("Need: ETA, Arrival card"), falling
+      back to "Action needed" only if empty.
+- [x] `unknown`: imminent → loud red "Entry rules not verified — check before you
+      fly"; not imminent → quiet "Not checked yet".
+- [x] `Trips.tsx` passes `daysFromToday(trip.start_date)`; the action badge is a
+      filled **red chip** (`--danger`/`--danger-bg`), bold — "big and red".
+- [x] `ReadinessSection` rewritten to be informational: an "Action needed"
+      summary with each document named read-only (`RequirementRow`), or "No
+      action needed · <permit · days>". Dropdowns gone. `unknown`-imminent gets
+      the loud verify box. Action colours switched from amber to red.
+- [x] Updated `immigration.test.ts` (new badge text, imminent-unknown) and added
+      three `TripDetail.test.tsx` cases (named read-only document + no `<select>`,
+      the default-allowance line, the imminent-verify box).
 
-**Phase gate:** `npm test` green; `npx tsc --noEmit` clean. Commit.
-Record hash: `______`.
+**Phase gate:** `npx tsc --noEmit` clean; `npm test` green (71 passed). Commit.
+Record hash: `______` (this commit). Browser verification is Phase 5. ✅
+
+**Lessons from Phase 4.** Making `outstanding` the badge's source (Phase 3) made
+this small: the badge is now a pure function of what's owed, so it can't drift
+from the state. The "no dropdowns" decision also *removed* code rather than adding
+it — the settle path is now email-only, which matches "tell me what I need,"
+and over-warns safely when an email never arrives for a document you hold.
 
 ---
 
