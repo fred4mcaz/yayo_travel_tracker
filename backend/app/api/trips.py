@@ -151,6 +151,7 @@ def list_trips(session: Session = Depends(get_session)) -> list[dict]:
                         "state",
                         "permit",
                         "permitted_days",
+                        "outstanding",
                         "arrival_card",
                         "onward_ticket",
                         "checked_on",

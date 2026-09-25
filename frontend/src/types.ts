@@ -198,12 +198,22 @@ export interface Discrepancy {
   selected_passport: Nationality;
 }
 
+/** One document/authorization still owed, named. The badge and the detail
+ *  section both read this so they can never disagree with the state. */
+export interface OutstandingItem {
+  kind: RequirementKind;
+  label: string;
+}
+
 /** What the trip list's compact badge needs -- the full checklist and
- *  advisory text only render on the trip's own detail panel. */
+ *  advisory text only render on the trip's own detail panel. `outstanding` is
+ *  the named list of documents still required (empty exactly when ready), the
+ *  source of truth for every warning surface. */
 export interface ReadinessSummary {
   state: ReadinessState;
   permit: PermitType | null;
   permitted_days: number | null;
+  outstanding: OutstandingItem[];
   arrival_card: ArrivalCardReading | null;
   onward_ticket: OnwardTicketReading | null;
   checked_on: string | null;

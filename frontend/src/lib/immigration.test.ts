@@ -8,6 +8,7 @@ function summary(over: Partial<ReadinessSummary>): ReadinessSummary {
     state: "ready",
     permit: null,
     permitted_days: null,
+    outstanding: [],
     arrival_card: null,
     onward_ticket: null,
     checked_on: null,

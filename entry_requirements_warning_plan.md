@@ -194,7 +194,7 @@ the reading becomes clean visa-free + ETA.
       guard asserting both GB rows read visa-free + ETA (never a visa).
 
 **Phase gate:** `pytest backend/tests -q` green (390 passed); JSON valid, 4
-policies. Committed. Hash: `______` (this commit). ✅
+policies. Committed. Hash: `c19a2bb`. ✅
 
 **Lessons from Phase 2.** The override corrects `cached_policy`/readiness the
 moment it ships, so the London permit reads visa-free + ETA immediately. But the
@@ -220,13 +220,11 @@ onward_ticket are "done" by derived reading, not stored status), compute the
 outstanding set once in the backend and ship it. Single source of truth.
 
 **Assumptions to validate first:**
-- [ ] Find where the **compact** `ReadinessSummary` is assembled for
-      `GET /api/trips` (README §2 says compact on the list, full on detail).
-      Confirm whether it is a trimmed view of `trip_readiness`'s dict or a
-      separate builder — `outstanding` must appear in **both** the compact and
-      full payloads.
-- [ ] `_settled(item)` inside `trip_readiness` already encodes the correct
-      per-kind "done" rule — reuse it; do not re-derive.
+- [x] The compact `ReadinessSummary` is a **key-filtered view** of the full
+      `trip_readiness` dict (`api/trips.py`, the `GET /api/trips` builder ~L146).
+      Adding `outstanding` to the whitelist makes it appear on both surfaces.
+- [x] `_settled(item)` inside `trip_readiness` encodes the correct per-kind
+      "done" rule — reused directly.
 
 **Gotchas / risks:**
 - Do not change what `state` means (`na`/`unknown`/`action`/`ready`). Only add
@@ -238,16 +236,25 @@ outstanding set once in the backend and ship it. Single source of truth.
   the badge text is deterministic and testable.
 
 **Tasks:**
-- [ ] In `trip_readiness`, build `outstanding = [{kind,label} for each checklist
-      item where not _settled(item)]` and add it to the returned dict.
-- [ ] Ensure the compact summary builder includes `outstanding` too.
-- [ ] Add `outstanding: ReadinessChecklistItem[]` to `ReadinessSummary` in
-      `frontend/src/types.ts` (inherited by `Readiness`).
-- [ ] Backend tests: for a UK-shaped trip (visa-free + ETA, ETA todo),
-      `outstanding` contains exactly `eta`; once the ETA row is `approved`,
-      `outstanding` is empty and `state` is `ready`.
+- [x] In `trip_readiness`, build `outstanding` (`{kind,label}` per unsettled
+      checklist item, via `_settled`) and add it to the returned dict; also
+      `outstanding: []` in `_empty_readiness`.
+- [x] Added `outstanding` to the compact whitelist in `api/trips.py`.
+- [x] Added `OutstandingItem` and `outstanding` to `ReadinessSummary` in
+      `frontend/src/types.ts` (inherited by `Readiness`). Updated the four
+      existing frontend test fixtures so the build stays green (Phase 4 rewrites
+      the immigration test properly).
+- [x] Backend tests: UK-shaped trip → `outstanding == [eta]`; after the ETA row
+      is approved, `outstanding == []` and `state == ready`. `na` dict updated.
 
-**Phase gate:** `pytest backend/tests -q` green. Commit. Record hash: `______`.
+**Phase gate:** `pytest backend/tests -q` green (390); `npx tsc --noEmit` clean;
+`npm test` green (67); ruff clean. Committed. Hash: `______` (this commit). ✅
+
+**Lessons from Phase 3.** `outstanding` is derived with the exact `_settled` rule
+that decides `state`, so the badge can never contradict the state (e.g. show
+"Ready" while listing an owed document). Making the field required in the shared
+type immediately caught four test fixtures — good, it means every readiness
+object now carries the field the badge depends on.
 
 ---
 

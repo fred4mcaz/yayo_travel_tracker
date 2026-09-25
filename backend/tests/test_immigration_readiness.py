@@ -209,6 +209,20 @@ def test_eta_only_country_gets_an_eta_row_and_no_visa_row(session: Session, clie
     assert readiness["permit"] == "visa_free"
     assert readiness["permitted_days"] == 180
     assert {c["kind"] for c in readiness["checklist"]} == {"eta"}
+    # The named outstanding list is what the badge reads: exactly the ETA, owed.
+    assert readiness["outstanding"] == [
+        {"kind": "eta", "label": "Electronic travel authorization"}
+    ]
+
+    # Once the ETA is confirmed (e.g. an accepted immigration email, source=email
+    # -- there is no manual dropdown), outstanding empties and the trip is ready.
+    eta_row = next(r for r in rows if r.kind == RequirementKind.eta)
+    eta_row.status = RequirementStatus.approved
+    session.add(eta_row)
+    session.commit()
+    ready = trip_readiness(session, trip)
+    assert ready["state"] == "ready"
+    assert ready["outstanding"] == []
 
 
 def test_undated_or_countryless_trip_reads_na_with_no_rows(session: Session, client):
@@ -228,6 +242,7 @@ def test_undated_or_countryless_trip_reads_na_with_no_rows(session: Session, cli
         "permit": None,
         "permitted_days": None,
         "checklist": [],
+        "outstanding": [],
         "arrival_card": None,
         "onward_ticket": None,
         "advisory": "",

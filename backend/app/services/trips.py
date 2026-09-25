@@ -586,6 +586,7 @@ def _empty_readiness(
         "permit": None,
         "permitted_days": None,
         "checklist": [],
+        "outstanding": [],
         "arrival_card": None,
         "onward_ticket": None,
         "advisory": "",
@@ -656,6 +657,17 @@ def trip_readiness(session: Session, trip: Trip) -> dict:
 
     ready = all(_settled(item) for item in checklist)
 
+    # The documents/authorizations still owed, named -- the source of truth for
+    # every warning surface (the card badge, the detail section). Computed with
+    # the same _settled rule as `ready`, so the badge can never disagree with the
+    # state. Ordered by POLICY_REQUIREMENT_KINDS (checklist order) so the text is
+    # deterministic. Empty exactly when state is "ready".
+    outstanding = [
+        {"kind": item["kind"], "label": item["label"]}
+        for item in checklist
+        if not _settled(item)
+    ]
+
     return {
         "state": "ready" if ready else "action",
         "passport": nationality.value,
@@ -663,6 +675,7 @@ def trip_readiness(session: Session, trip: Trip) -> dict:
         "permit": policy.permit_type.value if policy.permit_type else None,
         "permitted_days": policy.permitted_days,
         "checklist": checklist,
+        "outstanding": outstanding,
         "arrival_card": arrival_card,
         "onward_ticket": onward_ticket,
         "advisory": policy.advisory,

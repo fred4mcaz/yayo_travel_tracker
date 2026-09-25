@@ -24,6 +24,7 @@ function trip(over: Partial<TripSummary> = {}): TripSummary {
       state: "na",
       permit: null,
       permitted_days: null,
+      outstanding: [],
       arrival_card: null,
       onward_ticket: null,
       checked_on: null,
