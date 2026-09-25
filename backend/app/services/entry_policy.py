@@ -62,10 +62,19 @@ def readiness_passport(entry: Optional[CountryEntry]) -> Nationality:
 ENTRY_POLICY_TOOL = {
     "name": "assess_entry_policy",
     "description": (
-        "Record what a passport holder needs to enter a country as a tourist: "
-        "the permit they enter under, and which of the usual pre-arrival "
-        "requirements actually apply. Answer for a short leisure stay, not a "
-        "residency or work application."
+        "Record what a passport holder must DO to enter a country as a tourist. "
+        "The heart of the answer is the set of documents and authorizations "
+        "they are required to obtain -- a visa, an Electronic Travel "
+        "Authorization (ETA/ESTA/eTA/ETIAS), an arrival/entry card, mandatory "
+        "insurance, a mandatory vaccination, or proof of onward travel. Set "
+        "each of the *_required booleans independently and truthfully: together "
+        "they are the action list the traveller is shown. Answer for a short "
+        "leisure stay, not a residency or work application. An Electronic "
+        "Travel Authorization is NOT a visa and NOT an e-visa: if the only "
+        "thing required is an ETA, then visa_required is false and permit_type "
+        "is visa_free. If nothing beyond a valid passport is required, every "
+        "boolean is false, permit_type is visa_free, and permitted_days is the "
+        "visa-free allowance (e.g. 90 for Japan)."
     ),
     "strict": True,
     "input_schema": {
@@ -89,21 +98,32 @@ ENTRY_POLICY_TOOL = {
                 "type": ["string", "null"],
                 "enum": list(PERMIT_TYPES) + [None],
                 "description": (
-                    "How this passport holder enters as a tourist: visa_free, "
-                    "evisa (apply online before travel), visa_on_arrival (pay "
-                    "and get it at the border), visa (apply at an embassy "
-                    "beforehand), residency, or citizen. Null if you don't know."
+                    "A DESCRIPTIVE label for how this passport holder is "
+                    "admitted -- it phrases the summary and does not by itself "
+                    "require any document. visa_free (admitted on the passport "
+                    "alone, even when an ETA or arrival card is separately "
+                    "required), evisa (a visa applied for online), "
+                    "visa_on_arrival (a visa bought at the border), visa (a "
+                    "visa applied for at an embassy beforehand), residency, or "
+                    "citizen. Use visa_free whenever the only requirements are "
+                    "an ETA and/or an arrival card. Null if you don't know."
                 ),
             },
             "permitted_days": {
                 "type": ["integer", "null"],
-                "description": "Days permitted to stay under that permit. Null if unknown.",
+                "description": (
+                    "Days permitted to stay under that permit -- the default "
+                    "allowance shown when no action is required (e.g. 90 for "
+                    "visa-free Japan). Null if unknown."
+                ),
             },
             "visa_required": {
                 "type": "boolean",
                 "description": (
-                    "True for evisa, visa_on_arrival, or visa permit types. "
-                    "False for visa_free, residency, or citizen."
+                    "True only if an actual VISA is required (evisa, "
+                    "visa_on_arrival, or an embassy visa). False for visa_free, "
+                    "residency, or citizen. An ETA/ESTA/ETIAS is NOT a visa: an "
+                    "ETA-only country has visa_required=false."
                 ),
             },
             "entry_card_required": {
@@ -124,8 +144,10 @@ ENTRY_POLICY_TOOL = {
             "eta_required": {
                 "type": "boolean",
                 "description": (
-                    "True for an Electronic Travel Authorization distinct from "
-                    "a visa (e.g. Canada eTA, UK ETA, US ESTA)."
+                    "True if an Electronic Travel Authorization distinct from a "
+                    "visa is required (e.g. UK ETA, Canada eTA, US ESTA, EU "
+                    "ETIAS). Independent of visa_required -- an ETA does not "
+                    "make visa_required true."
                 ),
             },
             "insurance_required": {
@@ -142,7 +164,10 @@ ENTRY_POLICY_TOOL = {
             },
             "summary": {
                 "type": "string",
-                "description": "One short sentence: the permit and its length, e.g. 'Visa-on-arrival, 30 days.'",
+                "description": (
+                    "One short sentence: the permit and its length, e.g. "
+                    "'Visa-free, 90 days.' or 'Visa-on-arrival, 30 days.'"
+                ),
             },
             "advisory": {
                 "type": "string",
@@ -224,10 +249,22 @@ def validate_policy(payload) -> Optional[PolicyReading]:
             if not 0 <= permitted_days <= 3650:
                 return None
 
+        # permit_type and visa_required must agree: you cannot be visa-free (or
+        # a resident/citizen) and also need a visa. The model sometimes sets
+        # visa_required=true purely because an ETA is required -- it once read
+        # the UK as evisa+visa when the reality is visa-free+ETA -- which would
+        # materialize a spurious "Visa" checklist row. Force the consistent
+        # reading; the ETA still surfaces via eta_required, which is
+        # independent. We do NOT infer the reverse (a stated visa permit is left
+        # as the model gave it), so this only ever *removes* a false visa.
+        visa_required = _clean_bool(payload.get("visa_required"))
+        if permit_type in (PermitType.visa_free, PermitType.residency, PermitType.citizen):
+            visa_required = False
+
         return PolicyReading(
             permit_type=permit_type,
             permitted_days=permitted_days,
-            visa_required=_clean_bool(payload.get("visa_required")),
+            visa_required=visa_required,
             entry_card_required=_clean_bool(payload.get("entry_card_required")),
             entry_card_name=_clean_str(payload.get("entry_card_name")),
             eta_required=_clean_bool(payload.get("eta_required")),
@@ -429,7 +466,14 @@ class OpenRouterPolicyModel:
                 "content": (
                     f"A traveller holding a {nationality} passport is visiting "
                     f"{country_name} ({country_code}) as a tourist for a short "
-                    "leisure stay. What do they need to enter?"
+                    "leisure stay. List exactly what documents or "
+                    "authorizations they must obtain to enter -- a visa, an "
+                    "Electronic Travel Authorization (ETA/ESTA/eTA/ETIAS), an "
+                    "arrival/entry card, mandatory insurance, a mandatory "
+                    "vaccination, or proof of onward travel. An ETA is not a "
+                    "visa: if only an ETA is required the entry is visa-free. If "
+                    "nothing beyond a passport is required, say so and give the "
+                    "visa-free day limit."
                 ),
             }
         ]

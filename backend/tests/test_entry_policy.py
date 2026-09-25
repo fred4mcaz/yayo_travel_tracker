@@ -89,6 +89,37 @@ def test_validate_policy_accepts_visa_free_with_no_extras_required():
     assert reading.entry_card_name == ""
 
 
+def test_validate_policy_eta_only_is_visa_free_not_a_visa():
+    # The UK-shaped case. The model sometimes muddles an ETA-only country as
+    # evisa/visa (it read the UK as evisa+visa_required when the reality is
+    # visa-free + ETA). validate_policy must land on visa-free so no spurious
+    # visa requirement is ever materialized; the ETA still shows on its own.
+    payload = {
+        **VALID_POLICY,
+        "permit_type": "visa_free",
+        "visa_required": True,  # the muddle the model sometimes emits
+        "entry_card_required": False,
+        "entry_card_name": None,
+        "eta_required": True,
+        "permitted_days": 180,
+        "summary": "Visa-free, 180 days; ETA required.",
+    }
+    reading = validate_policy(payload)
+    assert reading is not None
+    assert reading.permit_type == PermitType.visa_free
+    assert reading.visa_required is False  # forced consistent with visa_free
+    assert reading.eta_required is True
+
+
+def test_validate_policy_does_not_force_a_stated_visa_permit():
+    # The guard only ever *removes* a false visa (visa_free/residency/citizen).
+    # A genuine visa permit is left exactly as the model gave it.
+    reading = validate_policy({**VALID_POLICY, "permit_type": "visa", "visa_required": True})
+    assert reading is not None
+    assert reading.permit_type == PermitType.visa
+    assert reading.visa_required is True
+
+
 def test_validate_policy_rejects_bad_permit_type():
     assert validate_policy({**VALID_POLICY, "permit_type": "backpacker_visa"}) is None
 

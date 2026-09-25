@@ -77,6 +77,24 @@ VISA_REQUIRED_INDONESIA_MX = {
     "summary": "Visa required in advance, 30 days.",
 }
 
+# The UK-shaped, documents-first case: visa-free entry but an ETA is required.
+# The model emitted the muddle (permit visa_free but visa_required true);
+# validate_policy forces visa_required false, so only an ETA row is created --
+# no spurious "Visa" row. This is the London-trip failure, corrected.
+ETA_ONLY_UK = {
+    "permit_type": "visa_free",
+    "permitted_days": 180,
+    "visa_required": True,  # the muddle the guard corrects
+    "entry_card_required": False,
+    "entry_card_name": None,
+    "eta_required": True,
+    "insurance_required": False,
+    "vaccination_required": False,
+    "onward_ticket_required": False,
+    "summary": "Visa-free, 180 days; ETA required.",
+    "advisory": "Border rules change without notice -- verify before you fly.",
+}
+
 
 def _mk_trip(client) -> int:
     r = client.post("/api/trips", json={})
@@ -168,6 +186,29 @@ def test_visa_on_arrival_country_gets_visa_and_entry_card_rows_and_reads_action(
     session.add(visa)
     session.commit()
     assert trip_readiness(session, trip)["state"] == "ready"
+
+
+def test_eta_only_country_gets_an_eta_row_and_no_visa_row(session: Session, client):
+    # The London-trip failure, corrected: a documents-first, visa-free-with-ETA
+    # reading must materialize exactly one ETA requirement and no visa row, and
+    # read as action (the ETA is owed) with the visa-free day limit intact.
+    from app.models import Trip
+
+    trip_id = _mk_trip(client)
+    _mk_stay(client, trip_id, country_code="gb")
+    trip = session.get(Trip, trip_id)
+    model = FakePolicyModel({("GB", "US"): ETA_ONLY_UK})
+
+    rows = sync_requirements(session, trip, model)
+    kinds = {r.kind for r in rows}
+    assert kinds == {RequirementKind.eta}
+    assert RequirementKind.visa not in kinds
+
+    readiness = trip_readiness(session, trip)
+    assert readiness["state"] == "action"
+    assert readiness["permit"] == "visa_free"
+    assert readiness["permitted_days"] == 180
+    assert {c["kind"] for c in readiness["checklist"]} == {"eta"}
 
 
 def test_undated_or_countryless_trip_reads_na_with_no_rows(session: Session, client):
