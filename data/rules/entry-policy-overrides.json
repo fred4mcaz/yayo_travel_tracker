@@ -37,6 +37,42 @@
       "advisory": "Advisory only -- border rules change without notice, verify with the Indonesian mission before you fly.",
       "checked_on": "2026-08-05",
       "source": "Manually verified."
+    },
+    {
+      "_note": "US citizens visiting the UK are visa-free for up to 6 months but MUST hold a UK ETA (Electronic Travel Authorisation) -- required and enforced for US nationals since 25 February 2026. The ETA is NOT a visa. This corrects a claude-sonnet-5 reading that labelled the UK evisa + visa_required (the London-trip near-miss): the reality is visa-free + ETA.",
+      "country_code": "GB",
+      "nationality": "US",
+      "permit_type": "visa_free",
+      "permitted_days": 180,
+      "visa_required": false,
+      "entry_card_required": false,
+      "entry_card_name": null,
+      "eta_required": true,
+      "insurance_required": false,
+      "vaccination_required": false,
+      "onward_ticket_required": false,
+      "summary": "Visa-free, 6 months; UK ETA required before travel.",
+      "advisory": "Advisory only -- border rules change without notice. Apply for the ETA at gov.uk/eta before you fly.",
+      "checked_on": "2026-09-25",
+      "source": "Manually verified against gov.uk/eta and the ETA eligibility guidance (gov.uk), 2026-09-25. Corrects a claude-sonnet-5 evisa misread."
+    },
+    {
+      "_note": "Mexican citizens are non-visa nationals for the UK: visa-free for up to 6 months but MUST hold a UK ETA. The ETA is not a visa. Mexico is listed as an ETA-eligible nationality on gov.uk.",
+      "country_code": "GB",
+      "nationality": "MX",
+      "permit_type": "visa_free",
+      "permitted_days": 180,
+      "visa_required": false,
+      "entry_card_required": false,
+      "entry_card_name": null,
+      "eta_required": true,
+      "insurance_required": false,
+      "vaccination_required": false,
+      "onward_ticket_required": false,
+      "summary": "Visa-free, 6 months; UK ETA required before travel.",
+      "advisory": "Advisory only -- border rules change without notice. Apply for the ETA at gov.uk/eta before you fly.",
+      "checked_on": "2026-09-25",
+      "source": "Manually verified against the gov.uk ETA eligibility guidance, 2026-09-25 (Mexico listed as an ETA-eligible non-visa nationality)."
     }
   ]
 }

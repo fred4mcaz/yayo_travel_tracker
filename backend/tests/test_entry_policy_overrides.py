@@ -126,3 +126,19 @@ def test_shipped_overrides_correct_the_indonesia_mx_bug():
     assert row.permit_type == PermitType.visa_on_arrival
     assert row.visa_required is True
     load_overrides.cache_clear()
+
+
+def test_shipped_overrides_correct_the_uk_eta_reading():
+    """Regression guard for the London near-miss: the shipped file must read the
+    UK as visa-free + ETA for both passports, never as a visa. If the model's
+    stale evisa row ever came back, this override still wins."""
+    assert REAL_OVERRIDES.exists()
+    overrides = load_overrides(path=REAL_OVERRIDES)
+    for nat in (Nationality.US, Nationality.MX):
+        row = overrides.get(("GB", nat))
+        assert row is not None, f"the UK/{nat.value} ETA correction must ship"
+        assert row.permit_type == PermitType.visa_free
+        assert row.visa_required is False
+        assert row.eta_required is True
+        assert row.permitted_days == 180
+    load_overrides.cache_clear()

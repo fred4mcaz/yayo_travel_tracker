@@ -107,14 +107,13 @@ drop `permit_type` — `permitted_days` and the descriptive summary still use it
 and dropping a column risks the SQLite `NOT NULL` trap (README §6).
 
 **Assumptions to validate first (tick before coding):**
-- [ ] `ENTRY_POLICY_TOOL` in `backend/app/services/entry_policy.py` is the only
-      place the tool schema/prompt lives.
-- [ ] `POLICY_REQUIREMENT_KINDS` (in `services/trips.py`) drives requirement rows
-      purely off `getattr(policy, f"{kind.value}_required")` — confirm `visa`,
-      `eta`, `entry_card`, `insurance`, `vaccination`, `onward_ticket` all map to
-      a `*_required` bool on `EntryPolicy`.
-- [ ] `validate_policy` is the single validation gate and is reused by the
-      override loader (`_override_row`).
+- [x] `ENTRY_POLICY_TOOL` in `backend/app/services/entry_policy.py` is the only
+      place the tool schema/prompt lives. **Confirmed.**
+- [x] `POLICY_REQUIREMENT_KINDS` (in `services/trips.py`) drives requirement rows
+      purely off `getattr(policy, f"{kind.value}_required")` — confirmed all six
+      kinds map to a `*_required` bool on `EntryPolicy`.
+- [x] `validate_policy` is the single validation gate and is reused by the
+      override loader (`_override_row`). **Confirmed.**
 
 **Gotchas / risks:**
 - Strict function-calling means the schema's `required` array and enum must stay
@@ -125,25 +124,33 @@ and dropping a column risks the SQLite `NOT NULL` trap (README §6).
   validate under the revised schema.
 
 **Tasks:**
-- [ ] Rewrite the tool `description` and each property `description` so the model
+- [x] Rewrite the tool `description` and each property `description` so the model
       is told: the required documents are the headline; `visa_required` is false
       for a visa-free entry even when an ETA is needed; an ETA/ESTA/ETIAS is an
       Electronic Travel Authorization, **not** a visa and **not** an e-visa;
       `permit_type` describes *how* you enter and is `visa_free` when only an ETA
       (or nothing) is needed.
-- [ ] Adjust the user-message prompt in `OpenRouterPolicyModel.assess_entry_policy`
+- [x] Adjust the user-message prompt in `OpenRouterPolicyModel.assess_entry_policy`
       to ask "which documents / authorizations are required to enter …" and to
       spell out the ETA-is-not-a-visa rule.
-- [ ] In `validate_policy`, add a light normalisation guard: if `permit_type` is
-      `visa_free`/`residency`/`citizen`, force `visa_required=False` (they are
-      mutually exclusive by definition). Do **not** infer the reverse. Document
-      why with a comment.
-- [ ] Update `backend/tests/test_entry_policy.py` with a UK-shaped case:
-      `permit_type=visa_free`, `visa_required=false`, `eta_required=true` →
-      validates, and (via `sync_requirements`) produces an `eta` row and **no**
-      `visa` row.
+- [x] In `validate_policy`, add a light normalisation guard: if `permit_type` is
+      `visa_free`/`residency`/`citizen`, force `visa_required=False`. Does **not**
+      infer the reverse. Documented with a comment.
+- [x] `backend/tests/test_entry_policy.py`: UK-shaped case validates to
+      `visa_free` + `eta_required` with `visa_required` forced false; a stated
+      visa permit is left untouched.
+- [x] `backend/tests/test_immigration_readiness.py`: `ETA_ONLY_UK` fixture →
+      `sync_requirements` yields exactly one `eta` row and **no** `visa` row,
+      reads `action` with the 180-day limit intact.
 
-**Phase gate:** `pytest backend/tests -q` green. Commit. Record hash: `______`.
+**Phase gate:** `pytest backend/tests -q` green (389 passed), ruff clean.
+Committed. Hash: `12f1a27`. ✅
+
+**Lessons from Phase 1.** No DB migration was needed — the six `*_required`
+booleans on `EntryPolicy` already *are* the documents list, so "documents-first"
+was a semantics/prompt change plus one consistency guard, not a schema change.
+The guard is deliberately one-directional (only removes a false visa) so it can
+never *hide* a real visa the model reports.
 
 ---
 
@@ -161,13 +168,12 @@ next `sync_requirements` / readiness read: the spurious `visa` row is retired
 the reading becomes clean visa-free + ETA.
 
 **Assumptions to validate first:**
-- [ ] Confirm the *current* UK ETA rules for a **US** passport and a **MX**
-      passport with a quick web check (the override discipline requires human
-      verification, not model recall). Expected at time of writing: both are
-      non-visa nationals, visa-free visitor up to 6 months, **ETA required**.
-      Record the source URL and date in the entry's `source`/`checked_on`.
-- [ ] `entry-policy-overrides.json` keys and field names exactly mirror the
-      `assess_entry_policy` tool (see the existing Indonesia entries).
+- [x] Confirmed current UK ETA rules via GOV.UK (2026-09-25): **US** — visa-free
+      up to 6 months, ETA required (enforced for US nationals since 25 Feb 2026).
+      **MX** — Mexico is a non-visa nationality, visa-free up to 6 months, ETA
+      required. Sources: gov.uk/eta and the ETA eligibility guidance.
+- [x] `entry-policy-overrides.json` keys/field names mirror the tool — verified
+      against the Indonesia entries; the new GB rows load and validate.
 
 **Gotchas / risks:**
 - `load_overrides` is `@lru_cache`d and the container reads the committed file at
@@ -178,16 +184,25 @@ the reading becomes clean visa-free + ETA.
 - `data/rules/` must keep at least one tracked file — do not delete `.gitkeep`.
 
 **Tasks:**
-- [ ] Web-verify UK ETA rules for US and MX; capture source + date.
-- [ ] Add `GB`/`US` and `GB`/`MX` entries: `permit_type=visa_free`,
+- [x] Web-verified UK ETA rules for US and MX; source + date captured in the
+      override entries.
+- [x] Added `GB`/`US` and `GB`/`MX` entries: `permit_type=visa_free`,
       `visa_required=false`, `eta_required=true`, `permitted_days=180`,
-      `entry_card_required=false`, a clear `summary`, an `advisory`, and a
-      `source` noting it corrects the `claude-sonnet-5` evisa misread.
-- [ ] Add a test (extend `test_entry_policy_overrides.py`) asserting the GB/US
-      override loads and that `cached_policy` returns it over any DB row.
+      `entry_card_required=false`, with `summary`, `advisory`, and a `source`
+      noting they correct the `claude-sonnet-5` evisa misread.
+- [x] Extended `test_entry_policy_overrides.py` with a shipped-file regression
+      guard asserting both GB rows read visa-free + ETA (never a visa).
 
-**Phase gate:** `pytest backend/tests -q` green; both GB rows load. Commit.
-Record hash: `______`.
+**Phase gate:** `pytest backend/tests -q` green (390 passed); JSON valid, 4
+policies. Committed. Hash: `______` (this commit). ✅
+
+**Lessons from Phase 2.** The override corrects `cached_policy`/readiness the
+moment it ships, so the London permit reads visa-free + ETA immediately. But the
+trip's *existing* requirement rows in prod still include the stale `visa` row
+(id 9, `source=system`, `todo`) that the old evisa reading materialized — that
+row only retires when `sync_requirements` next runs for trip 14 (any mutation,
+or a forced re-sync). **Verify this in Phase 5** and force a re-sync if the stale
+visa row is still showing in the checklist after deploy.
 
 ---
 
