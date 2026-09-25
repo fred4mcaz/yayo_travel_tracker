@@ -362,15 +362,29 @@ actual London trip is the test fixture.
 - [x] Ship the maintenance script in the image (`COPY scripts/` → `/srv/scripts/`).
 - [x] Updated README §1 (documents-first badge, imminent-unknown, no dropdowns,
       the dedup guard, the override + resync correction path).
-- [ ] **Ask the traveller to `git push`** (cannot push from here).
-- [ ] After push: `ssh yayokun@5.78.184.240 'cd /srv/yayo_travel_tracker && ./deploy/deploy.sh'`
-- [ ] After deploy, reconcile the live trips once:
-      `ssh yayokun@5.78.184.240 'cd /srv/yayo_travel_tracker && docker compose -f deploy/docker-compose.yml exec -T app python /srv/scripts/resync_requirements.py'`
-- [ ] Verify the deployed bundle contains the new "Need: " badge string, and the
-      live London trip reads "Need: ETA".
+- [x] Traveller pushed.
+- [x] Deployed (`deploy.sh`): image rebuilt, healthy in 4s.
+- [x] Ran the reconcile in the container. It reported **0 reconciled** — the live
+      trips were already consistent when it ran (trip 14 already `[eta]`, trip 1
+      already `[entry_card, visa]`). The tool itself is proven functional (local
+      runs reported per-trip changes correctly); I could not fully account for the
+      prod timing and did not overclaim it.
+- [x] Verified in the container: override loads (`GB/US` → visa_free + ETA);
+      **trip 14** = `[eta]`, readiness `action` / visa_free / 180 / outstanding
+      `[eta]`; **trip 1** (Indonesia/MX) = `[entry_card, visa]`, correctly warns.
+- [x] Deployed bundle carries the new strings: `Need: ` (badge) and
+      `Entry rules not verified` (imminent-unknown).
 
-**Phase gate:** code + README committed; deploy + prod resync + bundle check done
-after the push. Commit hash (code/docs): `e63a763`.
+**Phase gate:** deployed, reconciled, bundle + live readings verified, README
+updated. Commit hash (code/docs): `e63a763`; plan hash: `df87f4a`. ✅
+
+**Lessons from Phase 5.** "Verify in a browser" earned its keep again — driving
+the real London trip exposed both the lingering stale visa row *and*, via the
+resync tool built to clear it, a latent duplicate-`entry_card` bug unrelated to
+the badge work (the UI dedupes by kind, so unit tests never saw it). One loose
+end: the container resync reported 0 changes though prod was expected dirty; the
+end state is verified correct and the tool works locally, but the exact prod
+timing is unexplained — worth a glance if a future override reconcile behaves oddly.
 
 **Lessons from Phase 5.** "Verify in a browser" earned its keep again — driving
 the real London trip is what exposed both the lingering stale visa row *and*, via
