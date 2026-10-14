@@ -141,7 +141,10 @@ BOOKING_ITEM_SCHEMA = {
             "description": (
                 "Destination city -- the FINAL arrival city for a journey, the "
                 "city you stay in for a hotel. Never the origin, and for a "
-                "connecting journey never an intermediate connection city."
+                "connecting journey never an intermediate connection city. "
+                "Always its common English name (e.g. 'Tokyo', 'Seoul', "
+                "'Bangkok'), even when the email prints it in another "
+                "language or script."
             ),
         },
         "start_date": {
@@ -160,7 +163,10 @@ BOOKING_ITEM_SCHEMA = {
             "description": (
                 "The property's name. For a vacation rental (Airbnb, Vrbo) "
                 "use the listing title as printed, e.g. 'Central of Shibuya "
-                "5 min/Cozy Room'. Null for a leg."
+                "5 min/Cozy Room'. Write it in English: use the property's "
+                "official English name if one is printed or well known, "
+                "otherwise translate the title (romanize a proper name). Null "
+                "for a leg."
             ),
         },
         # The exact street address of the stay (airbnb_address_extraction
@@ -184,7 +190,11 @@ BOOKING_ITEM_SCHEMA = {
         },
         "carrier": {
             "type": ["string", "null"],
-            "description": "Airline or operator, for a leg.",
+            "description": (
+                "Airline or operator, for a leg, by its English name -- e.g. "
+                "'Korean Air' not '대한항공', 'China Eastern Airlines' not "
+                "'中国东方航空', 'Turkish Airlines' not 'Türk Hava Yolları'."
+            ),
         },
         # --- leg detail -----------------------------------------------------
         # One confirmation is ONE arrival into ONE country even when the ticket
@@ -206,8 +216,8 @@ BOOKING_ITEM_SCHEMA = {
             "type": ["string", "null"],
             "description": (
                 "Origin of the whole journey -- the departure city/airport "
-                "name, e.g. 'London-Stansted'. Never a connection point. Null "
-                "for a hotel."
+                "name in English, e.g. 'London-Stansted', 'Tokyo-Haneda' (never "
+                "'東京国際空港'). Never a connection point. Null for a hotel."
             ),
         },
         "from_iata": {
@@ -219,9 +229,9 @@ BOOKING_ITEM_SCHEMA = {
         "to_place": {
             "type": ["string", "null"],
             "description": (
-                "Final destination city/airport name, e.g. 'Astana'. For a "
-                "connecting journey this is the last stop, never a connection. "
-                "Null for a hotel."
+                "Final destination city/airport name in English, e.g. "
+                "'Astana', 'Seoul-Incheon'. For a connecting journey this is "
+                "the last stop, never a connection. Null for a hotel."
             ),
         },
         "to_iata": {
@@ -260,6 +270,23 @@ BOOKING_ITEM_SCHEMA = {
         },
     },
 }
+
+# Confirmations sometimes arrive in the airline's or hotel's own language
+# (Korean, Chinese, Japanese, Turkish, ...), but everything shown on the site is
+# English. The model translates while it extracts, so a proposal is already in
+# English when it reaches review. Codes and the street address stay verbatim:
+# a code is language-neutral, and the address must match what a taxi driver or
+# a map search will see.
+ENGLISH_OUTPUT_INSTRUCTION = (
+    "The email may be written in any language. Record every descriptive field "
+    "in English regardless: airline/operator names by their English name "
+    "(e.g. 'Korean Air', not '대한항공'), cities and airports by their common "
+    "English names (e.g. 'Tokyo-Narita', not '成田空港'), and hotel or listing "
+    "names by their official English name, or translated/romanized when none "
+    "is printed. Never return non-English text in those fields. Leave codes "
+    "exactly as printed -- IATA codes, flight numbers, seats, confirmation "
+    "codes -- and copy the street address verbatim as its field describes."
+)
 
 EXTRACT_TOOL = {
     "name": "record_booking",
@@ -982,7 +1009,12 @@ class OpenRouterModel:
         self, subject: str, body: str, received_on: Optional[date] = None
     ) -> Optional[dict]:
         return self._call(
-            self.extract_model, EXTRACT_TOOL, subject, body, received_on
+            self.extract_model,
+            EXTRACT_TOOL,
+            subject,
+            body,
+            received_on,
+            instructions=(ENGLISH_OUTPUT_INSTRUCTION,),
         )
 
     def extract_immigration_document(self, subject: str, body: str) -> Optional[dict]:
@@ -995,25 +1027,25 @@ class OpenRouterModel:
         subject: str,
         body: str,
         received_on: Optional[date] = None,
+        *,
+        instructions: tuple[str, ...] = (),
     ) -> Optional[dict]:
-        messages: list[dict] = []
+        system: list[str] = list(instructions)
         if received_on is not None:
             # The model has no other way to know the year. A confirmation is for
             # a future stay, so anchoring on the day it arrived stops the "wrong
             # year" default the extractor otherwise reaches for.
-            messages.append(
-                {
-                    "role": "system",
-                    "content": (
-                        f"This confirmation email arrived on {received_on.isoformat()}. "
-                        "The stay or journey it describes is on or after that date -- "
-                        "a booking is never in the past. Read every date from the email "
-                        "itself, and whenever a year is missing or ambiguous choose the "
-                        "one that puts the trip on or after the arrival date. Never "
-                        "return a check-in earlier than the day this email arrived."
-                    ),
-                }
+            system.append(
+                f"This confirmation email arrived on {received_on.isoformat()}. "
+                "The stay or journey it describes is on or after that date -- "
+                "a booking is never in the past. Read every date from the email "
+                "itself, and whenever a year is missing or ambiguous choose the "
+                "one that puts the trip on or after the arrival date. Never "
+                "return a check-in earlier than the day this email arrived."
             )
+        messages: list[dict] = []
+        if system:
+            messages.append({"role": "system", "content": "\n\n".join(system)})
         messages.append({"role": "user", "content": f"Subject: {subject}\n\n{body}"})
         response = self._client.chat.completions.create(
             model=model,

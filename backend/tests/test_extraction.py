@@ -18,6 +18,7 @@ from sqlmodel import Session, select
 
 from app.models import EmailMessage, Extraction, ExtractionStatus, Nationality, RequirementKind
 from app.services.extraction import (
+    ENGLISH_OUTPUT_INSTRUCTION,
     EXTRACT_TOOL,
     IMMIGRATION_DOC_TOOL,
     TRIAGE_TOOL,
@@ -886,7 +887,7 @@ def test_real_client_puts_the_received_date_in_the_prompt(session: Session):
     assert "2026-07-15" in system[0]["content"]
 
 
-def test_real_client_omits_the_system_message_without_a_date(session: Session):
+def test_real_client_omits_the_year_anchor_without_a_date(session: Session):
     sent: dict = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -897,6 +898,46 @@ def test_real_client_omits_the_system_message_without_a_date(session: Session):
 
     model = _model_with_transport(handler)
     model.extract("Your booking", "Sofitel, Hanoi")
+
+    # Only the English-output instruction -- no year anchor without a date.
+    system = [m for m in sent["messages"] if m["role"] == "system"]
+    assert [m["content"] for m in system] == [ENGLISH_OUTPUT_INSTRUCTION]
+
+
+def test_real_client_asks_for_english_output_on_extract(session: Session):
+    """A confirmation in another language is still recorded in English."""
+    sent: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(json.loads(request.content))
+        return _openrouter_tool_response(
+            EXTRACT_TOOL["name"], {"bookings": [VALID_BOOKING]}
+        )
+
+    model = _model_with_transport(handler)
+    model.extract("예약 확인", "대한항공 KE123 인천 → 하노이", date(2026, 7, 15))
+
+    system = [m for m in sent["messages"] if m["role"] == "system"]
+    assert len(system) == 1
+    assert ENGLISH_OUTPUT_INSTRUCTION in system[0]["content"]
+    assert "2026-07-15" in system[0]["content"]
+    # The per-field descriptions carry the same requirement.
+    props = sent["tools"][0]["function"]["parameters"]["properties"]["bookings"]["items"]["properties"]
+    for field in ("carrier", "city", "from_place", "to_place", "hotel_name"):
+        assert "English" in props[field]["description"], field
+
+
+def test_real_client_triage_carries_no_english_instruction(session: Session):
+    sent: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(json.loads(request.content))
+        return _openrouter_tool_response(
+            TRIAGE_TOOL["name"], {"is_booking": True, "confidence": 0.9, "reason": "ok"}
+        )
+
+    model = _model_with_transport(handler)
+    model.triage("예약 확인", "대한항공 KE123")
 
     assert [m for m in sent["messages"] if m["role"] == "system"] == []
 
