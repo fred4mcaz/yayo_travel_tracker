@@ -786,3 +786,20 @@ def test_the_leaving_date_extends_the_trip_span(client):
         json={"exited_on": str(TODAY + timedelta(days=24))},
     ).json()
     assert detail["end_date"] == str(TODAY + timedelta(days=24))
+
+
+def test_an_earlier_leaving_date_shortens_the_trip_span(client):
+    """Leaving before the last checkout ends the trip then -- the calendar and
+    trip list follow the leaving date, not the unused hotel nights. (A
+    Kazakhstan trip set to leave Oct 25 once kept its Oct 31 checkout.)"""
+    trip_id = _mk_trip(client)
+    detail = _stay_in(client, trip_id, "KZ", "Astana", 10, nights=30)
+    assert detail["end_date"] == str(TODAY + timedelta(days=40))
+
+    detail = client.patch(
+        f"/api/trips/{trip_id}/entries/{detail['country']['entry']['id']}",
+        json={"exited_on": str(TODAY + timedelta(days=34))},
+    ).json()
+    assert detail["end_date"] == str(TODAY + timedelta(days=34))
+    row = next(t for t in client.get("/api/trips").json() if t["id"] == trip_id)
+    assert row["end_date"] == str(TODAY + timedelta(days=34))

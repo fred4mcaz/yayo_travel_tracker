@@ -66,11 +66,15 @@ def refresh_trip_dates(session: Session, trip: Trip) -> Trip:
         if when:
             starts.append(when.date())
             ends.append(when.date())
-    if entry and entry.exited_on:
-        ends.append(entry.exited_on)
-
     trip.start_date = min(starts) if starts else None
     trip.end_date = max(ends) if ends else None
+    # The leaving date is when the stay actually ends -- authoritative in both
+    # directions, so leaving before the last checkout shortens the trip (it
+    # once only ever extended it: a Kazakhstan trip set to leave Oct 25 kept
+    # its Oct 31 checkout as the end). Mirrors trip_country's ends_on. Never
+    # before the start, which the date picker already prevents.
+    if entry and entry.exited_on:
+        trip.end_date = max(entry.exited_on, trip.start_date or entry.exited_on)
     trip.updated_at = utcnow()
     session.add(trip)
     return trip
