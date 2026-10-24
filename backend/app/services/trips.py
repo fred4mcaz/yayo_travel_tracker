@@ -647,14 +647,24 @@ def trip_readiness(session: Session, trip: Trip) -> dict:
             .where(Requirement.kind.in_(POLICY_REQUIREMENT_KINDS))
         ).all()
     }
+    # Fail safe: a kind the policy requires is on the checklist whether or not
+    # sync_requirements has materialized its row yet. A missing row means "not
+    # synced", never "not required" -- an email-created Indonesia trip once
+    # read `ready` with no e-CD or visa shown because its accept path skipped
+    # the sync. The synthesized item reads `todo`, exactly what the row would.
+    required_kinds = {
+        kind
+        for kind in POLICY_REQUIREMENT_KINDS
+        if getattr(policy, f"{kind.value}_required")
+    }
     checklist = [
         {
             "kind": kind.value,
-            "label": rows[kind].label or _KIND_LABELS[kind],
-            "status": rows[kind].status.value,
+            "label": (rows[kind].label if kind in rows else "") or _KIND_LABELS[kind],
+            "status": rows[kind].status.value if kind in rows else RequirementStatus.todo.value,
         }
         for kind in POLICY_REQUIREMENT_KINDS
-        if kind in rows
+        if kind in rows or kind in required_kinds
     ]
 
     entry_card_row = rows.get(RequirementKind.entry_card)

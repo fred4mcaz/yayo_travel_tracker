@@ -22,6 +22,7 @@ from app.db import engine, get_session
 from app.models import EmailMessage, Extraction, ExtractionKind, ExtractionStatus, Stay, utcnow
 from app.services import immigration
 from app.services.email_ingest import ImapMailbox
+from app.services.entry_policy import policy_model_or_none
 from app.services.extraction import OpenRouterModel, extract_selected
 from app.services.review import (
     NotAcceptable,
@@ -309,7 +310,9 @@ def accept(
 
     overrides = payload.model_dump(exclude_none=True, exclude={"reference"})
     try:
-        result = accept_extraction(session, extraction, overrides or None)
+        result = accept_extraction(
+            session, extraction, overrides or None, policy_model_or_none()
+        )
     except NotAcceptable as exc:
         # The proposal cannot be turned into a valid record as it stands --
         # a person needs to fix a field. 422, not 500.

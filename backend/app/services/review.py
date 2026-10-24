@@ -42,9 +42,11 @@ from app.models import (
 from app.services.email_filter import effective_rules, is_sender_covered, sender_domain
 from app.services.extraction import Booking, validate_booking
 from app.services.geocode import fill_coordinates
+from app.services.entry_policy import EntryPolicyModel
 from app.services.trips import (
     refresh_trip_dates,
     sync_country_entries,
+    sync_requirements,
     trip_country_code,
 )
 
@@ -306,12 +308,17 @@ def accept_extraction(
     session: Session,
     extraction: Extraction,
     overrides: Optional[dict] = None,
+    policy_model: Optional[EntryPolicyModel] = None,
 ) -> AcceptResult:
     """Turn a pending proposal into real trip data. The only writer here.
 
     `overrides` lets the reviewer correct the model's reading before it lands --
     a missing city, a wrong date. Only the booking fields may be overridden;
     anything else is ignored so the review form cannot smuggle in a trip id.
+
+    `policy_model` is passed through to sync_requirements so an email-created
+    trip gets its entry checklist (visa, arrival card, ...) exactly like a
+    typed one. None still reconciles against cached and curated policies.
 
     Attaches to the suggested trip, or creates a new one when there is no
     suggestion -- which is exactly what a different-country booking gets, so the
@@ -360,6 +367,7 @@ def accept_extraction(
     refresh_trip_dates(session, trip)
     session.commit()
     sync_country_entries(session, trip)
+    sync_requirements(session, trip, policy_model)
 
     extraction.status = ExtractionStatus.accepted
     extraction.suggested_trip_id = trip_id

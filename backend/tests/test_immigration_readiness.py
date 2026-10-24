@@ -615,3 +615,107 @@ def test_onward_ticket_ignores_a_same_country_or_out_of_window_journey(
     _onward_journey(session, "TH", trip.end_date)
     _onward_journey(session, "SG", trip.end_date + timedelta(days=20))
     assert trip_readiness(session, trip)["onward_ticket"]["confirmed"] is False
+
+
+# --------------------------------------------------------------------------
+# Fail safe: a required kind is never silently dropped
+# --------------------------------------------------------------------------
+#
+# The Indonesia miss (2026-10-24): a trip created by accepting a hotel email
+# never ran sync_requirements, so it had zero Requirement rows -- and because
+# the checklist was built only from rows, readiness read `ready` with no e-CD
+# and no visa shown, despite a cached policy requiring both.
+
+
+def _accept_hotel_email(session: Session, country_code: str, model=None) -> Trip:
+    from app.services.review import accept_extraction
+
+    email = EmailMessage(imap_uid=9001, message_id="<9001@mail.example>", looks_like_travel=True)
+    session.add(email)
+    session.commit()
+    session.refresh(email)
+    payload = {
+        "kind": "hotel",
+        "country_code": country_code,
+        "city": "Ubud",
+        "start_date": str(TODAY + timedelta(days=3)),
+        "end_date": str(TODAY + timedelta(days=5)),
+        "hotel_name": "Some Villa",
+        "confirmation_code": "X1",
+    }
+    ext = Extraction(
+        email_message_id=email.id,
+        model="fake",
+        payload_json=json.dumps(payload),
+        confidence=0.9,
+        status=ExtractionStatus.pending,
+    )
+    session.add(ext)
+    session.commit()
+    session.refresh(ext)
+    result = accept_extraction(session, ext, policy_model=model)
+    return session.get(Trip, result.trip_id)
+
+
+def test_readiness_lists_policy_required_kinds_even_with_no_rows(session: Session, client):
+    trip_id = _mk_trip(client)
+    _mk_stay(client, trip_id, country_code="id")
+    trip = session.get(Trip, trip_id)
+    # Cache the policy, then wipe the materialized rows -- the unsynced state.
+    sync_requirements(session, trip, FakePolicyModel({("ID", "US"): VOA_INDONESIA}))
+    for row in session.exec(select(Requirement).where(Requirement.trip_id == trip_id)).all():
+        session.delete(row)
+    session.commit()
+
+    readiness = trip_readiness(session, trip)
+    assert readiness["state"] == "action"
+    assert {o["kind"] for o in readiness["outstanding"]} == {"visa", "entry_card"}
+    assert readiness["arrival_card"]["name"] == "Indonesia e-CD"
+
+
+def test_accepting_an_email_booking_materializes_requirements(session: Session):
+    trip = _accept_hotel_email(
+        session, "ID", FakePolicyModel({("ID", "US"): VOA_INDONESIA})
+    )
+
+    kinds = {
+        r.kind
+        for r in session.exec(select(Requirement).where(Requirement.trip_id == trip.id)).all()
+    }
+    assert kinds == {RequirementKind.visa, RequirementKind.entry_card}
+    readiness = trip_readiness(session, trip)
+    assert readiness["state"] == "action"
+    assert {o["kind"] for o in readiness["outstanding"]} == {"visa", "entry_card"}
+
+
+def test_accept_api_passes_the_policy_model(session: Session, client, monkeypatch):
+    import app.api.review as review_api
+
+    model = FakePolicyModel({("ID", "US"): VOA_INDONESIA})
+    monkeypatch.setattr(review_api, "policy_model_or_none", lambda: model)
+
+    email = EmailMessage(imap_uid=9002, message_id="<9002@mail.example>", looks_like_travel=True)
+    session.add(email)
+    session.commit()
+    session.refresh(email)
+    ext = Extraction(
+        email_message_id=email.id,
+        model="fake",
+        payload_json=json.dumps({
+            "kind": "hotel", "country_code": "ID", "city": "Ubud",
+            "start_date": str(TODAY + timedelta(days=3)),
+            "end_date": str(TODAY + timedelta(days=5)),
+            "hotel_name": "Some Villa", "confirmation_code": "X2",
+        }),
+        confidence=0.9,
+        status=ExtractionStatus.pending,
+    )
+    session.add(ext)
+    session.commit()
+    session.refresh(ext)
+
+    r = client.post(f"/api/review/{ext.id}/accept", json={})
+    assert r.status_code == 200, r.text
+    assert model.calls  # the policy was fetched on accept
+    detail = client.get(f"/api/trips/{r.json()['trip_id']}").json()
+    assert {o["kind"] for o in detail["readiness"]["outstanding"]} == {"visa", "entry_card"}

@@ -237,6 +237,15 @@ real in the DB, and able to flip a confirmed reading back to `action`.
 `trip_readiness` derives the compact/full reading purely from what's cached and
 what rows already exist; it never triggers a fetch itself.
 
+**A missing row means "not synced", never "not required".** `trip_readiness`
+lists every kind the policy requires even when no `Requirement` row exists yet,
+as `todo`, so a trip can't read `ready` just because a write path skipped
+`sync_requirements`. That's what happened in October 2026: trips created by
+*accepting an email booking* (`services/review.py#accept_extraction`) never
+synced, so an Indonesia trip read `ready` with no e-CD or visa shown. Accept now
+syncs like every manual edit does. **Any new code path that creates or reshapes a
+trip must call `sync_requirements`.**
+
 **Confirmed via Gmail, two ways**, both landing as Review-queue proposals —
 nothing writes to a `Requirement` without an explicit accept, same boundary as
 §5:
