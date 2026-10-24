@@ -513,3 +513,71 @@ describe("Calendar flight bands", () => {
     expect(band.textContent).toContain("1:15p");
   });
 });
+
+describe("Calendar week scrolling", () => {
+  const dayNums = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll(".cal-day .cal-daynum")).map((n) => n.textContent);
+  const title = (container: HTMLElement) => container.querySelector(".cal-head h2")!.textContent;
+  const click = (container: HTMLElement, label: string) =>
+    fireEvent.click(container.querySelector(`[aria-label="${label}"]`)!);
+
+  it("always shows five weeks", () => {
+    const { container } = renderCalendar();
+    expect(container.querySelectorAll(".cal-week")).toHaveLength(5);
+    expect(container.querySelectorAll(".cal-day")).toHaveLength(35);
+  });
+
+  it("steps one week at a time so a mid-month week can lead", () => {
+    const { container } = renderCalendar();
+    click(container, "Next week");
+    // Was Jul 26 – Aug 29; one week on, Aug 2 leads and Sep 5 closes.
+    expect(dayNums(container)[0]).toBe("2");
+    expect(dayNums(container)[34]).toBe("5");
+    expect(container.querySelectorAll(".cal-week")).toHaveLength(5);
+
+    click(container, "Next week");
+    click(container, "Next week");
+    // Aug 16 leads; the window's middle is now in September.
+    expect(dayNums(container)[0]).toBe("16");
+    expect(title(container)).toBe("September 2026");
+
+    click(container, "Previous week");
+    click(container, "Previous week");
+    click(container, "Previous week");
+    expect(dayNums(container)[0]).toBe("26");
+    expect(title(container)).toBe("August 2026");
+  });
+
+  it("greys out days outside the window's month", () => {
+    const { container } = renderCalendar();
+    click(container, "Next week");
+    const days = Array.from(container.querySelectorAll(".cal-day"));
+    // Aug 2 (in August) is not outside; Sep 5 (last cell) is.
+    expect(days[0].className).not.toContain("outside");
+    expect(days[34].className).toContain("outside");
+  });
+
+  it("month buttons and Today snap back to a month's first week", () => {
+    const { container } = renderCalendar();
+    click(container, "Next week");
+    click(container, "Next week");
+    // Aug 9 leads; the title still reads August, so "next month" is September.
+    expect(title(container)).toBe("August 2026");
+    click(container, "Next month");
+    // September 2026 opens on a Tuesday: its window leads with Aug 30.
+    expect(title(container)).toBe("September 2026");
+    expect(dayNums(container)[0]).toBe("30");
+
+    fireEvent.click(Array.from(container.querySelectorAll("button")).find((b) => b.textContent === "Today")!);
+    expect(title(container)).toBe("August 2026");
+    expect(dayNums(container)[0]).toBe("26");
+  });
+
+  it("Today keeps today visible in a month that spans six weeks", () => {
+    // Aug 31 2026 falls in the sixth week of August's grid.
+    vi.setSystemTime(new Date(2026, 7, 31, 12, 0, 0));
+    const { container } = renderCalendar();
+    expect(container.querySelector(".cal-day.today .cal-daynum")?.textContent).toBe("31");
+    expect(title(container)).toBe("August 2026");
+  });
+});

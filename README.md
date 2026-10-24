@@ -113,7 +113,11 @@ on purpose — the one thing it must never be mistaken for is a hotel checkout.
 Without it the stay can only end at
 the last checkout, so "two weeks in Vietnam, first four nights booked" — the
 most common way to forget a hotel — looks complete. It is optional; if unset,
-only gaps *between* bookings show. It also extends the trip's date span.
+only gaps *between* bookings show. When set it **is** the trip's end date, in
+both directions: later than the last checkout extends the trip, earlier (you
+left before your hotel booking ran out) shortens it, and the trip card and
+calendar follow. Before October 2026 it could only extend, so an early
+departure never showed on the calendar.
 
 Deliberately silent about: overlapping bookings (double-booked is a different
 problem) and anything after the last hotel when no leaving date is set.
@@ -347,7 +351,7 @@ data/geo/              GENERATED — run scripts/build_geo.py
 | Missing travel | Warn banner on the trip detail when a future/ongoing trip has a country but no arrival leg, with a shortcut to the leg form. Silent on past and undated trips. See §1 |
 | Trips list | Grouped Ongoing / Upcoming / No dates yet / Past; Upcoming ordered soonest-first, the rest most-recent-first. See §1 |
 | Merge trips | See §1. Detail panel offers a merge for a same-country, near-dated trip; folds it in and deletes it. Refused across countries. "Keep separate" persistently dismisses a suggestion (`merge_dismissal` table) |
-| Calendar | Sunday-to-Saturday month grid; one distinctly-coloured bar per hotel, offset to start mid-check-in-day and end mid-checkout-day, inside an outlined wrapper for the country stay; notes as dots. Each journey is a slim flight band spanning departure → arrival on a strip above every block that week, always showing both times (codes too when wide), a connection marker and a ⁺1 next-day mark (§1). Drag across days to start a new trip with those dates pre-filled |
+| Calendar | Sunday-to-Saturday grid, always five weeks. ‹ › jump a month (the window opens on the week holding the 1st); ▴ ▾ scroll one week at a time so any mid-month week can lead. The title names the month holding the window's middle day, and days outside it are greyed; Today keeps today visible even in a month spanning six weeks; one distinctly-coloured bar per hotel, offset to start mid-check-in-day and end mid-checkout-day, inside an outlined wrapper for the country stay; notes as dots. Each journey is a slim flight band spanning departure → arrival on a strip above every block that week, always showing both times (codes too when wide), a connection marker and a ⁺1 next-day mark (§1). Drag across days to start a new trip with those dates pre-filled |
 | Map | Canvas world map, country fill, city pins, route arcs. No tile server |
 | Passports | Two passports (MX, US), last-4 only |
 | Immigration readiness | Live — per-trip visa/arrival-card/ETA status from a cached LLM policy lookup, confirmed via Gmail, with a loud passport-mismatch flag. See §1 and §5 |

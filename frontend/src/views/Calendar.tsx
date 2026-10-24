@@ -25,6 +25,10 @@ const MONTHS = [
 ];
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
+/** How many weeks the grid always shows. The window scrolls a week at a time,
+ *  so it need not start on the week holding the 1st. */
+const WEEKS = 5;
+
 /** The glyph and label for a journey's mode, shown on its flight band. */
 const MODE_GLYPH: Record<TravelMode, { glyph: string; label: string }> = {
   flight: { glyph: "✈", label: "Flight" },
@@ -105,9 +109,13 @@ const FLIGHT_FULL_SPAN = 1.9;
 
 export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
   const now = today();
-  const [cursor, setCursor] = useState(
-    () => new Date(now.getFullYear(), now.getMonth(), 1),
-  );
+  // The Sunday that opens the first visible week. Everything else -- the month
+  // in the title, which days are greyed out -- is derived from it.
+  const [start, setStart] = useState(() => todayWindow(now));
+  const focus = focusMonth(start);
+  const shiftWeeks = (n: number) => setStart(addDays(start, n * 7));
+  const shiftMonths = (n: number) =>
+    setStart(monthWindow(new Date(focus.getFullYear(), focus.getMonth() + n, 1)));
 
   // Drag-to-create. The ref is the source of truth the window mouseup reads
   // (its listener is registered once, so it must not close over stale state);
@@ -145,7 +153,7 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
       : { lo: drag.focus, hi: drag.anchor }
     : null;
 
-  const weeks = useMemo(() => buildWeeks(cursor), [cursor]);
+  const weeks = useMemo(() => buildWeeks(start), [start]);
   const dated = useMemo(
     () => trips.filter((t) => t.start_date && t.end_date),
     [trips],
@@ -166,27 +174,22 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
   return (
     <div className={"calendar" + (drag ? " dragging" : "")}>
       <div className="cal-head">
-        <button
-          className="icon-btn"
-          aria-label="Previous month"
-          onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
-        >
+        <button className="icon-btn" aria-label="Previous month" onClick={() => shiftMonths(-1)}>
           ‹
         </button>
-        <h2>
-          {MONTHS[cursor.getMonth()]} {cursor.getFullYear()}
+        <button className="icon-btn" aria-label="Previous week" onClick={() => shiftWeeks(-1)}>
+          ▴
+        </button>
+        <h2 title={windowRange(weeks)}>
+          {MONTHS[focus.getMonth()]} {focus.getFullYear()}
         </h2>
-        <button
-          className="icon-btn"
-          aria-label="Next month"
-          onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
-        >
+        <button className="icon-btn" aria-label="Next week" onClick={() => shiftWeeks(1)}>
+          ▾
+        </button>
+        <button className="icon-btn" aria-label="Next month" onClick={() => shiftMonths(1)}>
           ›
         </button>
-        <button
-          className="btn btn-sm"
-          onClick={() => setCursor(new Date(now.getFullYear(), now.getMonth(), 1))}
-        >
+        <button className="btn btn-sm" onClick={() => setStart(todayWindow(now))}>
           Today
         </button>
       </div>
@@ -226,7 +229,7 @@ export function Calendar({ trips, notes, onSelect, onCreateRange }: Props) {
                     key={iso}
                     className={
                       "cal-day" +
-                      (day.getMonth() !== cursor.getMonth() ? " outside" : "") +
+                      (day.getMonth() !== focus.getMonth() ? " outside" : "") +
                       (iso === todayIso ? " today" : "") +
                       (selecting ? " selecting" : "")
                     }
@@ -473,16 +476,50 @@ function countryFill(id: number): string {
   return `hsla(${hue(id)}, 48%, 46%, 0.13)`;
 }
 
-/** Six weeks starting on the Sunday on or before the 1st. */
-function buildWeeks(cursor: Date): Date[][] {
-  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-  // getDay() is already 0=Sunday, which is the first column.
-  const offset = first.getDay();
-  const start = new Date(first);
-  start.setDate(first.getDate() - offset);
+function addDays(date: Date, n: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
 
+/** The Sunday on or before `date`. getDay() is already 0=Sunday, the first
+ *  column. */
+function sundayOf(date: Date): Date {
+  return addDays(new Date(date.getFullYear(), date.getMonth(), date.getDate()), -date.getDay());
+}
+
+/** The window for a month: its first row is the week holding the 1st. */
+function monthWindow(firstOfMonth: Date): Date {
+  return sundayOf(firstOfMonth);
+}
+
+/** This month's window -- nudged down a week at a time if today would fall
+ *  past the last row (a month whose days span six weeks). */
+function todayWindow(now: Date): Date {
+  let start = monthWindow(new Date(now.getFullYear(), now.getMonth(), 1));
+  while (addDays(start, WEEKS * 7) <= now) start = addDays(start, 7);
+  return start;
+}
+
+/** The month the window is "about": whichever holds its middle day. For a
+ *  window opening on the week of the 1st that is always that month. */
+function focusMonth(start: Date): Date {
+  const mid = addDays(start, Math.floor((WEEKS * 7) / 2));
+  return new Date(mid.getFullYear(), mid.getMonth(), 1);
+}
+
+/** "Oct 11 – Nov 14, 2026", for the title's hover text. */
+function windowRange(weeks: Date[][]): string {
+  const first = weeks[0][0];
+  const last = weeks[weeks.length - 1][6];
+  const short = (d: Date) => `${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}`;
+  return `${short(first)} – ${short(last)}, ${last.getFullYear()}`;
+}
+
+/** WEEKS rows of Sun–Sat, starting on `start` (a Sunday). */
+function buildWeeks(start: Date): Date[][] {
   const weeks: Date[][] = [];
-  for (let w = 0; w < 6; w++) {
+  for (let w = 0; w < WEEKS; w++) {
     const week: Date[] = [];
     for (let d = 0; d < 7; d++) {
       const day = new Date(start);
